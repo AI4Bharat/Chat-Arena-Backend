@@ -69,8 +69,8 @@ frontend/
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/ai-model-playground.git
-cd ai-model-playground/backend
+git clone https://github.com/AI4Bharat/Chat-Arena.git
+cd Chat-Arena/backend
 ```
 
 2. **Create virtual environment**
