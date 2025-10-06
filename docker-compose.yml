@@ -38,7 +38,7 @@ services:
     
   web:
     build: ./backend
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 chat-arena_backend.wsgi --timeout 300
+    command: gunicorn --bind 0.0.0.0:8000 --workers 4 arena_backend.wsgi --timeout 300
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -57,7 +57,7 @@ services:
   #   container_name: celery-default
   #   restart: always
   #   build: ./backend
-  #   command: celery -A chat-arena_backend.celery worker -Q default --concurrency=2 --loglevel=info
+  #   command: celery -A arena_backend.celery worker -Q default --concurrency=2 --loglevel=info
   #   volumes:
   #     - ./backend/:/usr/src/backend/
   #     - logs_vol:/logs
@@ -70,7 +70,7 @@ services:
   #   container_name: celery-low-priority
   #   restart: always
   #   build: ./backend
-  #   command: celery -A chat-arena_backend.celery worker -Q functions --concurrency=2 --loglevel=info
+  #   command: celery -A arena_backend.celery worker -Q functions --concurrency=2 --loglevel=info
   #   volumes:
   #     - ./backend/:/usr/src/backend/
   #     - logs_vol:/logs
@@ -91,7 +91,7 @@ services:
   # Celery beats - for scheduling daily e-mails - commented out for dev hostings.
   # celery-beat:
   #  build: ./backend
-  #  command: celery -A chat-arena_backend.celery beat --loglevel=info
+  #  command: celery -A arena_backend.celery beat --loglevel=info
   #  volumes:
   #    - ./backend/:/usr/src/backend
   #  depends_on:
@@ -102,7 +102,7 @@ services:
   #   container_name: celery-reports
   #   restart: always
   #   build: ./backend
-  #   command: celery -A chat-arena_backend.celery worker -Q reports --concurrency=2 --loglevel=info
+  #   command: celery -A arena_backend.celery worker -Q reports --concurrency=2 --loglevel=info
   #   volumes:
   #     - ./backend/:/usr/src/backend/
   #     - logs_vol:/logs
