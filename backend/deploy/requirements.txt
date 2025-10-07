@@ -30,8 +30,8 @@ django-cors-headers==4.9.0
 django-filter==25.1
 django-redis==6.0.0
 djangorestframework==3.16.1
-PyJWT: 2.8.0
-djangorestframework-simplejwt: 5.3.0
+PyJWT==2.8.0
+djangorestframework-simplejwt==5.3.0
 dotenv==0.9.9
 drf-yasg==1.21.11
 filelock==3.19.1
