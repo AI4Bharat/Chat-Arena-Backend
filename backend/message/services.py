@@ -1,5 +1,5 @@
 from django.utils import timezone
-from typing import List, Dict, Optional, AsyncGenerator
+from typing import List, Dict, Optional, AsyncGenerator, Generator
 from django.db import transaction
 from message.serializers import MessageSerializer
 from channels.layers import get_channel_layer
@@ -13,6 +13,7 @@ from ai_model.services import AIModelService
 from typing import List, Dict, Generator
 from django.db.models import F
 from ai_model.llm_interactions import get_model_output
+
 
 class MessageService:
     """Service for managing messages"""
@@ -81,7 +82,7 @@ class MessageService:
         participant: str = None,
         temperature: float = 0.7,
         max_tokens: int = 2000
-    ) -> Generator[Dict, None]:
+    ) -> Generator[Dict, None, None]:
         """Stream assistant response"""
         # Determine model
         if not model:
