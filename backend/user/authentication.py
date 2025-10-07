@@ -2,67 +2,59 @@ from rest_framework import authentication, exceptions
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.utils import timezone
 from user.models import User
+import firebase_admin
+from firebase_admin import auth as firebase_auth
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class FirebaseUserWrapper:
-    """Wraps a User object to provide Django-like properties for DRF"""
-    def __init__(self, user: User):
-        self.user = user
+class FirebaseAuthentication(authentication.BaseAuthentication):
+    """
+    Firebase authentication using Firebase ID tokens.
+    Works with Firebase + custom Django User model.
+    """
 
-    @property
-    def is_authenticated(self):
-        return True  # Always True for Firebase authenticated users
+    def authenticate(self, request):
+        auth_header = request.META.get("HTTP_AUTHORIZATION")
 
-    @property
-    def is_anonymous(self):
-        return self.user.is_anonymous
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
 
-    def __getattr__(self, name):
-        return getattr(self.user, name)
-
-
-class AnonymousUserWrapper:
-    """Wraps anonymous users to provide Django-like properties"""
-    def __init__(self, user: User):
-        self.user = user
-
-    @property
-    def is_authenticated(self):
-        return True  # Considered authenticated for DRF permission checks
-
-    @property
-    def is_anonymous(self):
-        return True
-
-    def __getattr__(self, name):
-        return getattr(self.user, name)
-
-
-class FirebaseAuthentication(JWTAuthentication):
-    """JWT authentication using Firebase tokens"""
-    def get_user(self, validated_token):
+        token = auth_header.split("Bearer ")[1]
         try:
-            user_id = validated_token.get('user_id')
-            user = User.objects.get(id=user_id, is_active=True)
+            decoded_token = firebase_auth.verify_id_token(token)
+            uid = decoded_token.get("uid")
 
-            # Expire anonymous users
+            if not uid:
+                raise exceptions.AuthenticationFailed("Invalid Firebase token: missing UID")
+
+            # Fetch or create local user
+            user, _ = User.objects.get_or_create(firebase_uid=uid, defaults={"is_active": True})
+
+            # Handle expiration for anonymous users
             if user.is_anonymous and user.anonymous_expires_at:
                 if user.anonymous_expires_at < timezone.now():
-                    raise exceptions.AuthenticationFailed('Anonymous session expired')
+                    raise exceptions.AuthenticationFailed("Anonymous session expired")
 
-            return FirebaseUserWrapper(user)
+            return (user, None)
 
-        except User.DoesNotExist:
-            raise exceptions.AuthenticationFailed('User not found')
+        except firebase_auth.InvalidIdTokenError:
+            raise exceptions.AuthenticationFailed("Invalid Firebase token")
+        except firebase_auth.ExpiredIdTokenError:
+            raise exceptions.AuthenticationFailed("Firebase token expired")
+        except Exception as e:
+            logger.error(f"Firebase authentication error: {str(e)}")
+            raise exceptions.AuthenticationFailed("Authentication failed")
 
 
 class AnonymousTokenAuthentication(authentication.BaseAuthentication):
-    """Authentication for anonymous sessions using X-Anonymous-Token header"""
+    """
+    Fallback authentication for anonymous users using X-ANONYMOUS-TOKEN header.
+    """
+
     def authenticate(self, request):
-        anon_token = request.META.get('HTTP_X_ANONYMOUS_TOKEN')
+        anon_token = request.META.get("HTTP_X_ANONYMOUS_TOKEN")
         if not anon_token:
             return None
 
@@ -73,11 +65,10 @@ class AnonymousTokenAuthentication(authentication.BaseAuthentication):
                 is_active=True
             )
 
-            # Check expiration
             if user.anonymous_expires_at and user.anonymous_expires_at < timezone.now():
-                raise exceptions.AuthenticationFailed('Anonymous session expired')
+                raise exceptions.AuthenticationFailed("Anonymous session expired")
 
-            return (AnonymousUserWrapper(user), None)
+            return (user, None)
 
         except User.DoesNotExist:
             return None
