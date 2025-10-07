@@ -58,11 +58,11 @@ export function CompareView({ session, messages, streamingMessages }) {
         <div className="max-w-6xl mx-auto flex items-center justify-around">
           <div className="flex items-center gap-4">
             <div className="text-sm">
-              <span className="font-medium">Model A:</span> {session.model_a?.provider || 'Random'}
+              <span className="font-medium">Model A:</span> {session.mode === "compare" ? session.model_a?.provider : 'Random'}
             </div>
             <div className="text-gray-400">vs</div>
             <div className="text-sm">
-              <span className="font-medium">Model B:</span> {session.model_b?.provider || 'Random'}
+              <span className="font-medium">Model B:</span> {session.mode === "compare" ? session.model_b?.provider : 'Random'}
             </div>
           </div>
           {showFeedback && (

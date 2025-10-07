@@ -46,6 +46,7 @@ google-crc32c==1.7.1
 google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpcio==1.75.1
+gunicorn==21.2.0
 grpcio-status==1.75.1
 h11==0.16.0
 h2==4.3.0
@@ -86,8 +87,8 @@ pycparser==2.23
 pycryptodome==3.23.0
 pydantic==2.11.9
 pydantic_core==2.33.2
-PyGObject==3.54.2
-PyJWT==2.6.0
+PyGObject==3.50.0
+PyJWT==2.10.1
 pyOpenSSL==25.3.0
 pyparsing==3.2.5
 Pyrebase4==4.8.0
@@ -124,6 +125,6 @@ virtualenv==20.34.0
 watchfiles==1.1.0
 wcwidth==0.2.14
 websockets==15.0.1
-wheel @ file:///opt/homebrew/Cellar/python%403.13/3.13.1/libexec/wheel-0.45.1-py3-none-any.whl#sha256=da46333d5dcbde6e20cf7e2f8fff9e9ce76e8c94dc4afd6fb95fc4bc2745fb5e
+wheel==0.45.1
 yarl==1.20.1
 zope.interface==8.0.1

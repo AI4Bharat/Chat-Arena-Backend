@@ -57,17 +57,7 @@ export const fetchCurrentUser = createAsyncThunk(
       return response.data;
     } catch (error) {
       if (error.response?.status === 401) {
-        // Token might be expired, try to refresh
-        // try {
-        //   await userService.refreshAccessToken();
-        //   // Retry the request
-        //   const retryResponse = await apiClient.get(endpoints.auth.currentUser);
-        //   return retryResponse.data;
-        // } catch (refreshError) {
-        //   // Refresh failed, user needs to re-authenticate
-        //   userService.clearTokens();
-        //   return rejectWithValue('Authentication failed');
-        // }
+        return rejectWithValue('Authentication failed');
       }
       return rejectWithValue(error.message);
     }
@@ -156,6 +146,7 @@ const authSlice = createSlice({
       .addCase(loginAnonymously.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message;
+        state.initialized = true;
       });
     
     // Fetch current user

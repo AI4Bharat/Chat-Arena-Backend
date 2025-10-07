@@ -76,7 +76,7 @@ export function MessageInput({ sessionId, modelId }) {
     <>
       <div className="border-t border-gray-200 bg-white p-4">
         {/* Guest limit indicator */}
-        {isGuest && (
+        {/* {isGuest && (
           <div className="max-w-3xl mx-auto mb-2">
             <div className="flex items-center justify-between text-sm text-gray-500">
               <span>Guest messages: {messageCount}/{messageLimit}</span>
@@ -88,7 +88,7 @@ export function MessageInput({ sessionId, modelId }) {
               </button>
             </div>
           </div>
-        )}
+        )} */}
 
         <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
           <div className="flex items-end gap-2">

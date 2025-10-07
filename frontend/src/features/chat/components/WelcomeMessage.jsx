@@ -19,8 +19,8 @@ export function WelcomeMessage({ isAnonymous }) {
             <div>
               <p className="font-medium text-amber-900">You're using a guest account</p>
               <p className="text-sm text-amber-700 mt-1">
-                • Limited to 20 messages and 3 sessions
-                <br />
+                {/* • Limited to 20 messages and 3 sessions
+                <br /> */}
                 • Sessions expire after 30 days
                 <br />
                 • Sign in anytime to save your progress
