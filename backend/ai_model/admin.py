@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from model_metrics.models import AIModel, ModelMetric
+from ai_model.models import AIModel
 from message.models import Message
 
 
@@ -122,54 +122,3 @@ class AIModelAdmin(admin.ModelAdmin):
         )
     
     test_model_connection.short_description = 'Test model connection'
-
-
-@admin.register(ModelMetric)
-class ModelMetricAdmin(admin.ModelAdmin):
-    list_display = [
-        'model_display', 'category', 'period', 
-        'elo_rating', 'win_rate_display', 'total_comparisons',
-        'calculated_at'
-    ]
-    list_filter = ['category', 'period', 'calculated_at']
-    search_fields = ['model__display_name', 'model__model_code']
-    readonly_fields = [
-        'id', 'model', 'category', 'period',
-        'total_comparisons', 'wins', 'losses', 'ties',
-        'average_rating', 'elo_rating', 'calculated_at'
-    ]
-    
-    def model_display(self, obj):
-        return f"{obj.model.display_name} ({obj.model.provider})"
-    
-    model_display.short_description = 'Model'
-    model_display.admin_order_field = 'model__display_name'
-    
-    def win_rate_display(self, obj):
-        if obj.total_comparisons == 0:
-            return '-'
-        win_rate = (obj.wins / obj.total_comparisons) * 100
-        
-        # Color code based on win rate
-        if win_rate >= 60:
-            color = 'green'
-        elif win_rate >= 40:
-            color = 'orange'
-        else:
-            color = 'red'
-        
-        return format_html(
-            '<span style="color: {};">{:.1f}%</span>',
-            color,
-            win_rate
-        )
-    
-    win_rate_display.short_description = 'Win Rate'
-    
-    def has_add_permission(self, request):
-        # Metrics are calculated automatically
-        return False
-    
-    def has_change_permission(self, request, obj=None):
-        # Metrics should not be edited manually
-        return False
