@@ -18,10 +18,8 @@ class Feedback(models.Model):
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='feedbacks')
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='feedbacks', null=True, blank=True)
     feedback_type = models.CharField(max_length=50, choices=FEEDBACK_TYPE_CHOICES)
-    preferred_model = models.ForeignKey(
-        AIModel, 
-        on_delete=models.SET_NULL, 
-        null=True, 
+    preferred_models = models.ManyToManyField(
+        AIModel,
         blank=True,
         related_name='feedback_preferences'
     )

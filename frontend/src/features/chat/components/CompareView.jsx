@@ -13,12 +13,20 @@ export function CompareView({ session, messages, streamingMessages }) {
 
   const handlePreference = async (preference) => {
     try {
+      const messageId = messages.filter(msg => msg.role === 'user').slice(-1)[0]?.id;
+      let preferredModelId = null;
+      if (preference === 'model_a') {
+        preferredModelId = session.model_a.id;
+      } else if (preference === 'model_b') {
+        preferredModelId = session.model_b.id;
+      } else if (preference === 'tie') {
+        preferredModelId = [session.model_a.id, session.model_b.id];
+      }
       await apiClient.post(endpoints.feedback.submit, {
         session_id: session.id,
-        type: 'preference',
-        preference: preference,
-        model_a_id: session.model_a.id,
-        model_b_id: session.model_b.id,
+        feedback_type: 'preference',
+        message_id: messageId,
+        preferred_model_id: preferredModelId,
       });
       toast.success('Preference recorded');
       setShowFeedback(false);
@@ -77,6 +85,12 @@ export function CompareView({ session, messages, streamingMessages }) {
                 className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
               >
                 Tie
+              </button>
+              <button
+                onClick={() => handlePreference('both bad')}
+                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              >
+                Both Bad
               </button>
             </div>
           )}

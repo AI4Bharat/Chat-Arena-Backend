@@ -6,8 +6,10 @@ import { endpoints } from '../../../shared/api/endpoints';
 import { addMessage, updateStreamingMessage } from '../store/chatSlice';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'react-hot-toast';
+import { useSelector } from 'react-redux';
 
 export function CompareMessageInput({ sessionId, modelAId, modelBId, onMessageSent }) {
+  const { activeSession, messages } = useSelector((state) => state.chat);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const textareaRef = useRef(null);
@@ -224,7 +226,11 @@ export function CompareMessageInput({ sessionId, modelAId, modelBId, onMessageSe
 
     const content = input.trim();
     setInput('');
-    await streamComparison(content);
+    const parentMessageIds = messages[activeSession.id]
+    .filter(msg => msg.role === 'assistant')
+    .slice(-2)
+    .map(msg => msg.id);
+    await streamComparison(content, parentMessageIds);
   };
 
   const handleKeyDown = (e) => {
