@@ -35,7 +35,6 @@ djangorestframework-simplejwt==5.3.0
 dotenv==0.9.9
 drf-yasg==1.21.11
 filelock==3.19.1
-firebase_admin==7.1.0
 frozenlist==1.7.0
 gcloud==0.18.3
 google-api-core==2.25.1
