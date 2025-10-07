@@ -30,11 +30,11 @@ django-cors-headers==4.9.0
 django-filter==25.1
 django-redis==6.0.0
 djangorestframework==3.16.1
-PyJWT==2.6.0
 djangorestframework-simplejwt==5.2.2
 dotenv==0.9.9
 drf-yasg==1.21.11
 filelock==3.19.1
+firebase_admin==7.1.0
 frozenlist==1.7.0
 gcloud==0.18.3
 google-api-core==2.25.1
@@ -47,7 +47,6 @@ google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpcio==1.75.1
 grpcio-status==1.75.1
-gunicorn==21.2.0
 h11==0.16.0
 h2==4.3.0
 hpack==4.1.0
@@ -88,6 +87,7 @@ pycryptodome==3.23.0
 pydantic==2.11.9
 pydantic_core==2.33.2
 PyGObject==3.50.0
+PyJWT==2.10.1
 pyOpenSSL==25.3.0
 pyparsing==3.2.5
 Pyrebase4==4.8.0
@@ -124,6 +124,12 @@ virtualenv==20.34.0
 watchfiles==1.1.0
 wcwidth==0.2.14
 websockets==15.0.1
-wheel==0.45.1
+wheel
 yarl==1.20.1
 zope.interface==8.0.1
+
+
+
+
+
+
