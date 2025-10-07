@@ -144,13 +144,12 @@ class MessageViewSet(viewsets.ModelViewSet):
         #     )
             
         # return StreamingManager.create_streaming_response(generator)
-        
-        history = MessageService._get_conversation_history(session)
-        history.pop()
 
         def generate():
             if session.mode == 'direct':
                 try:
+                    history = MessageService._get_conversation_history(session)
+                    history.pop()
                     full_content = ""
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
@@ -178,6 +177,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                 def stream_model_a():
                     full_content_a = ""
                     try:
+                        history = MessageService._get_conversation_history(session, 'a')
+                        history.pop()
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                             user_prompt=user_message.content,
@@ -205,6 +206,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                 def stream_model_b():
                     full_content_b = ""
                     try:
+                        history = MessageService._get_conversation_history(session, 'b')
+                        history.pop()
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                             user_prompt=user_message.content,

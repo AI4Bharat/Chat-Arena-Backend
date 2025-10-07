@@ -259,12 +259,19 @@ class MessageService:
             return new_message
     
     @staticmethod
-    def _get_conversation_history(session: ChatSession) -> List[Dict]:
+    def _get_conversation_history(session: ChatSession, participant=None) -> List[Dict]:
         """Get conversation history for AI context"""
-        messages = Message.objects.filter(
+        messages_query = Message.objects.filter(
             session=session,
             status='success'
-        ).order_by('position')
+        )
+        
+        if participant is not None:
+            other_participation = 'b' if participant == 'a' else 'a'
+            messages_query = messages_query.exclude(participant=other_participation)
+        
+        
+        messages = messages_query.order_by('position')
         
         history = []
         for msg in messages:

@@ -44,7 +44,7 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating feedback"""
     session_id = serializers.UUIDField(required=True)
     message_id = serializers.UUIDField(required=False, allow_null=True)
-    preferred_model_id = serializers.UUIDField(required=False, allow_null=True)
+    preferred_model_id = serializers.JSONField(required=False, allow_null=True)
     
     class Meta:
         model = Feedback
@@ -65,11 +65,19 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Preferred model is only valid for 'preference' feedback type"
             )
-        if value:
+        if value is None:
+            return None
+        
+        model_ids = value if isinstance(value, list) else [value]
+        
+        for model_id in model_ids:
             try:
-                AIModel.objects.get(id=value)
+                AIModel.objects.get(id=model_id)
+            except (ValueError, AttributeError):
+                raise serializers.ValidationError(f"Invalid UUID format: {model_id}")
             except AIModel.DoesNotExist:
-                raise serializers.ValidationError("Model not found")
+                raise serializers.ValidationError(f"Model {model_id} not found")
+        
         return value
     
     def validate_categories(self, value):
@@ -119,17 +127,25 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Preference feedback is only valid for compare mode sessions"
                 )
-            if not attrs.get('preferred_model_id'):
-                raise serializers.ValidationError(
-                    "Preferred model is required for preference feedback"
-                )
             
-            # Validate preferred model is one of the session models
-            preferred_model_id = attrs['preferred_model_id']
-            if preferred_model_id not in [session.model_a_id, session.model_b_id]:
-                raise serializers.ValidationError(
-                    "Preferred model must be one of the session models"
-                )
+            preferred_model_id = attrs.get('preferred_model_id')
+            
+            if preferred_model_id is None:
+                pass
+            elif isinstance(preferred_model_id, list):
+                if len(preferred_model_id) != 2:
+                    raise serializers.ValidationError(
+                        "Tie must include exactly 2 models"
+                    )
+                if set(preferred_model_id) != {str(session.model_a_id), str(session.model_b_id)}:
+                    raise serializers.ValidationError(
+                        "For tie, both session models must be provided"
+                    )
+            else:
+                if str(preferred_model_id) not in [str(session.model_a_id), str(session.model_b_id)]:
+                    raise serializers.ValidationError(
+                        "Preferred model must be one of the session models"
+                    )
                 
         elif feedback_type == 'rating':
             if not attrs.get('rating'):
@@ -146,18 +162,17 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
         validated_data.pop('message_id', None)
         preferred_model_id = validated_data.pop('preferred_model_id', None)
         
-        # Set user from request
         validated_data['user'] = self.context['request'].user
         
-        # Set preferred model
-        if preferred_model_id:
-            validated_data['preferred_model_id'] = preferred_model_id
-        
-        # Create feedback
         feedback = super().create(validated_data)
         
+        if isinstance(preferred_model_id, list):
+            feedback.preferred_models.set(preferred_model_id)
+        elif preferred_model_id:
+            feedback.preferred_models.add(preferred_model_id)
+        
         # Trigger analytics update
-        FeedbackAnalyticsService.process_new_feedback(feedback)
+        # FeedbackAnalyticsService.process_new_feedback(feedback)
         
         return feedback
 
