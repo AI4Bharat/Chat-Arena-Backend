@@ -33,6 +33,15 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['http://127.0.0.1:3000', 'localhost', '127.0.0.1', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org']
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://backend.dev.arena.ai4bharat.org",
+    "https://dev.arena.ai4bharat.org",
+    "https://*.arena.ai4bharat.org",
+]
+
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),

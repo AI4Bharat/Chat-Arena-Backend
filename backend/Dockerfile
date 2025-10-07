@@ -1,4 +1,4 @@
-FROM python:3.11
+FROM python:3.13.7
 
 WORKDIR /usr/src/backend
 
