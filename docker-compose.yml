@@ -48,7 +48,7 @@ services:
     depends_on:
       - redis
     env_file:
-      - .env
+      - ./backend/arena_backend/.env
     environment:
       - FIREBASE_CREDENTIALS_JSON=${FIREBASE_CREDENTIALS_JSON}
     
