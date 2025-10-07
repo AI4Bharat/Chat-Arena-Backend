@@ -47,6 +47,11 @@ services:
       - 8000:8000
     depends_on:
       - redis
+    env_file:
+      - .env
+    environment:
+      - FIREBASE_CREDENTIALS_JSON=${FIREBASE_CREDENTIALS_JSON}
+    
   redis:
     container_name: redis
     image: "redis"
