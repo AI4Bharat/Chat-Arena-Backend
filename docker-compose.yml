@@ -38,7 +38,7 @@ services:
     
   web:
     build: ./backend
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 arena_backend.asgi --timeout 300
+    command: command: gunicorn arena_backend.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 4 --timeout 300
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
