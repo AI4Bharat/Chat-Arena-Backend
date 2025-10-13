@@ -24,14 +24,15 @@ export function ChatSidebar({ isOpen, onToggle }) {
   }, [dispatch]);
 
   const handleNewChat = async () => {
-    if (!checkSessionLimit()) {
-      setShowAuthModal(true);
-      return;
-    }
-    const result = await dispatch(createSession({ mode: 'direct' }));
-    if (result.meta.requestStatus === 'fulfilled') {
-      await incrementSessionCount();
-    }
+    // if (!checkSessionLimit()) {
+    //   setShowAuthModal(true);
+    //   return;
+    // }
+    // const result = await dispatch(createSession({ mode: 'direct' }));
+    // if (result.meta.requestStatus === 'fulfilled') {
+    //   await incrementSessionCount();
+    // }
+    dispatch(setActiveSession(null));
   };
 
   const handleSelectSession = (session) => {
@@ -74,7 +75,7 @@ export function ChatSidebar({ isOpen, onToggle }) {
               <div className="mt-2 text-xs text-gray-400 text-center">
                 <p>Sessions: {sessionCount}/{sessionLimit}</p>
               </div>
-            )}
+            )} 
           </div> */}
 
           {/* Sessions List (This is the key part: it will grow and scroll) */}

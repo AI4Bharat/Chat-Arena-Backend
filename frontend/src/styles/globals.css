@@ -87,3 +87,77 @@
     content: '|';
     @apply inline-block animate-pulse ml-0.5;
   }
+
+  .feedback-border {
+    position: relative;
+    overflow: hidden;
+    z-index: 1;
+  }
+  
+  .feedback-border::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    z-index: -1;
+    margin: -2px;
+    border-radius: inherit;
+    background-size: 300% 300%;
+    animation: gradient-glow 4s ease-in-out infinite;
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+  }
+  
+  .feedback-border.show-preview::before {
+    opacity: 0.5;
+  }
+  
+  .feedback-border.show-glow::before {
+    opacity: 1;
+  }
+  
+  .feedback-winner::before {
+    background-image: linear-gradient(45deg, #00ff87, #60efff, #00ff87);
+  }
+  
+  .feedback-loser::before {
+    background-image: linear-gradient(45deg, #ff4d4d, #ff8c8c, #ff4d4d);
+  }
+  
+  .feedback-tie::before {
+    background-image: linear-gradient(45deg, #f0f0f0, #c0c0c0, #f0f0f0);
+  }
+
+  .glow-winner {
+    --glow-color: rgba(34, 197, 94, 0.7);
+  }
+  .glow-loser {
+    --glow-color: rgba(239, 68, 68, 0.7);
+  }
+  .glow-tie {
+    --glow-color: rgba(156, 163, 175, 0.7);
+  }
+  .scroll-fade {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 30px,
+      black calc(100% - 30px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black 30px,
+      black calc(100% - 30px),
+      transparent 100%
+    );
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }

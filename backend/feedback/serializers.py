@@ -43,14 +43,14 @@ class FeedbackSerializer(serializers.ModelSerializer):
 class FeedbackCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating feedback"""
     session_id = serializers.UUIDField(required=True)
-    message_id = serializers.UUIDField(required=False, allow_null=True)
-    preferred_model_id = serializers.JSONField(required=False, allow_null=True)
+    message_id = serializers.JSONField(required=True)
+    preference = serializers.CharField(required=True, write_only=True)
     
     class Meta:
         model = Feedback
         fields = [
             'session_id', 'message_id', 'feedback_type',
-            'preferred_model_id', 'rating', 'categories', 'comment'
+            'preference', 'rating', 'categories', 'comment'
         ]
     
     def validate_rating(self, value):
@@ -58,26 +58,6 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Rating is only valid for 'rating' feedback type"
             )
-        return value
-    
-    def validate_preferred_model_id(self, value):
-        if value is not None and self.initial_data.get('feedback_type') != 'preference':
-            raise serializers.ValidationError(
-                "Preferred model is only valid for 'preference' feedback type"
-            )
-        if value is None:
-            return None
-        
-        model_ids = value if isinstance(value, list) else [value]
-        
-        for model_id in model_ids:
-            try:
-                AIModel.objects.get(id=model_id)
-            except (ValueError, AttributeError):
-                raise serializers.ValidationError(f"Invalid UUID format: {model_id}")
-            except AIModel.DoesNotExist:
-                raise serializers.ValidationError(f"Model {model_id} not found")
-        
         return value
     
     def validate_categories(self, value):
@@ -123,29 +103,10 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
         
         # Type-specific validations
         if feedback_type == 'preference':
-            if session.mode != 'compare':
+            if session.mode == 'direct':
                 raise serializers.ValidationError(
                     "Preference feedback is only valid for compare mode sessions"
                 )
-            
-            preferred_model_id = attrs.get('preferred_model_id')
-            
-            if preferred_model_id is None:
-                pass
-            elif isinstance(preferred_model_id, list):
-                if len(preferred_model_id) != 2:
-                    raise serializers.ValidationError(
-                        "Tie must include exactly 2 models"
-                    )
-                if set(preferred_model_id) != {str(session.model_a_id), str(session.model_b_id)}:
-                    raise serializers.ValidationError(
-                        "For tie, both session models must be provided"
-                    )
-            else:
-                if str(preferred_model_id) not in [str(session.model_a_id), str(session.model_b_id)]:
-                    raise serializers.ValidationError(
-                        "Preferred model must be one of the session models"
-                    )
                 
         elif feedback_type == 'rating':
             if not attrs.get('rating'):
@@ -159,17 +120,37 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         # Remove the ID fields
         validated_data.pop('session_id', None)
-        validated_data.pop('message_id', None)
-        preferred_model_id = validated_data.pop('preferred_model_id', None)
+        message_id = validated_data.pop('message_id', None)
+        preference = validated_data.pop('preference', None)
+
+        try:
+            userMessage = Message.objects.get(id=message_id)
+        except Message.DoesNotExist:
+            raise serializers.ValidationError("User Message not found")
+
+        for modelMessage in userMessage.child_ids:
+            modelMessageObj = Message.objects.get(id=modelMessage)
+            if modelMessageObj.participant == 'a':
+                modelAId = str(modelMessageObj.model_id)
+            elif modelMessageObj.participant == 'b':
+                modelBId = str(modelMessageObj.model_id)
+
+        if preference == 'model_a':
+            preferred_model_ids = [modelAId]
+        elif preference == 'model_b':
+            preferred_model_ids = [modelBId]
+        elif preference == 'tie':
+            preferred_model_ids = [modelAId, modelBId]
+        else:
+            preferred_model_ids = []
         
+        validated_data['preferred_model_ids'] = preferred_model_ids
         validated_data['user'] = self.context['request'].user
         
-        feedback = super().create(validated_data)
-        
-        if isinstance(preferred_model_id, list):
-            feedback.preferred_models.set(preferred_model_id)
-        elif preferred_model_id:
-            feedback.preferred_models.add(preferred_model_id)
+        with transaction.atomic():
+            feedback = super().create(validated_data)
+            userMessage.feedback = preference
+            userMessage.save()
         
         # Trigger analytics update
         # FeedbackAnalyticsService.process_new_feedback(feedback)

@@ -68,8 +68,8 @@ export function SharedSessionView() {
               <h1 className="text-xl font-semibold text-gray-900">Shared Conversation</h1>
               <p className="text-sm text-gray-500 mt-1">
                 {session.mode === 'compare' 
-                  ? `${session.model_a?.name} vs ${session.model_b?.name}`
-                  : session.model_a?.name}
+                  ? `${session.model_a?.display_name} vs ${session.model_b?.display_name}`
+                  : session.model_a?.display_name}
               </p>
             </div>
             <button
@@ -89,7 +89,7 @@ export function SharedSessionView() {
           {session.mode === 'compare' ? (
             <div className="grid grid-cols-2 divide-x">
               <div className="p-4">
-                <h3 className="font-medium text-gray-700 mb-4">{session.model_a?.name}</h3>
+                <h3 className="font-medium text-gray-700 mb-4">{session.model_a?.display_name}</h3>
                 <MessageList 
                   messages={messages.filter((msg, idx) => 
                     msg.role === 'user' || (msg.role === 'assistant' && idx % 2 === 1)
@@ -99,7 +99,7 @@ export function SharedSessionView() {
                 />
               </div>
               <div className="p-4">
-                <h3 className="font-medium text-gray-700 mb-4">{session.model_b?.name}</h3>
+                <h3 className="font-medium text-gray-700 mb-4">{session.model_b?.display_name}</h3>
                 <MessageList 
                   messages={messages.filter((msg, idx) => 
                     msg.role === 'user' || (msg.role === 'assistant' && idx % 2 === 0)

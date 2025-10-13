@@ -57,6 +57,12 @@ class Message(models.Model):
         blank=True,
         help_text="Store tokens used, latency, model parameters, etc."
     )
+    feedback = models.CharField(
+        max_length=20,
+        null=True,
+        default=None,
+        help_text="User feedback: Tie for both models, Model A and Model B for respective models and Both are bad for neither"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
     

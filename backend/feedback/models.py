@@ -5,6 +5,7 @@ from ai_model.models import AIModel
 from chat_session.models import ChatSession
 from message.models import Message
 from user.models import User
+from django.contrib.postgres.fields import ArrayField
 
 class Feedback(models.Model):
     FEEDBACK_TYPE_CHOICES = [
@@ -18,10 +19,11 @@ class Feedback(models.Model):
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='feedbacks')
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='feedbacks', null=True, blank=True)
     feedback_type = models.CharField(max_length=50, choices=FEEDBACK_TYPE_CHOICES)
-    preferred_models = models.ManyToManyField(
-        AIModel,
+    preferred_model_ids = ArrayField(
+        models.UUIDField(),
         blank=True,
-        related_name='feedback_preferences'
+        default=list,
+        help_text="List of AI Model IDs"
     )
     rating = models.IntegerField(
         null=True, 
@@ -44,6 +46,9 @@ class Feedback(models.Model):
             models.Index(fields=['feedback_type']),
         ]
         ordering = ['-created_at']
+        unique_together = [
+            ['user', 'session', 'message', 'feedback_type']
+        ]
     
     def __str__(self):
         return f"{self.feedback_type} by {self.user.display_name}"

@@ -69,6 +69,7 @@ export function AppRouter() {
   return (
     <Routes>
       <Route path="/chat" element={<ChatLayout />} />
+      <Route path="/chat/:sessionId" element={<ChatLayout />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />
       <Route path="/shared/:shareToken" element={<SharedSessionView />} />
       <Route path="/" element={<Navigate to="/chat" />} />
