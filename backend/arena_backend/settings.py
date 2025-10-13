@@ -31,7 +31,16 @@ SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['http://127.0.0.1:3000', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['http://127.0.0.1:3000', 'localhost', '127.0.0.1', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org', '98.70.28.77:443']
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://backend.dev.arena.ai4bharat.org",
+    "https://dev.arena.ai4bharat.org",
+    "https://*.arena.ai4bharat.org",
+]
+
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
@@ -196,7 +205,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.1/howto/static-files/
 
 STATIC_URL = "static/"
-
+STATIC_ROOT = '/usr/src/backend/static'
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.1/ref/settings/#default-auto-field
 
