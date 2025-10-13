@@ -245,11 +245,11 @@ class ChatSessionConsumer(AsyncWebsocketConsumer):
                 'title': session.title,
                 'model_a': {
                     'id': str(session.model_a.id),
-                    'name': session.model_a.display_name
+                    'display_name': session.model_a.display_name
                 } if session.model_a else None,
                 'model_b': {
                     'id': str(session.model_b.id),
-                    'name': session.model_b.display_name
+                    'display_name': session.model_b.display_name
                 } if session.model_b else None,
             },
             'messages': [
@@ -260,6 +260,7 @@ class ChatSessionConsumer(AsyncWebsocketConsumer):
                     'position': msg.position,
                     'participant': msg.participant,
                     'status': msg.status,
+                    'feedback': msg.feedback,
                     'created_at': msg.created_at.isoformat()
                 }
                 for msg in reversed(messages)

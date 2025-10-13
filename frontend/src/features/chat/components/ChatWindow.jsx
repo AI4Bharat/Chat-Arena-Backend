@@ -4,11 +4,13 @@ import { MessageInput } from './MessageInput';
 import { CompareView } from './CompareView';
 import { EmptyChat } from './EmptyChat';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { ExpandedMessageView } from './ExpandedMessageView';
 
 export function ChatWindow() {
   const { activeSession, messages, streamingMessages } = useSelector((state) => state.chat);
   const { sendMessage } = useWebSocket(activeSession?.id);
+  const [expandedMessage, setExpandedMessage] = useState(null);
 
   if (!activeSession) {
     return <EmptyChat />;
@@ -27,12 +29,28 @@ export function ChatWindow() {
     );
   }
 
+  const handleExpand = (message) => {
+    setExpandedMessage(message);
+  };
+
+  const handleCloseExpand = () => {
+    setExpandedMessage(null);
+  };
+
+  let messageDataForModal = expandedMessage;
+
   return (
-    <div className="flex-1 flex flex-col bg-white overflow-hidden min-h-0">
+    <div className="flex-1 flex flex-col bg-white overflow-hidden min-h-0 relative">
+      <ExpandedMessageView
+        message={messageDataForModal}
+        modelName={activeSession.model_a?.display_name}
+        onClose={handleCloseExpand}
+      />
       <MessageList
         messages={sessionMessages}
         streamingMessages={sessionStreamingMessages}
-        sessionId={activeSession.id}
+        session={activeSession}
+        onExpand={handleExpand}
       />
       <div className="flex-shrink-0">
         <MessageInput sessionId={activeSession.id} modelId={activeSession.model_a?.id} />

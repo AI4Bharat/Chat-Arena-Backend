@@ -1,20 +1,41 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageItem } from './MessageItem';
 
-export function MessageList({ messages, streamingMessages, sessionId }) {
+export function MessageList({ messages, streamingMessages, session, onExpand }) {
   const endOfMessagesRef = useRef(null);
-
+  const mainScrollRef = useRef(null);
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   useEffect(() => {
-    endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingMessages]);
+    if (!isUserScrolledUp) {
+      endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, streamingMessages, isUserScrolledUp]);
+
+  const handleMainScroll = () => {
+    const el = mainScrollRef.current;
+    if (el) {
+      const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 50;
+      setIsUserScrolledUp(!isAtBottom);
+    }
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div
+      ref={mainScrollRef}
+      onScroll={handleMainScroll}
+      className="flex-1 overflow-y-auto p-4 relative"
+    >
       <div className="max-w-3xl mx-auto space-y-4">
         {messages.map((message) => (
-          <MessageItem key={message.id} message={message} />
+          <MessageItem
+            key={message.id}
+            message={message}
+            viewMode='single'
+            modelName={session.model_a?.display_name}
+            onExpand={onExpand}
+          />
         ))}
-        
+
         {Object.entries(streamingMessages).map(([messageId, streamingData]) => (
           <MessageItem
             key={messageId}
@@ -22,11 +43,13 @@ export function MessageList({ messages, streamingMessages, sessionId }) {
               id: messageId,
               content: streamingData.content,
               role: 'assistant',
-              isStreaming: !streamingData.isComplete,
+              isStreaming: true,
             }}
+            viewMode='single'
+            modelName={session.model_a?.display_name}
           />
         ))}
-        
+
         <div ref={endOfMessagesRef} />
       </div>
     </div>

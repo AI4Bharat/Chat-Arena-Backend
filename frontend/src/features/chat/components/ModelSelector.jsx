@@ -62,7 +62,7 @@ export function ModelSelector() {
             ? 'Compare Mode'
             : mode === 'random'
             ? 'Random Mode'
-            : 'Select Model'}
+            : 'New Chat'}
         </span>
         <ChevronDown size={16} />
       </button>

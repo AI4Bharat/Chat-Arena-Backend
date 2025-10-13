@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { WS_BASE_URL } from '../../../shared/api/client';
+import { createWebSocketConnection, WS_BASE_URL } from '../../../shared/api/client';
 import { updateStreamingMessage, setSessionState } from '../store/chatSlice';
 import { toast } from 'react-hot-toast';
 import { userService } from '../../auth/services/userService';
@@ -13,34 +13,29 @@ export function useWebSocket(sessionId) {
   const reconnectTimer = useRef(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
+  const authFailures = useRef(0);
+  const maxAuthFailures = 2;
   const { activeSession, messages } = useSelector((state) => state.chat);
 
   const connect = useCallback(async () => {
     if (!sessionId || !user) return;
+    
+    // Check if we've exceeded auth failures
+    if (authFailures.current >= maxAuthFailures) {
+      console.error('Max auth failures reached, not reconnecting');
+      toast.error('Authentication failed. Please refresh the page.');
+      return;
+    }
 
     try {
-      // Build WebSocket URL with authentication
-      let wsUrl = `${WS_BASE_URL}/chat/session/${sessionId}/`;
-      
-      // Add authentication query params
-      const accessToken = localStorage.getItem('access_token');
-      const anonymousToken = localStorage.getItem('anonymous_token');
-      
-      if (accessToken) {
-        wsUrl += `?token=${accessToken}`;
-      } else if (anonymousToken) {
-        wsUrl += `?anonymous_token=${anonymousToken}`;
-      } else {
-        console.error('No authentication token available');
-        return;
-      }
-
-      ws.current = new WebSocket(wsUrl);
+      // Create WebSocket with proper error handling
+      ws.current = createWebSocketConnection(`/chat/session/${sessionId}/`);
 
       ws.current.onopen = () => {
         console.log('WebSocket connected');
         setIsConnected(true);
         reconnectAttempts.current = 0;
+        authFailures.current = 0; // Reset auth failures on successful connection
       };
 
       ws.current.onmessage = (event) => {
@@ -70,11 +65,8 @@ export function useWebSocket(sessionId) {
               }));
               break;
               
-            case 'typing_indicator':
-              // Handle typing indicator if needed
-              break;
             case 'session_state':
-              if (messages[activeSession.id]?.length === 0 || messages[activeSession.id]?.length === undefined) {
+              if (!messages[sessionId]?.length) {
                 dispatch(setSessionState({
                   sessionId,
                   messages: data.messages,
@@ -82,6 +74,7 @@ export function useWebSocket(sessionId) {
                 }));
               }
               break;
+              
             case 'error':
               toast.error(data.message);
               break;
@@ -102,39 +95,57 @@ export function useWebSocket(sessionId) {
         console.log('WebSocket disconnected:', event.code, event.reason);
         setIsConnected(false);
 
-        // Handle authentication errors
-        if (event.code === 1006 || event.code === 1008) {
-          // Try to refresh token
+        // Clean closure, don't reconnect
+        if (event.code === 1000) {
+          return;
+        }
+
+        // Authentication failure codes
+        if (event.code === 1006 || event.code === 1008 || event.reason?.includes('auth')) {
+          authFailures.current++;
+          
+          if (authFailures.current >= maxAuthFailures) {
+            toast.error('Authentication failed. Please sign in again.');
+            return;
+          }
+          
+          // Try to refresh token ONCE
           const refreshToken = localStorage.getItem('refresh_token');
-          if (refreshToken && reconnectAttempts.current === 0) {
+          if (refreshToken && authFailures.current === 1) {
             try {
               await userService.refreshAccessToken();
               // Immediate reconnect with new token
-              reconnectAttempts.current = 0;
-              connect();
+              setTimeout(() => connect(), 100);
               return;
             } catch (error) {
               console.error('Token refresh failed:', error);
-              toast.error('Authentication failed. Please sign in again.');
+              toast.error('Session expired. Please sign in again.');
               return;
             }
           }
+          
+          return; // Don't reconnect on auth failures
         }
 
-        // Attempt to reconnect for other closures
-        if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
+        // For other errors, implement exponential backoff
+        if (reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current++;
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current - 1), 30000);
           
           console.log(`Reconnecting in ${delay}ms... (attempt ${reconnectAttempts.current})`);
           reconnectTimer.current = setTimeout(connect, delay);
-        } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-          toast.error('Failed to connect to chat. Please refresh the page.');
+        } else {
+          toast.error('Connection lost. Please refresh the page.');
         }
       };
     } catch (error) {
       console.error('Failed to create WebSocket connection:', error);
       setIsConnected(false);
+      
+      // Don't retry if no auth token
+      if (error.message.includes('No authentication token')) {
+        return;
+      }
     }
   }, [sessionId, user, dispatch]);
 
@@ -144,7 +155,7 @@ export function useWebSocket(sessionId) {
       reconnectTimer.current = null;
     }
     
-    if (ws.current) {
+    if (ws.current && ws.current.readyState !== WebSocket.CLOSED) {
       ws.current.close(1000, 'Client disconnect');
       ws.current = null;
     }
@@ -156,23 +167,22 @@ export function useWebSocket(sessionId) {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify(message));
     } else {
-      toast.error('Connection not established. Attempting to reconnect...');
-      connect();
+      toast.error('Not connected. Please wait...');
+      if (!isConnected && reconnectAttempts.current === 0) {
+        connect();
+      }
     }
-  }, [connect]);
+  }, [connect, isConnected]);
 
-  // Effect to handle connection
+  // Connect on mount
   useEffect(() => {
     connect();
     return () => disconnect();
-  }, [connect, disconnect]);
+  }, [sessionId]); // Only reconnect when sessionId changes
 
-  // Reconnect if user changes (e.g., from anonymous to authenticated)
+  // Reset auth failures when user changes
   useEffect(() => {
-    if (isConnected && ws.current) {
-      disconnect();
-      connect();
-    }
+    authFailures.current = 0;
   }, [user?.id]);
 
   return { 

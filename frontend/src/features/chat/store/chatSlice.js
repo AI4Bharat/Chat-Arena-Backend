@@ -44,23 +44,23 @@ const chatSlice = createSlice({
       state.messages[sessionId].push(message);
     },
     updateStreamingMessage: (state, action) => {
-      const { sessionId, messageId, chunk, isComplete, participant='a' } = action.payload;
-      
+      const { sessionId, messageId, chunk, isComplete, participant = 'a' } = action.payload;
+
       if (!state.streamingMessages[sessionId]) {
         state.streamingMessages[sessionId] = {};
       }
-      
+
       if (!state.streamingMessages[sessionId][messageId]) {
         state.streamingMessages[sessionId][messageId] = {
           content: '',
           isComplete: false,
         };
       }
-      
+
       state.streamingMessages[sessionId][messageId].content += chunk;
       state.streamingMessages[sessionId][messageId].participant = participant;
       state.streamingMessages[sessionId][messageId].isComplete = isComplete;
-      
+
       if (isComplete) {
         // Move to regular messages
         const message = {
@@ -70,12 +70,12 @@ const chatSlice = createSlice({
           timestamp: new Date().toISOString(),
           participant: participant,
         };
-        
+
         if (!state.messages[sessionId]) {
           state.messages[sessionId] = [];
         }
         state.messages[sessionId].push(message);
-        
+
         delete state.streamingMessages[sessionId][messageId];
       }
     },
@@ -87,6 +87,13 @@ const chatSlice = createSlice({
         state.sessions[sessionIndex] = { ...state.sessions[sessionIndex], ...sessionData };
       }
     },
+    updateMessageFeedback: (state, action) => {
+      const { sessionId, messageId, feedback } = action.payload;
+      const messageIndex = state.messages[sessionId].findIndex(msg => msg.id === messageId);
+      if (messageIndex !== -1) {
+        state.messages[sessionId][messageIndex].feedback = feedback;
+      }
+    }
   },
   extraReducers: (builder) => {
     builder
@@ -100,5 +107,5 @@ const chatSlice = createSlice({
   },
 });
 
-export const { setActiveSession, addMessage, updateStreamingMessage, setSessionState } = chatSlice.actions;
+export const { setActiveSession, addMessage, updateStreamingMessage, setSessionState, updateMessageFeedback } = chatSlice.actions;
 export default chatSlice.reducer;

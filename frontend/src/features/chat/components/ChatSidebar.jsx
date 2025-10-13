@@ -24,14 +24,15 @@ export function ChatSidebar({ isOpen, onToggle }) {
   }, [dispatch]);
 
   const handleNewChat = async () => {
-    if (!checkSessionLimit()) {
-      setShowAuthModal(true);
-      return;
-    }
-    const result = await dispatch(createSession({ mode: 'direct' }));
-    if (result.meta.requestStatus === 'fulfilled') {
-      await incrementSessionCount();
-    }
+    // if (!checkSessionLimit()) {
+    //   setShowAuthModal(true);
+    //   return;
+    // }
+    // const result = await dispatch(createSession({ mode: 'direct' }));
+    // if (result.meta.requestStatus === 'fulfilled') {
+    //   await incrementSessionCount();
+    // }
+    dispatch(setActiveSession(null));
   };
 
   const handleSelectSession = (session) => {
@@ -62,7 +63,7 @@ export function ChatSidebar({ isOpen, onToggle }) {
         {/* Sidebar Container */}
         <div className={`${isOpen ? 'w-64' : 'w-0'} transition-all duration-300 bg-gray-900 text-white flex flex-col h-full overflow-hidden`}>
           {/* Header (will not shrink) */}
-          <div className="p-4 border-b border-gray-700 flex-shrink-0">
+          {/* <div className="p-4 border-b border-gray-700 flex-shrink-0">
             <button
               onClick={handleNewChat}
               className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg transition-colors"
@@ -70,12 +71,12 @@ export function ChatSidebar({ isOpen, onToggle }) {
               <Plus size={20} />
               New Chat
             </button>
-            {isAnonymous && (
+            {/* {isAnonymous && (
               <div className="mt-2 text-xs text-gray-400 text-center">
                 <p>Sessions: {sessionCount}/{sessionLimit}</p>
               </div>
-            )}
-          </div>
+            )} 
+          </div> */}
 
           {/* Sessions List (This is the key part: it will grow and scroll) */}
           <div className="flex-1 overflow-y-auto min-h-0">
