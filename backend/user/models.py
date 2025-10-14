@@ -44,3 +44,10 @@ class User(models.Model):
     
     def __str__(self):
         return f"{self.display_name} ({self.auth_provider})"
+    
+    @property
+    def is_authenticated(self):
+        """
+        This is required for Django REST Framework's IsAuthenticated permission
+        """
+        return True
