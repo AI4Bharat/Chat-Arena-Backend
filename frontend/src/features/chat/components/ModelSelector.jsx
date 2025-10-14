@@ -5,14 +5,17 @@ import { apiClient } from '../../../shared/api/client';
 import { endpoints } from '../../../shared/api/endpoints';
 import { createSession } from '../store/chatSlice';
 import { ChevronDown, Zap, GitCompare, Shuffle } from 'lucide-react';
+import { setSelectedMode, setSelectedModels, setActiveSession } from '../store/chatSlice';
+import { useNavigate } from 'react-router-dom';
 
 export function ModelSelector() {
   const dispatch = useDispatch();
-  const { activeSession } = useSelector((state) => state.chat);
-  const [mode, setMode] = useState(activeSession?.mode || 'direct');
-  const [selectedModels, setSelectedModels] = useState({
-    modelA: activeSession?.model_a?.id || null,
-    modelB: activeSession?.model_b?.id || null,
+  const navigate = useNavigate();
+  const { activeSession, selectedMode, selectedModels } = useSelector((state) => state.chat);
+  const [mode, setMode] = useState(activeSession?.mode || selectedMode || 'random');
+  const [selectedModelsLocal, setSelectedModelsLocal] = useState({
+    modelA: activeSession?.model_a?.id || selectedModels?.modelA || null,
+    modelB: activeSession?.model_b?.id || selectedModels?.modelB || null,
   });
   const [isOpen, setIsOpen] = useState(false);
 
@@ -27,23 +30,33 @@ export function ModelSelector() {
   const handleModeChange = (newMode) => {
     setMode(newMode);
     if (newMode === 'direct') {
-      setSelectedModels({ ...selectedModels, modelB: null });
+      setSelectedModelsLocal({ ...selectedModelsLocal, modelB: null });
     } else if (newMode === 'random') {
-      setSelectedModels({ modelA: null, modelB: null });
+      setSelectedModelsLocal({ modelA: null, modelB: null });
+      setTimeout(() => setIsOpen(false), 300);
+    }
+    
+    dispatch(setSelectedMode(newMode));
+
+    if (activeSession && activeSession.mode !== newMode) {
+      dispatch(setActiveSession(null));
+      // Navigate to /chat for new session
+      navigate('/chat');
     }
   };
 
   const handleModelSelect = (model, slot = 'modelA') => {
-    setSelectedModels({ ...selectedModels, [slot]: model.id });
-  };
-
-  const handleStartSession = async () => {
-    await dispatch(createSession({
-      mode,
-      modelA: selectedModels.modelA,
-      modelB: selectedModels.modelB,
-    }));
-    setIsOpen(false);
+    const newModels = { ...selectedModelsLocal, [slot]: model.id };
+    setSelectedModelsLocal(newModels);
+    
+    // Auto-save to Redux
+    dispatch(setSelectedModels(newModels));
+    
+    // Auto-close if selections are complete
+    if (mode === 'direct' || 
+        (mode === 'compare' && newModels.modelA && newModels.modelB)) {
+      setTimeout(() => setIsOpen(false), 300);
+    }
   };
 
   return (
@@ -158,20 +171,6 @@ export function ModelSelector() {
                 )}
               </div>
             )}
-
-            {/* Start Button */}
-            <div className="p-4 border-t border-gray-200">
-              <button
-                onClick={handleStartSession}
-                disabled={
-                  (mode === 'direct' && !selectedModels.modelA) ||
-                  (mode === 'compare' && (!selectedModels.modelA || !selectedModels.modelB))
-                }
-                className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {mode === 'random' ? 'Start Random Session' : 'Start Session'}
-              </button>
-            </div>
           </div>
         </>
       )}

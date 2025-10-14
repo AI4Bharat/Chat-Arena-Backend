@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { fetchSessions, createSession, setActiveSession } from '../store/chatSlice';
+import { fetchSessions, createSession, setActiveSession, clearMessages } from '../store/chatSlice';
 import { logout } from '../../auth/store/authSlice';
 import { Plus, MessageSquare, LogOut, User, ChevronLeft, LogIn, Clock } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { AuthModal } from '../../auth/components/AuthModal';
 import { useGuestLimitations } from '../hooks/useGuestLimitations';
+import { useNavigate, useParams } from 'react-router-dom';
 
 export function ChatSidebar({ isOpen, onToggle }) {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const { sessionId } = useParams();
   const { sessions, activeSession } = useSelector((state) => state.chat);
   const { user, isAnonymous } = useSelector((state) => state.auth);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -33,10 +36,13 @@ export function ChatSidebar({ isOpen, onToggle }) {
     //   await incrementSessionCount();
     // }
     dispatch(setActiveSession(null));
+    dispatch(clearMessages());
+    navigate('/chat');
+    // Clear active session in Redux
   };
 
   const handleSelectSession = (session) => {
-    dispatch(setActiveSession(session));
+    navigate(`/chat/${session.id}`);
   };
 
   const handleLogout = () => {
@@ -63,7 +69,7 @@ export function ChatSidebar({ isOpen, onToggle }) {
         {/* Sidebar Container */}
         <div className={`${isOpen ? 'w-64' : 'w-0'} transition-all duration-300 bg-gray-900 text-white flex flex-col h-full overflow-hidden`}>
           {/* Header (will not shrink) */}
-          {/* <div className="p-4 border-b border-gray-700 flex-shrink-0">
+          <div className="p-4 border-b border-gray-700 flex-shrink-0">
             <button
               onClick={handleNewChat}
               className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg transition-colors"
@@ -75,8 +81,8 @@ export function ChatSidebar({ isOpen, onToggle }) {
               <div className="mt-2 text-xs text-gray-400 text-center">
                 <p>Sessions: {sessionCount}/{sessionLimit}</p>
               </div>
-            )} 
-          </div> */}
+            )}  */}
+          </div>
 
           {/* Sessions List (This is the key part: it will grow and scroll) */}
           <div className="flex-1 overflow-y-auto min-h-0">
@@ -90,17 +96,17 @@ export function ChatSidebar({ isOpen, onToggle }) {
                 <button
                   key={session.id}
                   onClick={() => handleSelectSession(session)}
-                  className={`w-full text-left p-3 rounded-lg mb-1 hover:bg-gray-800 transition-colors ${activeSession?.id === session.id ? 'bg-gray-800' : ''
+                  className={`w-full text-left p-3 rounded-lg mb-1 hover:bg-gray-800 transition-colors ${sessionId === session.id ? 'bg-gray-800' : ''
                     }`}
                 >
                   <div className="flex items-center gap-2">
                     <MessageSquare size={16} />
                     <div className="flex-1 overflow-hidden">
                       <div className="text-sm font-medium truncate">
-                        {session.title || `Chat ${format(new Date(session.created_at), 'MMM d')}`}
+                        {session?.title || (session?.created_at ? `Chat ${format(new Date(session.created_at), 'MMM d')}` : 'New Chat')}
                       </div>
                       <div className="text-xs text-gray-400">
-                        {session.mode} • {formatDistanceToNow(new Date(session.created_at), { addSuffix: true })}
+                        {session?.mode || 'direct'} • {session?.created_at ? formatDistanceToNow(new Date(session.created_at), { addSuffix: true }) : 'just now'}
                       </div>
                     </div>
                   </div>
@@ -153,12 +159,12 @@ export function ChatSidebar({ isOpen, onToggle }) {
 
         {/* Toggle Button */}
         <div className={`absolute top-4 z-10 transition-all duration-300 ${isOpen ? 'left-64' : 'left-0'}`}>
-            <button
-              onClick={onToggle}
-              className="bg-gray-800 text-white p-1 rounded-full -translate-x-1/2 hover:bg-gray-700"
-            >
-              <ChevronLeft className={`transition-transform ${!isOpen ? 'rotate-180' : ''}`} size={16} />
-            </button>
+          <button
+            onClick={onToggle}
+            className="bg-gray-800 text-white p-1 rounded-full -translate-x-1/2 hover:bg-gray-700"
+          >
+            <ChevronLeft className={`transition-transform ${!isOpen ? 'rotate-180' : ''}`} size={16} />
+          </button>
         </div>
       </div>
 

@@ -271,9 +271,6 @@ AI_MODEL_CONFIG = {
     'MAX_RETRIES': 3,
 }
 
-# Channels configuration
-ASGI_APPLICATION = 'arena_backend.asgi.application'
-
 # CHANNEL_LAYERS = {
 #     'default': {
 #         'BACKEND': 'channels_redis.core.RedisChannelLayer',

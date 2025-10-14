@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { apiClient } from '../../../shared/api/client';
 import { endpoints } from '../../../shared/api/endpoints';
 import { toast } from 'react-hot-toast';
-import { CompareMessageInput } from './CompareMessageInput';
 import { ConversationTurn } from './ConversationTurn';
 import { FeedbackSelector } from './FeedbackSelector';
 import { ExpandedMessageView } from './ExpandedMessageView';
@@ -145,7 +144,7 @@ export function CompareView({ session, messages, streamingMessages }) {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-gray-50 relative">
+    <>
       <ExpandedMessageView
         message={messageDataForModal}
         modelName={modelNameForModal}
@@ -179,16 +178,6 @@ export function CompareView({ session, messages, streamingMessages }) {
           onHover={setHoverPreview}
         />
       )}
-
-      <div className="flex-shrink-0">
-        <div className="bg-white border-t border-gray-200">
-          <CompareMessageInput
-            sessionId={session.id}
-            modelAId={session.model_a?.id}
-            modelBId={session.model_b?.id}
-          />
-        </div>
-      </div>
-    </div>
+    </>
   );
 }

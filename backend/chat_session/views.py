@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, Http404
 from django.db.models import Count, Prefetch, Q
-
+from message.models import Message
 from chat_session.models import ChatSession
 from chat_session.serializers import (
     ChatSessionSerializer, ChatSessionCreateSerializer,
@@ -233,7 +233,46 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             'status': 'transferred',
             'session_id': str(session.id)
         })
-
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Get session details with messages"""
+        session = self.get_object()
+        
+        messages = Message.objects.filter(
+            session=session
+        ).order_by('-position')[:50]
+        
+        response_data = {
+            'session': {
+                'id': str(session.id),
+                'mode': session.mode,
+                'title': session.title,
+                'created_at': session.created_at.isoformat(),
+                'model_a': {
+                    'id': str(session.model_a.id),
+                    'display_name': session.model_a.display_name
+                } if session.model_a else None,
+                'model_b': {
+                    'id': str(session.model_b.id),
+                    'display_name': session.model_b.display_name
+                } if session.model_b else None,
+            },
+            'messages': [
+                {
+                    'id': str(msg.id),
+                    'role': msg.role,
+                    'content': msg.content,
+                    'position': msg.position,
+                    'participant': msg.participant,
+                    'status': msg.status,
+                    'feedback': msg.feedback,
+                    'created_at': msg.created_at.isoformat()
+                }
+                for msg in reversed(messages)
+            ]
+        }
+        
+        return Response(response_data)
 
 class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
     """View for accessing shared sessions via share token"""

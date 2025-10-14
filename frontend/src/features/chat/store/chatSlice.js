@@ -22,6 +22,14 @@ export const fetchSessions = createAsyncThunk(
   }
 );
 
+export const fetchSessionById = createAsyncThunk(
+  'chat/fetchSessionById',
+  async (sessionId) => {
+    const response = await apiClient.get(`/sessions/${sessionId}/`);
+    return response.data;
+  }
+);
+
 const chatSlice = createSlice({
   name: 'chat',
   initialState: {
@@ -31,6 +39,11 @@ const chatSlice = createSlice({
     streamingMessages: {},
     loading: false,
     error: null,
+    selectedMode: 'random',
+    selectedModels: {
+      modelA: null,
+      modelB: null,
+    },
   },
   reducers: {
     setActiveSession: (state, action) => {
@@ -93,19 +106,43 @@ const chatSlice = createSlice({
       if (messageIndex !== -1) {
         state.messages[sessionId][messageIndex].feedback = feedback;
       }
-    }
+    },
+    clearMessages: (state) => {
+      if (state.activeSession?.id) {
+        delete state.messages[state.activeSession.id];
+        delete state.streamingMessages[state.activeSession.id];
+      }
+    },
+    setSelectedMode: (state, action) => {
+      state.selectedMode = action.payload;
+    },
+    setSelectedModels: (state, action) => {
+      state.selectedModels = action.payload;
+    },
   },
   extraReducers: (builder) => {
     builder
       .addCase(createSession.fulfilled, (state, action) => {
         state.sessions.unshift(action.payload);
         state.activeSession = action.payload;
+        state.messages[action.payload.id] = [];
       })
       .addCase(fetchSessions.fulfilled, (state, action) => {
         state.sessions = action.payload;
-      });
+      })
+      .addCase(fetchSessionById.fulfilled, (state, action) => {
+        const { session, messages } = action.payload;
+        state.activeSession = session;
+        const exists = state.sessions.find(s => s.id === session.id);
+        if (!exists) {
+          state.sessions.unshift(session);
+        }
+        if (!state.messages[session.id]) {
+          state.messages[session.id] = messages;
+        }
+      })
   },
 });
 
-export const { setActiveSession, addMessage, updateStreamingMessage, setSessionState, updateMessageFeedback } = chatSlice.actions;
+export const { setActiveSession, addMessage, updateStreamingMessage, setSessionState, updateMessageFeedback, setSelectedMode, setSelectedModels, clearMessages } = chatSlice.actions;
 export default chatSlice.reducer;
