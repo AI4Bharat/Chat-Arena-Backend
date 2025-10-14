@@ -229,7 +229,6 @@ The API documentation is available at:
 ### Backend Tests
 ```bash
 python manage.py test
-python -m uvicorn arena_backend.asgi:application --reload --host 127.0.0.1 --port 8001
 ```
 
 ### Frontend Tests
