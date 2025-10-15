@@ -31,7 +31,7 @@ SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['http://127.0.0.1:3000', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['http://127.0.0.1:3000', 'localhost', '127.0.0.1', "ai4bharat.github.io"]
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
@@ -130,6 +130,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
     "http://127.0.0.1:3000",
+    "https://ai4bharat.github.io/Chat-Arena-Frontend/",
 ]
 
 CORS_ALLOW_HEADERS = [
