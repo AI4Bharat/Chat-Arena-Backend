@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Provider, useDispatch, useSelector } from 'react-redux';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { BrowserRouter } from 'react-router-dom';
+import { HashRouter } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { store } from './app/store';
 import { queryClient } from './app/queryClient';
@@ -71,7 +71,7 @@ function App() {
     <ErrorBoundary>
       <Provider store={store}>
         <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
+          <HashRouter>
             <AuthInitializer>
               <AppRouter />
             </AuthInitializer>
@@ -109,7 +109,7 @@ function App() {
               }}
             />
             <ReactQueryDevtools initialIsOpen={false} />
-          </BrowserRouter>
+          </HashRouter>
         </QueryClientProvider>
       </Provider>
     </ErrorBoundary>
