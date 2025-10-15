@@ -46,6 +46,7 @@ google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpcio==1.75.1
 grpcio-status==1.75.1
+gunicorn==21.2.0
 h11==0.16.0
 h2==4.3.0
 hpack==4.1.0
@@ -60,7 +61,6 @@ incremental==24.7.2
 inflection==0.5.1
 jiter==0.11.0
 jwcrypto==1.5.6
-jwt==1.4.0
 kombu==5.5.4
 Markdown==3.9
 msgpack==1.1.1

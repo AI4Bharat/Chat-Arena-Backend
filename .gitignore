@@ -1,0 +1,59 @@
+config.env
+all_data
+vhosts
+# Ignore all json and csv files
+*.json
+*.csv
+
+#certbot
+certbot/certbot.sh
+
+# Python
+*.pyc
+*~
+__pycache__
+media/
+static/
+
+# Env
+.env*
+virtualenv/
+myvenv/
+venv/
+env/
+postgres_data/
+
+# Database
+db.sqlite3
+*.sql
+
+# Static folder at project root
+/static/
+
+# macOS
+._*
+.DS_Store
+.fseventsd
+.Spotlight-V100
+
+# Windows
+Thumbs.db*
+ehthumbs*.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Visual Studio
+.vscode/
+.history/
+*.code-workspace
+
+# pycharm
+.idea/
+
+# Coverage
+/coverage.data
+/coverage/
+.coverage
+
+# Logs
+**/logs/*
