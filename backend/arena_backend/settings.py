@@ -101,12 +101,6 @@ CORS_ORIGIN_ALLOW_ALL = True
 
 CORS_ALLOW_CREDENTIALS = True
 
-SESSION_COOKIE_SECURE = True
-
-CSRF_COOKIE_SECURE = True
-
-SECURE_SSL_REDIRECT = True
-
 ROOT_URLCONF = "arena_backend.urls"
 
 TEMPLATES = [
@@ -145,6 +139,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
     "http://127.0.0.1:3000",
+    "https://ai4bharat.github.io",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -220,6 +215,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 2592000  # 30 days
 SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = True
 
 CACHES = {
     'default': {
