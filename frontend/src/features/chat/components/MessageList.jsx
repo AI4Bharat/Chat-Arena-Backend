@@ -23,9 +23,9 @@ export function MessageList({ messages, streamingMessages, session, onExpand }) 
     <div
       ref={mainScrollRef}
       onScroll={handleMainScroll}
-      className="flex-1 overflow-y-auto p-4 relative"
+      className="flex-1 overflow-y-auto p-2 sm:p-4 relative scroll-gutter-stable"
     >
-      <div className="max-w-3xl mx-auto space-y-4">
+      <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
         {messages.map((message) => (
           <MessageItem
             key={message.id}

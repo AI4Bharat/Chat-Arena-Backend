@@ -151,8 +151,8 @@ export function CompareView({ session, messages, streamingMessages }) {
         onClose={handleCloseExpand}
       />
 
-      <div ref={mainScrollRef} onScroll={handleMainScroll} className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-7xl mx-auto space-y-5 pb-6">
+      <div ref={mainScrollRef} onScroll={handleMainScroll} className="flex-1 overflow-y-auto p-2 sm:p-4 scroll-gutter-stable">
+        <div className="max-w-7xl mx-auto space-y-3 sm:space-y-5 pb-6">
           {conversationTurns.map((turn) => {
             const turnFeedback = turn.userMessage.feedback;
             return (

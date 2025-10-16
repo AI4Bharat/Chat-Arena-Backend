@@ -42,7 +42,7 @@ export function ConversationTurn({ turn, modelAName, modelBName, feedbackSelecti
     <div className="space-y-4">
       {userMessage && <MessageItem message={userMessage} />}
       
-      <div className="flex gap-4 items-stretch">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch">
         
         <div className="flex-1 min-w-0">
           {modelAMessage ? (

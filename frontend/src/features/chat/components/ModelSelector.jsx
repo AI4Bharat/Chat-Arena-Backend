@@ -1,177 +1,150 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSelector, useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../../shared/api/client';
 import { endpoints } from '../../../shared/api/endpoints';
-import { createSession } from '../store/chatSlice';
-import { ChevronDown, Zap, GitCompare, Shuffle } from 'lucide-react';
 import { setSelectedMode, setSelectedModels, setActiveSession } from '../store/chatSlice';
-import { useNavigate } from 'react-router-dom';
+import { ModeDropdown } from './ModeDropdown';
+import { ModelDropdown } from './ModelDropdown';
 
-export function ModelSelector() {
+export function ModelSelector({ variant = 'full' }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { activeSession, selectedMode, selectedModels } = useSelector((state) => state.chat);
-  const [mode, setMode] = useState(activeSession?.mode || selectedMode || 'random');
-  const [selectedModelsLocal, setSelectedModelsLocal] = useState({
-    modelA: activeSession?.model_a?.id || selectedModels?.modelA || null,
-    modelB: activeSession?.model_b?.id || selectedModels?.modelB || null,
-  });
-  const [isOpen, setIsOpen] = useState(false);
 
   const { data: models = [], isLoading } = useQuery({
     queryKey: ['models'],
-    queryFn: async () => {
-      const response = await apiClient.get(endpoints.models.list);
-      return response.data;
-    },
+    queryFn: async () => apiClient.get(endpoints.models.list).then(res => res.data),
   });
 
-  const handleModeChange = (newMode) => {
-    setMode(newMode);
-    if (newMode === 'direct') {
-      setSelectedModelsLocal({ ...selectedModelsLocal, modelB: null });
-    } else if (newMode === 'random') {
-      setSelectedModelsLocal({ modelA: null, modelB: null });
-      setTimeout(() => setIsOpen(false), 300);
-    }
-    
-    dispatch(setSelectedMode(newMode));
+  const mode = activeSession?.mode || selectedMode || 'random';
+  const modelsInUse = {
+    modelA: activeSession?.model_a?.id || selectedModels?.modelA,
+    modelB: activeSession?.model_b?.id || selectedModels?.modelB,
+  };
 
+  useEffect(() => {
+    if (models.length > 0 && !activeSession) {
+      const currentSelections = { ...selectedModels };
+      let needsUpdate = false;
+
+      if ((mode === 'direct' || mode === 'compare') && !currentSelections.modelA) {
+        currentSelections.modelA = models[0].id;
+        needsUpdate = true;
+      }
+      
+      if (mode === 'compare') {
+        if (!currentSelections.modelB || currentSelections.modelB === currentSelections.modelA) {
+          const defaultModelB = models.find(m => m.id !== currentSelections.modelA);
+          if (defaultModelB) {
+            currentSelections.modelB = defaultModelB.id;
+            needsUpdate = true;
+          }
+        }
+      }
+      
+      if (mode !== 'compare' && currentSelections.modelB) {
+        currentSelections.modelB = null;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        dispatch(setSelectedModels(currentSelections));
+      }
+    }
+  }, [models, mode, activeSession, selectedModels, dispatch]);
+
+  const handleModeChange = (newMode) => {
+    dispatch(setSelectedMode(newMode));
     if (activeSession && activeSession.mode !== newMode) {
       dispatch(setActiveSession(null));
-      // Navigate to /chat for new session
       navigate('/chat');
     }
   };
 
-  const handleModelSelect = (model, slot = 'modelA') => {
-    const newModels = { ...selectedModelsLocal, [slot]: model.id };
-    setSelectedModelsLocal(newModels);
+  const handleModelSelect = (model, slot) => {
+    const newModels = { ...modelsInUse };
     
-    // Auto-save to Redux
+    const isChangingActiveSessionModel = activeSession && (
+      (slot === 'modelA' && activeSession.model_a?.id !== model.id) ||
+      (slot === 'modelB' && activeSession.model_b?.id !== model.id)
+    );
+    
+    if (slot === 'modelA' && mode === 'compare' && model.id === newModels.modelB) {
+        newModels.modelB = models.find(m => m.id !== model.id)?.id || null;
+    }
+    newModels[slot] = model.id;
     dispatch(setSelectedModels(newModels));
     
-    // Auto-close if selections are complete
-    if (mode === 'direct' || 
-        (mode === 'compare' && newModels.modelA && newModels.modelB)) {
-      setTimeout(() => setIsOpen(false), 300);
+    if (isChangingActiveSessionModel) {
+      const currentMode = activeSession.mode;
+      dispatch(setSelectedMode(currentMode));
+      dispatch(setActiveSession(null));
+      navigate('/chat');
     }
   };
 
+  if (isLoading || (models.length > 0 && !modelsInUse.modelA && mode !== 'random')) {
+    return <div className="text-sm text-gray-500 animate-pulse">Initializing...</div>;
+  }
+
+  if (variant === 'mode') {
+    return (
+      <div className="flex items-center justify-center">
+        <ModeDropdown currentMode={mode} onModeChange={handleModeChange} />
+      </div>
+    );
+  }
+
+  if (variant === 'models') {
+    if (mode === 'random') return null;
+    return (
+      <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap">
+        <ModelDropdown
+          models={models}
+          selectedModelId={modelsInUse.modelA}
+          onSelect={(model) => handleModelSelect(model, 'modelA')}
+          fullWidth={mode === 'direct'}
+        />
+        {mode === 'compare' && modelsInUse.modelA && (
+          <>
+            <span className="text-gray-500 font-medium text-xs sm:text-sm mx-1">vs</span>
+            <ModelDropdown
+              models={models.filter(m => m.id !== modelsInUse.modelA)}
+              selectedModelId={modelsInUse.modelB}
+              onSelect={(model) => handleModelSelect(model, 'modelB')}
+              disabled={!modelsInUse.modelA}
+            />
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-      >
-        {mode === 'direct' && <Zap size={16} />}
-        {mode === 'compare' && <GitCompare size={16} />}
-        {mode === 'random' && <Shuffle size={16} />}
-        <span>
-          {mode === 'direct' && selectedModels.modelA
-            ? models.find(m => m.id === selectedModels.modelA)?.name
-            : mode === 'compare' && selectedModels.modelA && selectedModels.modelB
-            ? 'Compare Mode'
-            : mode === 'random'
-            ? 'Random Mode'
-            : 'New Chat'}
-        </span>
-        <ChevronDown size={16} />
-      </button>
-
-      {isOpen && (
+    <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+      <ModeDropdown currentMode={mode} onModeChange={handleModeChange} />
+      {mode !== 'random' && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-            {/* Mode Selector */}
-            <div className="p-4 border-b border-gray-200">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleModeChange('direct')}
-                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg ${
-                    mode === 'direct' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100'
-                  }`}
-                >
-                  <Zap size={16} />
-                  Direct
-                </button>
-                <button
-                  onClick={() => handleModeChange('compare')}
-                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg ${
-                    mode === 'compare' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100'
-                  }`}
-                >
-                  <GitCompare size={16} />
-                  Compare
-                </button>
-                <button
-                  onClick={() => handleModeChange('random')}
-                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg ${
-                    mode === 'random' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100'
-                  }`}
-                >
-                  <Shuffle size={16} />
-                  Random
-                </button>
-              </div>
-            </div>
-
-            {/* Model Selection */}
-            {mode !== 'random' && (
-              <div className="p-4 max-h-96 overflow-y-auto">
-                {/* Model A */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {mode === 'direct' ? 'Select Model' : 'Model A'}
-                  </label>
-                  <div className="space-y-2">
-                    {models.map((model) => (
-                      <button
-                        key={model.id}
-                        onClick={() => handleModelSelect(model, 'modelA')}
-                        className={`w-full text-left p-3 rounded-lg border ${
-                          selectedModels.modelA === model.id
-                            ? 'border-orange-500 bg-orange-50'
-                            : 'border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="font-medium">{model.name}</div>
-                        <div className="text-sm text-gray-500">{model.provider}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Model B for Compare Mode */}
-                {mode === 'compare' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Model B
-                    </label>
-                    <div className="space-y-2">
-                      {models
-                        .filter((m) => m.id !== selectedModels.modelA)
-                        .map((model) => (
-                          <button
-                            key={model.id}
-                            onClick={() => handleModelSelect(model, 'modelB')}
-                            className={`w-full text-left p-3 rounded-lg border ${
-                              selectedModels.modelB === model.id
-                                ? 'border-orange-500 bg-orange-50'
-                                : 'border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            <div className="font-medium">{model.name}</div>
-                            <div className="text-sm text-gray-500">{model.provider}</div>
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <span className="text-gray-300 font-light text-lg sm:text-2xl hidden sm:inline">/</span>
+          <ModelDropdown
+            models={models}
+            selectedModelId={modelsInUse.modelA}
+            onSelect={(model) => handleModelSelect(model, 'modelA')}
+          />
+        </>
+      )}
+      {mode === 'compare' && modelsInUse.modelA && (
+        <>
+          <span className="text-gray-500 font-medium text-xs sm:text-sm mx-1 hidden sm:inline">vs</span>
+          <span className="text-gray-500 font-medium text-xs sm:text-sm mx-1 sm:hidden">/</span>
+          <ModelDropdown
+            models={models.filter(m => m.id !== modelsInUse.modelA)}
+            selectedModelId={modelsInUse.modelB}
+            onSelect={(model) => handleModelSelect(model, 'modelB')}
+            disabled={!modelsInUse.modelA}
+          />
         </>
       )}
     </div>
