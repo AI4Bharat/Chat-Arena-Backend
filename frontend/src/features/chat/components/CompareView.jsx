@@ -59,20 +59,14 @@ export function CompareView({ session, messages, streamingMessages }) {
 
   const conversationTurns = useMemo(() => {
     const turns = [];
-
-    // The core of the new logic: iterate through the presorted array.
     for (let i = 0; i < messages.length; i++) {
       if (messages[i].role === 'user') {
         const userMessage = messages[i];
-
-        // The next two messages are the assistant responses.
         const potentialResponse1 = messages[i + 1];
         const potentialResponse2 = messages[i + 2];
-
         let modelAMessage = null;
         let modelBMessage = null;
 
-        // Assign responses based on participant, regardless of their order.
         if (potentialResponse1 && potentialResponse1.role === 'assistant') {
           if (potentialResponse1.participant === 'a') modelAMessage = potentialResponse1;
           else modelBMessage = potentialResponse1;
@@ -81,33 +75,21 @@ export function CompareView({ session, messages, streamingMessages }) {
           if (potentialResponse2.participant === 'a') modelAMessage = potentialResponse2;
           else modelBMessage = potentialResponse2;
         }
-
         turns.push({ userMessage, modelAMessage, modelBMessage });
-
-        // This is the key optimization: we've processed the user message and its two
-        // potential responses, so we can skip the next two items in the array.
         i += 2;
       }
     }
 
-    // The logic for handling streaming messages remains the same and is still needed.
-    // It correctly overlays the streaming data onto the most recent turn.
     const streamingValues = Object.values(streamingMessages);
     if (streamingValues.length > 0) {
       const lastTurn = turns[turns.length - 1];
       if (lastTurn) {
         const streamA = streamingValues.find(m => m.participant === 'a');
         const streamB = streamingValues.find(m => m.participant === 'b');
-
-        if (streamA) {
-          lastTurn.modelAMessage = { ...streamA, isStreaming: true };
-        }
-        if (streamB) {
-          lastTurn.modelBMessage = { ...streamB, isStreaming: true };
-        }
+        if (streamA) lastTurn.modelAMessage = { ...streamA, isStreaming: true };
+        if (streamB) lastTurn.modelBMessage = { ...streamB, isStreaming: true };
       }
     }
-
     return turns;
   }, [messages, streamingMessages]);
 
@@ -125,21 +107,27 @@ export function CompareView({ session, messages, streamingMessages }) {
   let modelNameForModal = '';
 
   if (expandedMessage) {
-    // Check if the expanded message is currently streaming
+    const parentTurn = conversationTurns.find(
+      (turn) =>
+        turn.modelAMessage?.id === expandedMessage.id ||
+        turn.modelBMessage?.id === expandedMessage.id
+    );
+    const hasFeedbackForThisTurn = !!parentTurn?.userMessage.feedback;
+
     const streamingData = Object.values(streamingMessages).find(
       (msg) => msg.id === expandedMessage.id
     );
-
     if (streamingData) {
-      // If so, merge its data to show the latest content
       messageDataForModal = { ...expandedMessage, ...streamingData, isStreaming: true };
     }
 
-    // Determine the model name for the modal header
-    if (expandedMessage.participant === 'a') {
-      modelNameForModal = session.model_a?.display_name;
-    } else if (expandedMessage.participant === 'b') {
-      modelNameForModal = session.model_b?.display_name;
+    const participant = expandedMessage.participant;
+    const isModelA = participant === 'a';
+    
+    if (session.mode === 'compare' || (session.mode === 'random' && hasFeedbackForThisTurn)) {
+      modelNameForModal = isModelA ? session.model_a?.display_name : session.model_b?.display_name;
+    } else {
+      modelNameForModal = isModelA ? 'Model A' : 'Model B';
     }
   }
 
@@ -155,12 +143,26 @@ export function CompareView({ session, messages, streamingMessages }) {
         <div className="max-w-7xl mx-auto space-y-3 sm:space-y-5 pb-6">
           {conversationTurns.map((turn) => {
             const turnFeedback = turn.userMessage.feedback;
+            
+            const getModelName = (participant) => {
+              if (session.mode === "compare") {
+                return participant === 'a' ? session.model_a?.display_name : session.model_b?.display_name;
+              }
+              if (turnFeedback) {
+                 return participant === 'a' ? session.model_a?.display_name : session.model_b?.display_name;
+              }
+              return participant === 'a' ? "Model A" : "Model B";
+            };
+
+            const modelAName = getModelName('a');
+            const modelBName = getModelName('b');
+            
             return (
               <ConversationTurn
                 key={turn.userMessage?.id}
                 turn={turn}
-                modelAName={session.mode === "compare" ? session.model_a?.display_name : "random"}
-                modelBName={session.mode === "compare" ? session.model_b?.display_name : "random"}
+                modelAName={modelAName}
+                modelBName={modelBName}
                 feedbackSelection={turnFeedback}
                 hoverPreview={hoverPreview}
                 onHoverPreview={setHoverPreview}

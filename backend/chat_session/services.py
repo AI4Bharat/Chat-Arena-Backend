@@ -31,7 +31,6 @@ class ChatSessionService:
             model_a=model_a,
             model_b=model_b,
             metadata=metadata or {},
-            title=f"Random: {model_a.display_name} vs {model_b.display_name}"
         )
         
         # Add random selection info to metadata
