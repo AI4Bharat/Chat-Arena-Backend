@@ -9,7 +9,9 @@ class AIModel(models.Model):
         ('meta', 'Meta'),
         ('grok', 'Grok'),
         ('mistral', 'Mistral'),
-        ('cohere', 'Cohere'),
+        ('deepseek', 'DeepSeek'),
+        ('qwen', 'Qwen'),
+        ('sarvam', 'Sarvam'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

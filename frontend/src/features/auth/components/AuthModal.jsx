@@ -5,6 +5,7 @@ import { X, Shield, Clock, User, Sparkles } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signInAnonymously } from 'firebase/auth';
+import { fetchSessions } from '../../chat/store/chatSlice';
 
 // Initialize Firebase (do this once in your app)
 const firebaseConfig = {
@@ -36,6 +37,8 @@ export function AuthModal({ isOpen, onClose }) {
       
       // Send to backend
       await dispatch(loginWithGoogle(idToken)).unwrap();
+
+      dispatch(fetchSessions());
       
       toast.success('Successfully signed in with Google!');
       onClose();
@@ -79,7 +82,7 @@ export function AuthModal({ isOpen, onClose }) {
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 relative">
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-4 sm:p-6 relative max-h-[90vh] overflow-y-auto">
           {/* Close button */}
           <button
             onClick={onClose}
@@ -90,8 +93,8 @@ export function AuthModal({ isOpen, onClose }) {
 
           {/* Content */}
           <div className="text-center mb-6">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <User size={32} className="text-blue-600" />
+            <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <User size={32} className="text-orange-600" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               {isAnonymous ? 'Upgrade your account' : 'Sign in to unlock all features'}
@@ -141,7 +144,7 @@ export function AuthModal({ isOpen, onClose }) {
               className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {(loading || isSigningIn) ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-orange-600"></div>
               ) : (
                 <>
                   <svg className="w-5 h-5" viewBox="0 0 24 24">

@@ -155,7 +155,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                         user_prompt=user_message.content,
                         history=history,
-                        model="google/gemma-3-12b-it",
+                        model=session.model_a.model_code,
                     ):
                         if chunk:
                             full_content += chunk
@@ -183,7 +183,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                             user_prompt=user_message.content,
                             history=history,
-                            model="google/gemma-3-12b-it"
+                            model=session.model_a.model_code,
                         ):
                             if chunk:
                                 full_content_a += chunk
@@ -212,7 +212,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                             user_prompt=user_message.content,
                             history=history,
-                            model="Qwen/Qwen3-30B-A3B"
+                            model=session.model_b.model_code,
                         ):
                             if chunk:
                                 full_content_b += chunk
