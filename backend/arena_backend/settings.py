@@ -92,9 +92,11 @@ CORS_ORIGIN_ALLOW_ALL = True
 
 CORS_ALLOW_CREDENTIALS = True
 
-SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = True
 
-CSRF_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = True
+
+SECURE_SSL_REDIRECT = True
 
 ROOT_URLCONF = "arena_backend.urls"
 
@@ -134,6 +136,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
     "http://127.0.0.1:3000",
+    "https://ai4bharat.github.io/Chat-Arena-Frontend/",
 ]
 
 CORS_ALLOW_HEADERS = [
