@@ -140,6 +140,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
     "http://127.0.0.1:3000",
     "https://ai4bharat.github.io",
+    "https://dev.arena.ai4bharat.org",
 ]
 
 CORS_ALLOW_HEADERS = [
