@@ -145,7 +145,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
     "http://127.0.0.1:3000",
-    "https://ai4bharat.github.io/Chat-Arena-Frontend/",
+    "https://ai4bharat.github.io/Chat-Arena-Frontend",
 ]
 
 CORS_ALLOW_HEADERS = [
