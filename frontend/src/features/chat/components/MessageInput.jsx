@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, LoaderCircle } from 'lucide-react';
+import { Send, Paperclip, LoaderCircle, Info } from 'lucide-react';
 import { useStreamingMessage } from '../hooks/useStreamingMessage';
 import { useStreamingMessageCompare } from '../hooks/useStreamingMessagesCompare';
 import { toast } from 'react-hot-toast';
@@ -9,7 +9,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { createSession } from '../store/chatSlice';
 import { useNavigate } from 'react-router-dom';
 
-export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false }) {
+export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false, isLocked = false }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { activeSession, messages, selectedMode, selectedModels } = useSelector((state) => state.chat);
@@ -31,7 +31,7 @@ export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!input.trim() || isStreaming || isCreatingSession) return;
+    if (!input.trim() || isStreaming || isCreatingSession || isLocked) return;
 
     if (!checkMessageLimit()) {
       return;
@@ -102,6 +102,20 @@ export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false
   const isLoading = isStreaming || isCreatingSession;
 
   const formMaxWidth = isCentered ? 'max-w-3xl' : (activeSession ? activeSession?.mode === "direct" ? 'max-w-3xl' : 'max-w-7xl' : selectedMode === "direct" ? 'max-w-3xl' : 'max-w-7xl');
+
+  if (isLocked) {
+    return (
+      <div className={`w-full px-2 sm:px-4 ${isCentered ? 'pb-0' : 'pb-2 sm:pb-4'} bg-transparent`}>
+        <div className={`${formMaxWidth} mx-auto`}>
+          <div className="flex items-center justify-center gap-2 text-center bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded-lg p-3">
+            <Info size={16} />
+            Feedback submitted. Please start a new chat to continue.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
 
   return (
     <>

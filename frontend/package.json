@@ -1,6 +1,5 @@
 {
   "name": "frontend",
-  "homepage": "https://ai4bharat.github.io/Chat-Arena-Frontend/",
   "version": "0.1.0",
   "private": true,
   "dependencies": {

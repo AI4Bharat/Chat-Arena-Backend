@@ -5,7 +5,7 @@ import { MessageInput } from './MessageInput';
 import { CompareView } from './CompareView';
 import { ExpandedMessageView } from './ExpandedMessageView';
 import { NewChatLanding } from './NewChatLanding';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 export function ChatWindow() {
   const { activeSession, messages, streamingMessages } = useSelector((state) => state.chat);
@@ -13,6 +13,14 @@ export function ChatWindow() {
 
   const sessionMessages = messages[activeSession?.id] || [];
   const sessionStreamingMessages = streamingMessages[activeSession?.id] || {};
+
+  const isChatLocked = useMemo(() => {
+    if (activeSession?.mode !== 'random' || sessionMessages.length === 0) {
+      return false;
+    }
+    const lastUserMessage = [...sessionMessages].reverse().find(m => m.role === 'user');
+    return !!lastUserMessage?.feedback;
+  }, [activeSession, sessionMessages]);
 
   const handleExpand = (message) => setExpandedMessage(message);
   const handleCloseExpand = () => setExpandedMessage(null);
@@ -57,6 +65,7 @@ export function ChatWindow() {
                 sessionId={activeSession?.id}
                 modelAId={activeSession?.model_a?.id}
                 modelBId={activeSession?.model_b?.id}
+                isLocked={isChatLocked}
               />
             </motion.div>
           </>
