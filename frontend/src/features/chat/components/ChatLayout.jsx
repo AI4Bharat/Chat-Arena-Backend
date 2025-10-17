@@ -16,11 +16,10 @@ export function ChatLayout() {
   const { activeSession } = useSelector((state) => state.chat);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  // Initialize sidebar state based on screen size and keep in sync on resize
   useEffect(() => {
     const applyResponsiveSidebar = () => {
       if (typeof window === 'undefined') return;
-      const isDesktop = window.innerWidth >= 768; // md breakpoint
+      const isDesktop = window.innerWidth >= 768;
       setIsSidebarOpen(isDesktop);
     };
     applyResponsiveSidebar();
@@ -93,7 +92,6 @@ export function ChatLayout() {
               </div>
             </div>
 
-            {/* Desktop (md+): single-row layout like earlier */}
             <div className="hidden md:flex items-center h-[65px]">
               <div className="flex items-center gap-3 w-full min-w-0">
                 <div className="min-w-0 flex-1">

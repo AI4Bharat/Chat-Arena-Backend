@@ -1,7 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from message.views import MessageViewSet
-
+from message.views import MessageViewSet, TransliterationAPIView, TranscribeAPIView
 app_name = 'message'
 
 router = DefaultRouter()
@@ -9,6 +8,16 @@ router.register(r'messages', MessageViewSet, basename='message')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path(
+        "xlit-api/generic/transliteration/<str:target_language>/<str:data>",
+        TransliterationAPIView.as_view(),
+        name="transliteration-api",
+    ),
+    path(
+        "asr-api/generic/transcribe",
+        TranscribeAPIView.as_view(),
+        name="transcription-api",
+    ),
 ]
 
 # URL patterns will be:
