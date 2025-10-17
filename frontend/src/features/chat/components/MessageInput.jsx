@@ -10,7 +10,7 @@ import { createSession } from '../store/chatSlice';
 import { useNavigate } from 'react-router-dom';
 import { IndicTransliterate } from "@ai4bharat/indic-transliterate-transcribe";
 import { API_BASE_URL } from '../../../shared/api/client';
-// import { TranslateIcon } from './icons/TranslateIcon';
+import { TranslateIcon } from './icons/TranslateIcon';
 import { LanguageSelector } from './LanguageSelector';
 
 export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false, isLocked = false }) {
@@ -141,6 +141,20 @@ export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false
               renderComponent={(props) => (
                 <textarea
                   ref={textareaRef}
+                  onInput={(e) => {
+                    const textarea = e.target;
+                    textarea.style.height = 'auto';
+                    const scrollHeight = textarea.scrollHeight;
+                    const maxHeight = isTranslateEnabled ? 120 : 96;
+                    if (scrollHeight <= maxHeight) {
+                      textarea.style.height = `${scrollHeight}px`;
+                      textarea.style.overflowY = 'hidden';
+                    } else {
+                      textarea.style.height = `${maxHeight}px`;
+                      textarea.style.overflowY = 'auto';
+                    }
+                    if (props.onInput) props.onInput(e);
+                  }}
                   placeholder={isCentered ? 'Ask anything...' : 'Ask followup...'}
                   className={`w-full px-3 sm:px-4 pt-3 sm:pt-4 bg-transparent border-none focus:ring-0 focus:outline-none resize-none text-gray-800 placeholder:text-gray-500 transition-colors duration-300 text-sm sm:text-base
                    ${isCentered ? 'max-h-96' : 'max-h-32'}
@@ -187,7 +201,7 @@ export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false
                   disabled={isLoading}
                   aria-label="Toggle translation"
                 >
-                  <Languages className="h-5 w-5 sm:h-6 sm:w-6" />
+                  {isTranslateEnabled ? <TranslateIcon className="h-5 w-5 sm:h-6 sm:w-6" fill='#f97316'/> : <TranslateIcon className="h-5 w-5 sm:h-6 sm:w-6"/>}
                 </button>
 
                 {isTranslateEnabled && (
