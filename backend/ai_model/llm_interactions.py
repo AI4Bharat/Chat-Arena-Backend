@@ -78,7 +78,7 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
         base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{deployment}"
     )
 
-    history_messages = process_history(history)
+    history_messages = history
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
     messages.append({"role": "user", "content": user_prompt})
@@ -92,23 +92,25 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
             top_p=0.95,
             frequency_penalty=0,
             presence_penalty=0,
+            stream=True,
             extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
         )
-
-        return response.choices[0].message.content.strip()
-
+        
+        for chunk in response:
+            if hasattr(chunk, 'choices') and chunk.choices:
+                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                    content = chunk.choices[0].delta.content
+                    if content is not None:
+                        yield content
     except Exception as e:
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
-            st = status.HTTP_400_BAD_REQUEST
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
-            st = status.HTTP_500_INTERNAL_SERVER_ERROR
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-            st = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return Response({"message": message}, status=st)
+        yield message
 
 def get_gpt3_output(system_prompt, user_prompt, history):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
@@ -118,7 +120,7 @@ def get_gpt3_output(system_prompt, user_prompt, history):
         base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}"
     )
 
-    history_messages = process_history(history)
+    history_messages = history
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
     messages.append({"role": "user", "content": user_prompt})
@@ -132,23 +134,26 @@ def get_gpt3_output(system_prompt, user_prompt, history):
             top_p=0.95,
             frequency_penalty=0,
             presence_penalty=0,
+            stream=True,
             extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
         )
-
-        return response.choices[0].message.content.strip()
+        
+        for chunk in response:
+            if hasattr(chunk, 'choices') and chunk.choices:
+                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                    content = chunk.choices[0].delta.content
+                    if content is not None:
+                        yield content
 
     except Exception as e:
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
-            st = status.HTTP_400_BAD_REQUEST
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
-            st = status.HTTP_500_INTERNAL_SERVER_ERROR
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-            st = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return Response({"message": message}, status=st)
+        yield message
 
 def get_llama2_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
@@ -181,7 +186,7 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         "Content-Type": "application/json"
     }
 
-    history = process_history(conv_history)
+    history = conv_history
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     if type(user_prompt) == list:
@@ -195,6 +200,7 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         "temperature": 0.2,
         "max_tokens": 2048,
         "top_p": 1,
+        # "stream": True
     }
     
     try:
@@ -240,15 +246,11 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
-            st = status.HTTP_400_BAD_REQUEST
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
-            st = status.HTTP_500_INTERNAL_SERVER_ERROR
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-            st = status.HTTP_500_INTERNAL_SERVER_ERROR
         yield message
-        # return Response({"message": message}, status=st)
     
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
