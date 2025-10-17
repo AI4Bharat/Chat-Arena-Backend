@@ -216,6 +216,7 @@ export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false
               </div>
 
               <div className="flex items-center gap-1">
+                {isTranslateEnabled &&
                 <button
                   type="button"
                   ref={micButtonRef}
@@ -236,7 +237,7 @@ export function MessageInput({ sessionId, modelAId, modelBId, isCentered = false
                   ) : (
                     <Mic size={18} className="sm:w-5 sm:h-5" />
                   )}
-                </button>
+                </button>}
                 <button
                   type="button"
                   onClick={() => toast('Image upload coming soon!')}
