@@ -1,4 +1,4 @@
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               aiohappyeyeballs==2.6.1
+aiohappyeyeballs==2.6.1
 aiohttp==3.12.15
 aiosignal==1.4.0
 amqp==5.3.1
@@ -33,6 +33,7 @@ djangorestframework==3.16.1
 djangorestframework-simplejwt==5.2.2
 dotenv==0.9.9
 drf-yasg==1.21.11
+ffmpeg
 filelock==3.19.1
 frozenlist==1.7.0
 gcloud==0.18.3
@@ -127,3 +128,4 @@ wheel==0.45.1
 yarl==1.20.1
 zope.interface==8.0.1
 locust == 2.29.0
+
