@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     meson \
     cmake
+    ffmpeg
 
 COPY ./deploy/requirements.txt /usr/src/backend/requirements.txt
 RUN pip install --default-timeout=200 -r requirements.txt
