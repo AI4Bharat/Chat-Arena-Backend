@@ -14,7 +14,7 @@ class ArenaUser(HttpUser):
             headers={"Content-Type": "application/json"},
             catch_response=True,
         ) as auth_response:
-            if auth_response.status_code == 200:
+            if auth_response.status_code in [200, 201]:
                 auth_data = auth_response.json()
 
                 print("Starting create_session_and_stream task...")
@@ -35,7 +35,7 @@ class ArenaUser(HttpUser):
                 ) as session_response:
                     print(f"Received session response: {session_response.status_code}")
 
-                    if session_response.status_code == 200:
+                    if session_response.status_code in [200, 201]:
                         try:
                             session_data = session_response.json()
                             print(f"Session response JSON: {json.dumps(session_data, indent=2)}")
