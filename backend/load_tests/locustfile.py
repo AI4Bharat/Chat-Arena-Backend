@@ -22,8 +22,8 @@ class ArenaUser(HttpUser):
                 # Step 1: Create Session
                 session_payload = {
                     "mode": "random",
-                    "model_a_id": "",
-                    "model_b_id": ""
+                    "model_a_id": None,
+                    "model_b_id": None
                 }
                 print(f"Sending session creation request with payload: {session_payload}")
 
