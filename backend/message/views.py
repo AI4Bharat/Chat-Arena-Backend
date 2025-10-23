@@ -2,7 +2,7 @@ from ai_model.llm_interactions import get_model_output
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 import asyncio
 from message.models import Message
@@ -365,7 +365,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         })
     
 class TransliterationAPIView(APIView):
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request, target_language, data, *args, **kwargs):
         response_transliteration = requests.get(
@@ -407,7 +407,7 @@ def convert_audio_base64_to_mp3(input_base64):
         return None
         
 class TranscribeAPIView(APIView):
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         data = request.data
