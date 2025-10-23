@@ -1,95 +1,114 @@
-# locustfile.py
 from locust import HttpUser, task, between
-from dotenv import load_dotenv
-from pathlib import Path
-import os
+import json
+import uuid
+import random
 
-
-# Fetch credentials
-EMAIL = os.getenv("EMAIL") 
-PASSWORD = os.getenv("PASSWORD")
-
-
-class ProjectUser(HttpUser):
-    wait_time = between(1, 2)
+class ArenaUser(HttpUser):
+    wait_time = between(1, 3)  # Simulate think time (1–3 sec gap)
 
     @task
-    def create_project(self):
-        login_payload = {"email": EMAIL, "password": PASSWORD}
-        login_headers = {"Content-Type": "application/json"}
+    def create_session_and_stream(self):
+        print("Starting create_session_and_stream task...")
 
-        with self.client.post("/users/auth/jwt/create",
-                              json=login_payload,
-                              headers=login_headers,
-                              catch_response=True) as login_resp:
-            if login_resp.status_code == 200:
-                access_token = login_resp.json().get("access")
-                if access_token:
-                    auth_headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-                    # Example POST to /projects/ with payload
-                    project_payload = {
-                        "name": "LoadTest project",
-                        "description": "created by locust",
+        # Step 1: Create Session
+        session_payload = {
+            "mode": "random",
+            "model_a_id": "",
+            "model_b_id": ""
+        }
+        print(f"Sending session creation request with payload: {session_payload}")
+
+        with self.client.post(
+            "/sessions/",
+            data=json.dumps(session_payload),
+            headers={"Content-Type": "application/json"},
+            catch_response=True,
+        ) as session_response:
+            print(f"Received session response: {session_response.status_code}")
+
+            if session_response.status_code == 200:
+                try:
+                    session_data = session_response.json()
+                    print(f"Session response JSON: {json.dumps(session_data, indent=2)}")
+
+                    session_id = session_data.get("id")
+                    model_a_id = session_data.get("model_a", {}).get("id")
+                    model_b_id = session_data.get("model_b", {}).get("id")
+
+                    # Validate essential fields
+                    if not session_id:
+                        session_response.failure("No session ID in response")
+                        print("Failed: No session ID in response")
+                        return
+                    if not model_a_id or not model_b_id:
+                        session_response.failure("Missing model IDs in session response")
+                        print(f"Failed: model_a_id={model_a_id}, model_b_id={model_b_id}")
+                        return
+
+                    print(f"Session created successfully with ID: {session_id}")
+                    print(f"Using model_a_id: {model_a_id}")
+                    print(f"Using model_b_id: {model_b_id}")
+
+                    # Step 2: Generate dynamic messages payload
+                    user_msg_id = str(uuid.uuid4())
+                    assistant_a_id = str(uuid.uuid4())
+                    assistant_b_id = str(uuid.uuid4())
+                    user_message = random.choice(["hi", "hello", "how are you?", "good morning", "hey there!"])
+
+                    message_payload = {
+                        "session_id": session_id,
+                        "messages": [
+                            {
+                                "id": user_msg_id,
+                                "role": "user",
+                                "content": user_message,
+                                "parent_message_ids": [],
+                                "status": "pending"
+                            },
+                            {
+                                "id": assistant_a_id,
+                                "role": "assistant",
+                                "content": "",
+                                "parent_message_ids": [user_msg_id],
+                                "modelId": model_a_id,
+                                "status": "pending",
+                                "participant": "a"
+                            },
+                            {
+                                "id": assistant_b_id,
+                                "role": "assistant",
+                                "content": "",
+                                "parent_message_ids": [user_msg_id],
+                                "modelId": model_b_id,
+                                "status": "pending",
+                                "participant": "b"
+                            }
+                        ]
                     }
-                    with self.client.post("/projects/", json=project_payload, headers=auth_headers, catch_response=True) as resp:
-                        if resp.status_code in (200, 201):
-                            resp.success()
+
+                    print(f"Sending message payload:\n{json.dumps(message_payload, indent=2)}")
+
+                    # Step 3: Send message stream request
+                    with self.client.post(
+                        "/messages/stream/",
+                        data=json.dumps(message_payload),
+                        headers={"Content-Type": "application/json"},
+                        catch_response=True,
+                    ) as message_response:
+                        print(f"Received message stream response: {message_response.status_code}")
+                        if message_response.status_code not in [200, 201]:
+                            message_response.failure(
+                                f"Stream failed ({message_response.status_code})"
+                            )
+                            print(f"Stream failed with status: {message_response.status_code}")
                         else:
-                            resp.failure(f"Project POST failed: {resp.status_code} | {resp.text}")
-                else:
-                    login_resp.failure("Login succeeded but no access token in response")
+                            print("Message streamed successfully!")
+
+                except Exception as e:
+                    session_response.failure(f"Error parsing response: {e}")
+                    print(f"Exception occurred while parsing session response: {e}")
             else:
-                login_resp.failure(f"Login failed: {login_resp.status_code} | {login_resp.text}")
+                session_response.failure(f"Session creation failed: {session_response.status_code}")
+                print(f"Session creation failed with status: {session_response.status_code}")
 
-
-### A simpler locustfile that only does GET API when env loading is not needed and no authentication is required:
-
-# from locust import HttpUser, task, between
-
-# class ProjectUser(HttpUser):
-#     wait_time = between(1, 2)
-
-#     @task
-#     def get_projects(self):
-#         self.client.get("/projects/")
-
-
-
-
-
-### requires authentication (JWT or token)
-
-# from locust import HttpUser, task, between
-
-# class ProjectUser(HttpUser):
-#     wait_time = between(1, 2)
-
-#     # Use a valid JWT token from your Django app (copy from Postman or browser)
-#     access_token = "YOUR_VALID_JWT_ACCESS_TOKEN"
-
-#     @task
-#     def get_projects(self):
-#         headers = {
-#             "Authorization": f"Bearer {self.access_token}",
-#             "Content-Type": "application/json"
-#         }
-#         self.client.get("/projects/", headers=headers)
-
-
-### If Api Requires Some Payload in GET Request
-
-# from locust import HttpUser, task, between
-
-# class ProjectUser(HttpUser):
-#     wait_time = between(1, 2)
-
-#     @task
-#     def create_project(self):
-#         payload = {
-#             "name": "Test Project",
-#             "description": "This is a load test project from Locust"
-#         }
-#         headers = {"Content-Type": "application/json"}
-
-#         self.client.post("/projects/", json=payload, headers=headers)
 
