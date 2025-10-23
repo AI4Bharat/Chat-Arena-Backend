@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
     gir1.2-glib-2.0 \
     build-essential \
     meson \
-    cmake
+    cmake \
     ffmpeg
 
 COPY ./deploy/requirements.txt /usr/src/backend/requirements.txt
