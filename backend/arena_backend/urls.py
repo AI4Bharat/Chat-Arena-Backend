@@ -18,6 +18,7 @@ from django.urls import path, include
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework import permissions, routers
+from . import health
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -33,6 +34,12 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    # Health check endpoints (must be first for load balancers)
+    path('health/', health.health, name='health'),
+    path('ready/', health.readiness, name='readiness'),
+    path('live/', health.liveness, name='liveness'),
+    path('status/', health.detailed_status, name='detailed-status'),
+
     path("admin/", admin.site.urls),
     path('accounts/', include('django.contrib.auth.urls')),
     path('', include('user.urls')),
