@@ -1,0 +1,287 @@
+"""
+Health check endpoints for load balancer and monitoring.
+
+These endpoints are used by:
+- Nginx upstream health checks
+- Kubernetes liveness/readiness probes
+- External monitoring systems
+"""
+import logging
+from django.http import JsonResponse
+from django.db import connection
+from django.core.cache import cache
+from django.conf import settings
+import time
+
+logger = logging.getLogger(__name__)
+
+
+def health(request):
+    """
+    Basic health check endpoint.
+
+    Returns 200 OK if the service is running.
+    Used by load balancers for basic connectivity checks.
+    """
+    return JsonResponse({
+        'status': 'healthy',
+        'service': 'arena-backend',
+        'timestamp': time.time()
+    }, status=200)
+
+
+def liveness(request):
+    """
+    Liveness probe endpoint.
+
+    Checks if the application process is alive and responsive.
+    If this fails, the container should be restarted.
+
+    Returns:
+        200 OK: Application is alive
+        500 Error: Application is deadlocked or unresponsive
+    """
+    try:
+        # Simple check - if we can respond, we're alive
+        return JsonResponse({
+            'status': 'alive',
+            'timestamp': time.time()
+        }, status=200)
+    except Exception as e:
+        logger.error(f"Liveness check failed: {str(e)}")
+        return JsonResponse({
+            'status': 'dead',
+            'error': str(e),
+            'timestamp': time.time()
+        }, status=500)
+
+
+def readiness(request):
+    """
+    Readiness probe endpoint.
+
+    Checks if the application is ready to serve traffic.
+    Tests critical dependencies:
+    - Database connectivity
+    - Redis cache connectivity
+
+    Returns:
+        200 OK: Application is ready to serve traffic
+        503 Service Unavailable: Application is not ready (still starting or dependencies down)
+    """
+    checks = {}
+    all_ready = True
+
+    # Check database connectivity
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+        checks['database'] = 'ok'
+    except Exception as e:
+        checks['database'] = f'failed: {str(e)}'
+        all_ready = False
+        logger.error(f"Database readiness check failed: {str(e)}")
+
+    # Check Redis cache connectivity
+    try:
+        cache.set('health_check', 'ok', timeout=10)
+        result = cache.get('health_check')
+        if result == 'ok':
+            checks['cache'] = 'ok'
+        else:
+            checks['cache'] = 'failed: cache read/write mismatch'
+            all_ready = False
+    except Exception as e:
+        checks['cache'] = f'failed: {str(e)}'
+        all_ready = False
+        logger.error(f"Cache readiness check failed: {str(e)}")
+
+    status_code = 200 if all_ready else 503
+    response_data = {
+        'status': 'ready' if all_ready else 'not_ready',
+        'checks': checks,
+        'timestamp': time.time()
+    }
+
+    return JsonResponse(response_data, status=status_code)
+
+
+def detailed_status(request):
+    """
+    Detailed status endpoint for monitoring and debugging.
+
+    Provides comprehensive information about the application state:
+    - Python version
+    - Django version
+    - Database status
+    - Cache status
+    - Configuration summary
+
+    Should be used by monitoring dashboards, not load balancers.
+    """
+    import sys
+    import django
+
+    checks = {}
+
+    # Database check
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT version()")
+            db_version = cursor.fetchone()[0]
+        checks['database'] = {
+            'status': 'connected',
+            'engine': settings.DATABASES['default']['ENGINE'],
+            'name': settings.DATABASES['default']['NAME'],
+            'host': settings.DATABASES['default'].get('HOST', 'localhost'),
+            'version': db_version
+        }
+    except Exception as e:
+        checks['database'] = {
+            'status': 'error',
+            'error': str(e)
+        }
+
+    # Cache check
+    try:
+        cache.set('status_check', 'test', timeout=10)
+        result = cache.get('status_check')
+        checks['cache'] = {
+            'status': 'connected' if result == 'test' else 'error',
+            'backend': settings.CACHES['default']['BACKEND'],
+            'location': settings.CACHES['default']['LOCATION']
+        }
+    except Exception as e:
+        checks['cache'] = {
+            'status': 'error',
+            'error': str(e)
+        }
+
+    return JsonResponse({
+        'status': 'operational',
+        'service': 'arena-backend',
+        'python_version': sys.version,
+        'django_version': django.get_version(),
+        'debug_mode': settings.DEBUG,
+        'checks': checks,
+        'timestamp': time.time()
+    }, status=200)
+
+
+def database_connections(request):
+    """
+    Database connection monitoring endpoint.
+
+    Provides information about database connection pool usage.
+    Useful for monitoring connection exhaustion and pool efficiency.
+
+    Returns:
+        200 OK: Connection statistics
+        500 Error: Failed to retrieve connection info
+    """
+    import os
+
+    connection_info = {}
+
+    try:
+        # Get Django connection info
+        from django.db import connections
+
+        for db_name in connections:
+            db_conn = connections[db_name]
+
+            # Try to get connection pool info
+            try:
+                # For PostgreSQL, we can query active connections
+                with db_conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT count(*) as total_connections,
+                               count(*) FILTER (WHERE state = 'active') as active,
+                               count(*) FILTER (WHERE state = 'idle') as idle
+                        FROM pg_stat_activity
+                        WHERE datname = current_database()
+                    """)
+                    row = cursor.fetchone()
+
+                    connection_info[db_name] = {
+                        'total_connections': row[0],
+                        'active_connections': row[1],
+                        'idle_connections': row[2],
+                        'conn_max_age': settings.DATABASES[db_name].get('CONN_MAX_AGE', 0),
+                        'using_pgbouncer': db_conn.settings_dict.get('PORT') == '6432',
+                        'host': db_conn.settings_dict.get('HOST', 'unknown'),
+                        'port': db_conn.settings_dict.get('PORT', 'unknown'),
+                    }
+
+            except Exception as query_error:
+                # If we can't query connection stats, provide basic info
+                connection_info[db_name] = {
+                    'status': 'connected',
+                    'conn_max_age': settings.DATABASES[db_name].get('CONN_MAX_AGE', 0),
+                    'using_pgbouncer': db_conn.settings_dict.get('PORT') == '6432',
+                    'host': db_conn.settings_dict.get('HOST', 'unknown'),
+                    'port': db_conn.settings_dict.get('PORT', 'unknown'),
+                    'note': 'Connection pool statistics not available',
+                    'error': str(query_error)
+                }
+
+    except Exception as e:
+        logger.error(f"Database connection monitoring failed: {str(e)}")
+        connection_info['error'] = str(e)
+
+    # Add PgBouncer info if available
+    pgbouncer_info = {}
+    if os.getenv('DB_HOST') == 'pgbouncer' or settings.DATABASES['default'].get('HOST') == 'pgbouncer':
+        pgbouncer_info = {
+            'enabled': True,
+            'port': '6432',
+            'pool_mode': 'transaction',
+            'default_pool_size': 25,
+            'max_client_conn': 1000,
+            'note': 'Using PgBouncer for connection pooling'
+        }
+    else:
+        pgbouncer_info = {
+            'enabled': False,
+            'note': 'Direct PostgreSQL connection (no PgBouncer)'
+        }
+
+    # Container info
+    container_name = os.getenv('CONTAINER_NAME', 'unknown')
+
+    return JsonResponse({
+        'container': container_name,
+        'timestamp': time.time(),
+        'connections': connection_info,
+        'pgbouncer': pgbouncer_info,
+        'recommendations': _get_connection_recommendations(connection_info)
+    }, status=200)
+
+
+def _get_connection_recommendations(connection_info):
+    """Generate recommendations based on connection statistics."""
+    recommendations = []
+
+    for db_name, info in connection_info.items():
+        if isinstance(info, dict) and 'total_connections' in info:
+            total = info.get('total_connections', 0)
+            active = info.get('active_connections', 0)
+
+            # Check for high connection usage
+            if total > 80:
+                recommendations.append(
+                    f"{db_name}: High connection count ({total}). Consider using PgBouncer."
+                )
+
+            # Check for too many idle connections
+            idle = info.get('idle_connections', 0)
+            if idle > 50 and idle > active * 2:
+                recommendations.append(
+                    f"{db_name}: Many idle connections ({idle}). Check CONN_MAX_AGE setting."
+                )
+
+    if not recommendations:
+        recommendations.append("Connection pool looks healthy.")
+
+    return recommendations
