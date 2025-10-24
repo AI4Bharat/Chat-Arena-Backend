@@ -63,6 +63,40 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
+def get_gpt5_output(system_prompt, user_prompt, history):
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY_GPT_5")
+    )
+
+    input_items = [{"role": "system", "content": system_prompt}]
+    input_items.extend(history)
+    input_items.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = client.responses.create(
+            model="gpt-5",
+            input=input_items,
+            reasoning={"effort": "medium"},
+            text={"verbosity": "medium"},
+            stream=True,
+        )
+
+        for event in response:
+            if event.type == "response.output_text.delta":
+                yield event.delta
+            elif event.type == "response.completed":
+                break
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM."
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+        yield message
+
 def get_gpt4_output(system_prompt, user_prompt, history, model):
     if model == "GPT4":
         deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4")
@@ -259,6 +293,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_gpt3_output(system_prompt, user_prompt, history)
     elif model in [GPT4, GPT4O, GPT4OMini]:
         out = get_gpt4_output(system_prompt, user_prompt, history, model)
+    elif model == "GPT5":
+        out = get_gpt5_output(system_prompt, user_prompt, history)
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt)
     elif model == SARVAM_M:
@@ -279,6 +315,8 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
             results[model] = get_gpt3_output(system_prompt, user_prompt, model_history)
         elif model in [GPT4, GPT4O, GPT4OMini]:
             results[model] = get_gpt4_output(system_prompt, user_prompt, model_history, model)
+        elif model == "GPT5":
+            results[model] = get_gpt5_output(system_prompt, user_prompt, model_history)
         elif model == LLAMA2:
             results[model] = get_llama2_output(system_prompt, model_history, user_prompt)
         elif model == SARVAM_M:
