@@ -167,3 +167,121 @@ def detailed_status(request):
         'checks': checks,
         'timestamp': time.time()
     }, status=200)
+
+
+def database_connections(request):
+    """
+    Database connection monitoring endpoint.
+
+    Provides information about database connection pool usage.
+    Useful for monitoring connection exhaustion and pool efficiency.
+
+    Returns:
+        200 OK: Connection statistics
+        500 Error: Failed to retrieve connection info
+    """
+    import os
+
+    connection_info = {}
+
+    try:
+        # Get Django connection info
+        from django.db import connections
+
+        for db_name in connections:
+            db_conn = connections[db_name]
+
+            # Try to get connection pool info
+            try:
+                # For PostgreSQL, we can query active connections
+                with db_conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT count(*) as total_connections,
+                               count(*) FILTER (WHERE state = 'active') as active,
+                               count(*) FILTER (WHERE state = 'idle') as idle
+                        FROM pg_stat_activity
+                        WHERE datname = current_database()
+                    """)
+                    row = cursor.fetchone()
+
+                    connection_info[db_name] = {
+                        'total_connections': row[0],
+                        'active_connections': row[1],
+                        'idle_connections': row[2],
+                        'conn_max_age': settings.DATABASES[db_name].get('CONN_MAX_AGE', 0),
+                        'using_pgbouncer': db_conn.settings_dict.get('PORT') == '6432',
+                        'host': db_conn.settings_dict.get('HOST', 'unknown'),
+                        'port': db_conn.settings_dict.get('PORT', 'unknown'),
+                    }
+
+            except Exception as query_error:
+                # If we can't query connection stats, provide basic info
+                connection_info[db_name] = {
+                    'status': 'connected',
+                    'conn_max_age': settings.DATABASES[db_name].get('CONN_MAX_AGE', 0),
+                    'using_pgbouncer': db_conn.settings_dict.get('PORT') == '6432',
+                    'host': db_conn.settings_dict.get('HOST', 'unknown'),
+                    'port': db_conn.settings_dict.get('PORT', 'unknown'),
+                    'note': 'Connection pool statistics not available',
+                    'error': str(query_error)
+                }
+
+    except Exception as e:
+        logger.error(f"Database connection monitoring failed: {str(e)}")
+        connection_info['error'] = str(e)
+
+    # Add PgBouncer info if available
+    pgbouncer_info = {}
+    if os.getenv('DB_HOST') == 'pgbouncer' or settings.DATABASES['default'].get('HOST') == 'pgbouncer':
+        pgbouncer_info = {
+            'enabled': True,
+            'port': '6432',
+            'pool_mode': 'transaction',
+            'default_pool_size': 25,
+            'max_client_conn': 1000,
+            'note': 'Using PgBouncer for connection pooling'
+        }
+    else:
+        pgbouncer_info = {
+            'enabled': False,
+            'note': 'Direct PostgreSQL connection (no PgBouncer)'
+        }
+
+    # Container info
+    container_name = os.getenv('CONTAINER_NAME', 'unknown')
+
+    return JsonResponse({
+        'container': container_name,
+        'timestamp': time.time(),
+        'connections': connection_info,
+        'pgbouncer': pgbouncer_info,
+        'recommendations': _get_connection_recommendations(connection_info)
+    }, status=200)
+
+
+def _get_connection_recommendations(connection_info):
+    """Generate recommendations based on connection statistics."""
+    recommendations = []
+
+    for db_name, info in connection_info.items():
+        if isinstance(info, dict) and 'total_connections' in info:
+            total = info.get('total_connections', 0)
+            active = info.get('active_connections', 0)
+
+            # Check for high connection usage
+            if total > 80:
+                recommendations.append(
+                    f"{db_name}: High connection count ({total}). Consider using PgBouncer."
+                )
+
+            # Check for too many idle connections
+            idle = info.get('idle_connections', 0)
+            if idle > 50 and idle > active * 2:
+                recommendations.append(
+                    f"{db_name}: Many idle connections ({idle}). Check CONN_MAX_AGE setting."
+                )
+
+    if not recommendations:
+        recommendations.append("Connection pool looks healthy.")
+
+    return recommendations

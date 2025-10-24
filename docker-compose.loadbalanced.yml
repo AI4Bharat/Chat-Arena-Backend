@@ -72,6 +72,38 @@ services:
       timeout: 3s
       retries: 3
 
+  # PgBouncer - PostgreSQL Connection Pooler
+  # Manages database connections efficiently across multiple Django containers
+  # Reduces connection overhead and prevents connection exhaustion
+  pgbouncer:
+    build: ./pgbouncer
+    container_name: pgbouncer
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    ports:
+      - "6432:6432"  # PgBouncer port
+    restart: unless-stopped
+    networks:
+      - arena-network
+    healthcheck:
+      test: ["CMD-SHELL", "psql postgresql://${DB_USER}:${DB_PASSWORD}@localhost:6432/${DB_NAME}?sslmode=disable -c 'SELECT 1' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
   # Django Backend - 10 replicas for load balancing
   web-1:
     build: ./backend
@@ -87,8 +119,12 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - CONTAINER_NAME=web-1
+      # Database connection through PgBouncer (recommended)
+      # To use: Set DB_HOST=pgbouncer and DB_PORT=6432 in config.env
+      # Or set directly: DB_HOST=${DB_HOST:-pgbouncer} and DB_PORT=${DB_PORT:-6432}
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -123,6 +159,7 @@ services:
       - CONTAINER_NAME=web-2
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -157,6 +194,7 @@ services:
       - CONTAINER_NAME=web-3
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -191,6 +229,7 @@ services:
       - CONTAINER_NAME=web-4
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -225,6 +264,7 @@ services:
       - CONTAINER_NAME=web-5
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -259,6 +299,7 @@ services:
       - CONTAINER_NAME=web-6
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -293,6 +334,7 @@ services:
       - CONTAINER_NAME=web-7
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -327,6 +369,7 @@ services:
       - CONTAINER_NAME=web-8
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -361,6 +404,7 @@ services:
       - CONTAINER_NAME=web-9
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network
@@ -395,6 +439,7 @@ services:
       - CONTAINER_NAME=web-10
     depends_on:
       - redis
+      - pgbouncer
     restart: unless-stopped
     networks:
       - arena-network

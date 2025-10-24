@@ -39,6 +39,7 @@ urlpatterns = [
     path('ready/', health.readiness, name='readiness'),
     path('live/', health.liveness, name='liveness'),
     path('status/', health.detailed_status, name='detailed-status'),
+    path('db/connections/', health.database_connections, name='database-connections'),
 
     path("admin/", admin.site.urls),
     path('accounts/', include('django.contrib.auth.urls')),

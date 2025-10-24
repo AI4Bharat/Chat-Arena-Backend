@@ -160,6 +160,8 @@ CORS_ALLOW_HEADERS = [
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 
+# Database Configuration with Connection Pooling
+# For load-balanced deployment with multiple containers
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -168,8 +170,45 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
+        # Connection pooling settings
+        "CONN_MAX_AGE": 600,  # Keep connections alive for 10 minutes (persistent connections)
+        "OPTIONS": {
+            "connect_timeout": 10,  # Connection timeout in seconds
+            "options": "-c statement_timeout=30000",  # 30 second query timeout
+        },
+        # Connection health checks
+        "CONN_HEALTH_CHECKS": True,  # Test connections before using them (Django 4.1+)
     }
 }
+
+# Database connection pool size per container
+# With 10 containers and default settings, max connections = 10 * pool_size
+# Ensure PostgreSQL max_connections is set high enough (recommended: 200+)
+# Or use PgBouncer for connection pooling at the database layer
+
+# Database Read Replica Configuration (Optional)
+# Uncomment and configure when you have read replicas set up
+# This allows read-heavy operations to use replica databases
+if os.getenv("DB_READ_HOST"):
+    DATABASES["read_replica"] = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_READ_USER", os.getenv("DB_USER")),
+        "PASSWORD": os.getenv("DB_READ_PASSWORD", os.getenv("DB_PASSWORD")),
+        "HOST": os.getenv("DB_READ_HOST"),
+        "PORT": os.getenv("DB_READ_PORT", os.getenv("DB_PORT")),
+        "CONN_MAX_AGE": 600,
+        "OPTIONS": {
+            "connect_timeout": 10,
+            "options": "-c statement_timeout=30000",
+        },
+        "CONN_HEALTH_CHECKS": True,
+    }
+
+    # Enable database router for read/write splitting
+    DATABASE_ROUTERS = ['arena_backend.db_router.ReadReplicaRouter']
+else:
+    DATABASE_ROUTERS = []
 
 
 # Password validation

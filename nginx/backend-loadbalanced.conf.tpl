@@ -87,12 +87,14 @@ location ~ ^/(messages/stream|chat/stream) {
     proxy_next_upstream_timeout 10s;
 }
 
-# WebSocket endpoints
+# WebSocket endpoints with sticky sessions
+# Uses IP hash to ensure same client connects to same backend
 location /ws/ {
     # Rate limiting
     limit_req zone=general_limit burst=50 nodelay;
 
-    proxy_pass http://django_backend;
+    # Use sticky session upstream for WebSocket
+    proxy_pass http://django_websocket;
 
     # WebSocket upgrade headers
     proxy_http_version 1.1;
@@ -112,6 +114,10 @@ location /ws/ {
 
     # No buffering for WebSocket
     proxy_buffering off;
+
+    # Sticky session support
+    # Clients with same IP will be routed to same backend
+    # This helps with WebSocket reconnections and stateful operations
 }
 
 # Authentication endpoints
