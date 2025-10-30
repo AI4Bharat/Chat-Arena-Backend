@@ -261,7 +261,77 @@ class MessageViewSet(viewsets.ModelViewSet):
     
         return StreamingHttpResponse(generate(), content_type='text/plain')
 
-    
+    @action(detail=True, methods=['post'])
+    def regenerate(self, request, pk=None):
+        """Regenerate a specific assistant message"""
+        try:
+            assistant_message = self.get_object()
+            
+            if assistant_message.role != 'assistant':
+                return Response(
+                    {'error': 'Can only regenerate assistant messages'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            parent_message_id = assistant_message.parent_message_ids[0] if assistant_message.parent_message_ids else None
+            if not parent_message_id:
+                return Response(
+                    {'error': 'No parent message found'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            user_message = Message.objects.get(id=parent_message_id, session=assistant_message.session)
+            
+            # assistant_message.content = ""
+            assistant_message.status = "pending"
+            assistant_message.save()
+            
+            session = assistant_message.session
+            
+            def generate():
+                participant = assistant_message.participant
+                history = MessageService._get_conversation_history(session, participant)
+                if participant == None:
+                    participant = 'a'
+                
+                try:                
+                    if history and history[-1]['role'] == 'assistant':
+                        history.pop()
+                    if history and history[-1]['role'] == 'user':
+                        history.pop()
+                    
+                    full_content = ""
+                    model = session.model_a if participant == 'a' else session.model_b
+                    for chunk in get_model_output(
+                        system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
+                        user_prompt=user_message.content,
+                        history=history,
+                        model=model.model_code,
+                    ):
+                        if chunk:
+                            full_content += chunk
+                            escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
+                            yield f'{participant}0:"{escaped_chunk}"\n'
+                    
+                    assistant_message.content = full_content
+                    assistant_message.status = 'success'
+                    assistant_message.save()
+                    
+                    yield f'{participant}d:{"finishReason":"stop"}\n'
+                except Exception as e:
+                    assistant_message.status = 'error'
+                    assistant_message.save()
+                    yield f'{participant}d:{{"finishReason":"error","error":"{str(e)}"}}\n'
+        
+            return StreamingHttpResponse(generate(), content_type='text/plain')
+            
+        except Message.DoesNotExist:
+            return Response(
+                {'error': 'Message not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        
     @action(detail=True, methods=['get'])
     def tree(self, request, pk=None):
         """Get message tree starting from this message"""
@@ -303,37 +373,37 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
     
-    @action(detail=True, methods=['post'])
-    def regenerate(self, request, pk=None):
-        """Regenerate an assistant message"""
-        message = self.get_object()
-        serializer = MessageRegenerateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    # @action(detail=True, methods=['post'])
+    # def regenerate(self, request, pk=None):
+    #     """Regenerate an assistant message"""
+    #     message = self.get_object()
+    #     serializer = MessageRegenerateSerializer(data=request.data)
+    #     serializer.is_valid(raise_exception=True)
         
-        # Create regenerated message
-        new_message = MessageService.regenerate_message(
-            message=message,
-            **serializer.validated_data
-        )
+    #     # Create regenerated message
+    #     new_message = MessageService.regenerate_message(
+    #         message=message,
+    #         **serializer.validated_data
+    #     )
         
-        # Stream the regenerated response
-        generator = MessageService.stream_assistant_message(
-            session=message.session,
-            user_message=Message.objects.get(id=message.parent_message_ids[0]),
-            model=new_message.model,
-            participant=message.participant,
-            temperature=serializer.validated_data['temperature'],
-            max_tokens=serializer.validated_data['max_tokens']
-        )
+    #     # Stream the regenerated response
+    #     generator = MessageService.stream_assistant_message(
+    #         session=message.session,
+    #         user_message=Message.objects.get(id=message.parent_message_ids[0]),
+    #         model=new_message.model,
+    #         participant=message.participant,
+    #         temperature=serializer.validated_data['temperature'],
+    #         max_tokens=serializer.validated_data['max_tokens']
+    #     )
         
-        # Update the new message ID in the generator
-        async def update_generator():
-            async for item in generator:
-                if item.get('message_id'):
-                    item['message_id'] = str(new_message.id)
-                yield item
+    #     # Update the new message ID in the generator
+    #     async def update_generator():
+    #         async for item in generator:
+    #             if item.get('message_id'):
+    #                 item['message_id'] = str(new_message.id)
+    #             yield item
         
-        return StreamingManager.create_streaming_response(update_generator())
+    #     return StreamingManager.create_streaming_response(update_generator())
     
     @action(detail=False, methods=['get'])
     def conversation_path(self, request):
