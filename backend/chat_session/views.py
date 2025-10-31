@@ -17,6 +17,7 @@ from chat_session.services import ChatSessionService
 from chat_session.permissions import IsSessionOwner, CanAccessSharedSession
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
 from ai_model.llm_interactions import get_model_output
+import re
 
 
 class ChatSessionViewSet(viewsets.ModelViewSet):
@@ -309,6 +310,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                     title_chunks.append(chunk)
             
             generated_title = ''.join(title_chunks).strip()
+            generated_title = re.sub(r'^"(.*)"$', r'\1', generated_title)
             
             if len(generated_title) > 50:
                 generated_title = generated_title[:47] + "..."
