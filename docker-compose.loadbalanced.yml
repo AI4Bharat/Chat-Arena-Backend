@@ -81,6 +81,8 @@ services:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
       - logs_vol:/logs
+    env_file:
+      - ./config.env
     expose:
       - 8000
     environment:
@@ -111,6 +113,8 @@ services:
     build: ./backend
     container_name: arena-web-2
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -145,6 +149,8 @@ services:
     build: ./backend
     container_name: arena-web-3
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -179,6 +185,8 @@ services:
     build: ./backend
     container_name: arena-web-4
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -213,6 +221,8 @@ services:
     build: ./backend
     container_name: arena-web-5
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -247,6 +257,8 @@ services:
     build: ./backend
     container_name: arena-web-6
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -281,6 +293,8 @@ services:
     build: ./backend
     container_name: arena-web-7
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -315,6 +329,8 @@ services:
     build: ./backend
     container_name: arena-web-8
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -349,6 +365,8 @@ services:
     build: ./backend
     container_name: arena-web-9
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -383,6 +401,8 @@ services:
     build: ./backend
     container_name: arena-web-10
     command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
