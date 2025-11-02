@@ -31,7 +31,7 @@ SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['http://127.0.0.1:3000','98.70.28.77', 'localhost', '127.0.0.1', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org', '98.70.28.77:443', "ai4bharat.github.io"]
+ALLOWED_HOSTS = ['http://127.0.0.1:3000','98.70.28.77', 'localhost', '127.0.0.1', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org']
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
