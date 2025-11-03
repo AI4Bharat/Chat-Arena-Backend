@@ -37,6 +37,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
     "https://dev.arena.ai4bharat.org",
     "https://*.arena.ai4bharat.org",
+    "https://backend.arena.ai4bharat.org",
+    "https://arena.ai4bharat.org",
 ]
 
 CSRF_COOKIE_SECURE = True
@@ -141,6 +143,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "https://ai4bharat.github.io",
     "https://dev.arena.ai4bharat.org",
+    "https://arena.ai4bharat.org",
+    "https://backend.arena.ai4bharat.org",
 ]
 
 CORS_ALLOW_HEADERS = [
