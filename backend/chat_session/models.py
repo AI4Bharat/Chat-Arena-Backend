@@ -50,10 +50,10 @@ class ChatSession(models.Model):
     
     def save(self, *args, **kwargs):
         # Generate title if not provided
-        if not self.title and self.pk:
-            first_message = self.messages.filter(role='user').first()
-            if first_message:
-                self.title = first_message.content[:50] + "..." if len(first_message.content) > 50 else first_message.content
+        # if not self.title and self.pk:
+        #     first_message = self.messages.filter(role='user').first()
+        #     if first_message:
+        #         self.title = first_message.content[:50] + "..." if len(first_message.content) > 50 else first_message.content
         
         # Set expiration for anonymous users
         if self.user.is_anonymous and not self.expires_at:

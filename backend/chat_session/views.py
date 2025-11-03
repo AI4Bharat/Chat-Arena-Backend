@@ -16,6 +16,8 @@ from chat_session.serializers import (
 from chat_session.services import ChatSessionService
 from chat_session.permissions import IsSessionOwner, CanAccessSharedSession
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
+from ai_model.llm_interactions import get_model_output
+import re
 
 
 class ChatSessionViewSet(viewsets.ModelViewSet):
@@ -273,6 +275,60 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         }
         
         return Response(response_data)
+    
+    @action(detail=True, methods=['post'])
+    def generate_title(self, request, pk=None):
+        """Generate AI-based title for the session"""
+        session = self.get_object()
+        
+        first_user_message = session.messages.filter(role='user').first()
+        if not first_user_message:
+            return Response({'error': 'No messages in session'}, status=400)
+        
+        prompt = f"""Based on this message, create a brief title (max 5 words).
+
+        Message: {first_user_message.content}
+
+        Rules:
+        - No quotes or quotation marks
+        - No colons or special punctuation
+        - Simple, direct phrasing
+        - Capitalize appropriately
+        - Be descriptive but concise
+
+        Return only the title text, nothing else."""
+        
+        try:
+            title_chunks = []
+            for chunk in get_model_output(
+                system_prompt="You are a helpful assistant that creates short, descriptive titles.",
+                user_prompt=prompt,
+                history=[],
+                model="GPT3.5"
+            ):
+                if chunk:
+                    title_chunks.append(chunk)
+            
+            generated_title = ''.join(title_chunks).strip()
+            generated_title = re.sub(r'^"(.*)"$', r'\1', generated_title)
+            
+            if len(generated_title) > 50:
+                generated_title = generated_title[:47] + "..."
+            
+            session.title = generated_title
+            session.save(update_fields=['title'])
+            
+            return Response({'title': generated_title})
+            
+        except Exception as e:
+            fallback_title = first_user_message.content[:50]
+            if len(first_user_message.content) > 50:
+                fallback_title += "..."
+            
+            session.title = fallback_title
+            session.save(update_fields=['title'])
+            
+            return Response({'title': fallback_title})
 
 class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
     """View for accessing shared sessions via share token"""
