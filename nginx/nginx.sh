@@ -48,6 +48,18 @@ for domain in $domains_fixed; do
     echo "Creating Nginx configuration file /etc/nginx/sites/$domain.conf"
     sed "s/\${domain}/$domain/g" /customization/site.conf.tpl > "/etc/nginx/sites/$domain.conf"
   fi
+  
+  # Create vhost configuration for load-balanced backend
+  if [ ! -f "/etc/nginx/vhosts/$domain.conf" ]; then
+    echo "Creating Nginx vhost configuration file /etc/nginx/vhosts/$domain.conf"
+    mkdir -p "/etc/nginx/vhosts"
+    if [ -f "/customization/backend-loadbalanced.conf.tpl" ]; then
+      sed "s/\${domain}/$domain/g" /customization/backend-loadbalanced.conf.tpl > "/etc/nginx/vhosts/$domain.conf"
+    else
+      echo "Warning: /customization/backend-loadbalanced.conf.tpl not found, creating empty vhost config"
+      echo "# Vhost configuration for $domain" > "/etc/nginx/vhosts/$domain.conf"
+    fi
+  fi
 
   if [ ! -f "/etc/nginx/sites/ssl/dummy/$domain/fullchain.pem" ]; then
     echo "Generating dummy ceritificate for $domain"
