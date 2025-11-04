@@ -63,6 +63,38 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
+def get_gemini_output(system_prompt, user_prompt, history, model):
+    client = OpenAI(
+        api_key=os.getenv("GOOGLE_API_KEY"),
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    )
+
+    input_items = [{"role": "system", "content": system_prompt}]
+    input_items.extend(history)
+    input_items.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=input_items,
+            stream=True,
+        )
+
+        for chunk in response:
+            delta = chunk.choices[0].delta
+            if delta and getattr(delta, "content", None):
+                yield delta.content
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM."
+        else:
+            message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
+        yield message
+
 def get_gpt5_output(system_prompt, user_prompt, history):
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY_GPT_5")
@@ -299,6 +331,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_llama2_output(system_prompt, history, user_prompt)
     elif model == SARVAM_M:
         out = get_sarvam_m_output(system_prompt, history, user_prompt)
+    elif model == "gemini-2.5-flash" or model == "gemini-2.5-pro" or model == "gemini-2.5-flash-lite":
+        out = get_gemini_output(system_prompt, user_prompt, history, model)
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out
