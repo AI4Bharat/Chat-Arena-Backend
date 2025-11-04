@@ -22,7 +22,7 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             'id', 'user', 'mode', 'title', 'model_a', 'model_b',
             'is_public', 'share_token', 'created_at', 'updated_at',
             'metadata', 'expires_at', 'message_count', 'last_message_at',
-            'share_url', 'hide_from_user'
+            'share_url'
         ]
         read_only_fields = ['id', 'user', 'share_token', 'created_at', 'updated_at']
     
@@ -121,7 +121,7 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
         model = ChatSession
         fields = [
             'id', 'mode', 'title', 'model_a_name', 'model_b_name',
-            'created_at', 'updated_at', 'message_count', 'hide_from_user'
+            'created_at', 'updated_at', 'message_count'
         ]
     
     def get_message_count(self, obj):

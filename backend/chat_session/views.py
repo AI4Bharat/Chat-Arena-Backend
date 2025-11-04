@@ -34,8 +34,8 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             # For shared endpoint, return public sessions
             queryset = queryset.filter(is_public=True)
         else:
-            # Only show non-hidden sessions for the user
-            queryset = queryset.filter(user=user, hide_from_user=False)
+            # For other actions, return user's sessions
+            queryset = queryset.filter(user=user)
         
         # Add message count annotation for list view
         if self.action == 'list':
@@ -329,17 +329,6 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             session.save(update_fields=['title'])
             
             return Response({'title': fallback_title})
-
-    def destroy(self, request, *args, **kwargs):
-        """Soft delete - hide chat from user"""
-        session = self.get_object()
-        session.hide_from_user = True
-        session.save()
-        
-        return Response(
-            {'status': 'deleted', 'message': 'Chat hidden from view'},
-            status=status.HTTP_204_NO_CONTENT
-        )
 
 class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
     """View for accessing shared sessions via share token"""

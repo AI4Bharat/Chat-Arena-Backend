@@ -16,7 +16,6 @@ class ChatSession(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_sessions')
     mode = models.CharField(max_length=50, choices=MODE_CHOICES)
     title = models.CharField(max_length=255, blank=True)
-    hide_from_user = models.BooleanField(default=False)
     model_a = models.ForeignKey(
         AIModel, 
         on_delete=models.SET_NULL, 

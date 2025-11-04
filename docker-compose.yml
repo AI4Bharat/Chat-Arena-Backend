@@ -38,9 +38,6 @@ services:
     
   web:
     build: ./backend
-    env_file:
-      - ./backend/.env
-      - ./config.env
     command: gunicorn --bind 0.0.0.0:8000 --workers 16 arena_backend.wsgi --timeout 300
     volumes:
       - ./backend/:/usr/src/backend/
@@ -53,8 +50,6 @@ services:
   redis:
     container_name: redis
     image: "redis"
-    env_file:
-      - ./config.env
     ports:
       - 6379:6379
   
