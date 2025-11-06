@@ -94,6 +94,10 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
