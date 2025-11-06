@@ -38,6 +38,7 @@ ffmpeg
 filelock==3.19.1
 frozenlist==1.7.0
 gcloud==0.18.3
+gevent
 google-api-core==2.25.1
 google-auth==2.41.0
 google-cloud-core==2.4.3
@@ -129,4 +130,5 @@ wheel==0.45.1
 yarl==1.20.1
 zope.interface==8.0.1
 locust == 2.29.0
+
 
