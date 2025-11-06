@@ -58,7 +58,7 @@ services:
   redis:
     container_name: redis
     image: "redis:7-alpine"
-    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 8gb --maxmemory-policy allkeys-lru --maxclients 20000 --tcp-backlog 2048 --timeout 0 --tcp-keepalive 60 --hz 100
     ports:
       - 6379:6379
     volumes:
@@ -66,6 +66,14 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 8192M
+        reservations:
+          cpus: '1.0'
+          memory: 4096M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -76,7 +84,7 @@ services:
   web-1:
     build: ./backend
     container_name: arena-web-1
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -94,14 +102,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -112,7 +124,7 @@ services:
   web-2:
     build: ./backend
     container_name: arena-web-2
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -130,14 +142,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -148,7 +164,7 @@ services:
   web-3:
     build: ./backend
     container_name: arena-web-3
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -166,14 +182,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -184,7 +204,7 @@ services:
   web-4:
     build: ./backend
     container_name: arena-web-4
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -202,14 +222,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -220,7 +244,7 @@ services:
   web-5:
     build: ./backend
     container_name: arena-web-5
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -238,14 +262,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -256,7 +284,7 @@ services:
   web-6:
     build: ./backend
     container_name: arena-web-6
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -274,14 +302,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -292,7 +324,7 @@ services:
   web-7:
     build: ./backend
     container_name: arena-web-7
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -310,14 +342,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -328,7 +364,7 @@ services:
   web-8:
     build: ./backend
     container_name: arena-web-8
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -346,14 +382,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -364,7 +404,7 @@ services:
   web-9:
     build: ./backend
     container_name: arena-web-9
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -382,14 +422,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -400,7 +444,7 @@ services:
   web-10:
     build: ./backend
     container_name: arena-web-10
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -418,14 +462,18 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 3072M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1536M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
