@@ -58,7 +58,7 @@ services:
   redis:
     container_name: redis
     image: "redis:7-alpine"
-    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 4gb --maxmemory-policy allkeys-lru
     ports:
       - 6379:6379
     volumes:
@@ -76,7 +76,7 @@ services:
   web-1:
     build: ./backend
     container_name: arena-web-1
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -116,7 +116,7 @@ services:
   web-2:
     build: ./backend
     container_name: arena-web-2
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -156,7 +156,7 @@ services:
   web-3:
     build: ./backend
     container_name: arena-web-3
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -196,7 +196,7 @@ services:
   web-4:
     build: ./backend
     container_name: arena-web-4
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -236,7 +236,7 @@ services:
   web-5:
     build: ./backend
     container_name: arena-web-5
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -276,7 +276,7 @@ services:
   web-6:
     build: ./backend
     container_name: arena-web-6
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -316,7 +316,7 @@ services:
   web-7:
     build: ./backend
     container_name: arena-web-7
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -356,7 +356,7 @@ services:
   web-8:
     build: ./backend
     container_name: arena-web-8
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -396,7 +396,7 @@ services:
   web-9:
     build: ./backend
     container_name: arena-web-9
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
@@ -436,7 +436,7 @@ services:
   web-10:
     build: ./backend
     container_name: arena-web-10
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 2 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 8 --worker-class gthread --threads 4 --timeout 300 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
