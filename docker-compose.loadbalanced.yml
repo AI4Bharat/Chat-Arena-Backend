@@ -55,22 +55,30 @@ services:
       - arena-network
 
   # Redis - Shared session store and cache
-  redis:
-    container_name: redis
-    image: "redis:7-alpine"
-    command: redis-server --maxmemory 4gb --maxmemory-policy allkeys-lru
-    ports:
-      - 6379:6379
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    networks:
-      - arena-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
+redis:
+  container_name: redis
+  image: "redis:7-alpine"
+  command: redis-server --maxmemory 8gb --maxmemory-policy allkeys-lru --maxclients 10000 --tcp-backlog 511 --timeout 0 --tcp-keepalive 300
+  ports:
+    - 6379:6379
+  volumes:
+    - redis_data:/data
+  restart: unless-stopped
+  networks:
+    - arena-network
+  deploy:
+    resources:
+      limits:
+        cpus: '2.0'
+        memory: 8192M
+      reservations:
+        cpus: '1.0'
+        memory: 4096M
+  healthcheck:
+    test: ["CMD", "redis-cli", "ping"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
 
   # Django Backend - 10 replicas for load balancing
   web-1:
