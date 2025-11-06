@@ -109,11 +109,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -149,11 +149,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -189,11 +189,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -229,11 +229,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -269,11 +269,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -309,11 +309,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -349,11 +349,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -389,11 +389,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -429,11 +429,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
@@ -468,12 +468,13 @@ services:
         hard: 65535
     deploy:
       resources:
+      resources:
         limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
           cpus: '1.0'
           memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
       interval: 30s
