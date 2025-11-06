@@ -47,8 +47,8 @@ location ~ ^/(ready|live)/ {
 # Streaming endpoints (SSE) - use dedicated upstream with least_conn
 location ~ ^/(messages/stream|chat/stream) {
     # Rate limiting for streaming
-    limit_req zone=streaming_limit burst=500 nodelay;
-    limit_conn conn_limit 500;
+    limit_req zone=streaming_limit burst=5000 nodelay;
+    limit_conn conn_limit 5000;
 
     # Route to streaming-optimized upstream
     proxy_pass http://django_streaming;
