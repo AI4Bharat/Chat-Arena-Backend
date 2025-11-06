@@ -47,8 +47,8 @@ location ~ ^/(ready|live)/ {
 # Streaming endpoints (SSE) - use dedicated upstream with least_conn
 location ~ ^/(messages/stream|chat/stream) {
     # Rate limiting for streaming
-    limit_req zone=streaming_limit burst=20 nodelay;
-    limit_conn conn_limit 10;
+    limit_req zone=streaming_limit burst=500 nodelay;
+    limit_conn conn_limit 500;
 
     # Route to streaming-optimized upstream
     proxy_pass http://django_streaming;
@@ -90,7 +90,7 @@ location ~ ^/(messages/stream|chat/stream) {
 # WebSocket endpoints
 location /ws/ {
     # Rate limiting
-    limit_req zone=general_limit burst=50 nodelay;
+    limit_req zone=general_limit burst=500 nodelay;
 
     proxy_pass http://django_backend;
 
@@ -117,8 +117,8 @@ location /ws/ {
 # Authentication endpoints
 location ~ ^/(auth|login|logout|register)/ {
     # Stricter rate limiting for auth endpoints
-    limit_req zone=auth_limit burst=100 nodelay;
-    limit_conn conn_limit 50;
+    limit_req zone=auth_limit burst=1000 nodelay;
+    limit_conn conn_limit 5000;
 
     proxy_pass http://django_backend;
     proxy_http_version 1.1;
@@ -175,8 +175,8 @@ location ~ ^/(swagger|redoc|api/docs)/ {
 # All other API endpoints
 location / {
     # General rate limiting
-    limit_req zone=general_limit burst=100 nodelay;
-    limit_conn conn_limit 20;
+    limit_req zone=general_limit burst=1000 nodelay;
+    limit_conn conn_limit 5000;
 
     # Pass to load-balanced backend
     proxy_pass http://django_backend;
