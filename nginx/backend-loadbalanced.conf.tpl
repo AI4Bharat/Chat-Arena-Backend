@@ -117,8 +117,8 @@ location /ws/ {
 # Authentication endpoints
 location ~ ^/(auth|login|logout|register)/ {
     # Stricter rate limiting for auth endpoints
-    limit_req zone=auth_limit burst=10 nodelay;
-    limit_conn conn_limit 5;
+    limit_req zone=auth_limit burst=100 nodelay;
+    limit_conn conn_limit 50;
 
     proxy_pass http://django_backend;
     proxy_http_version 1.1;
