@@ -163,6 +163,8 @@ CORS_ALLOW_HEADERS = [
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 
+# Database Configuration with Connection Pooling
+# For load-balanced deployment with multiple containers
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -171,8 +173,45 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
+        # Connection pooling settings
+        "CONN_MAX_AGE": 600,  # Keep connections alive for 10 minutes (persistent connections)
+        "OPTIONS": {
+            "connect_timeout": 10,  # Connection timeout in seconds
+            "options": "-c statement_timeout=30000",  # 30 second query timeout
+        },
+        # Connection health checks
+        "CONN_HEALTH_CHECKS": True,  # Test connections before using them (Django 4.1+)
     }
 }
+
+# Database connection pool size per container
+# With 10 containers and default settings, max connections = 10 * pool_size
+# Ensure PostgreSQL max_connections is set high enough (recommended: 200+)
+# Or use PgBouncer for connection pooling at the database layer
+
+# Database Read Replica Configuration (Optional)
+# Uncomment and configure when you have read replicas set up
+# This allows read-heavy operations to use replica databases
+if os.getenv("DB_READ_HOST"):
+    DATABASES["read_replica"] = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_READ_USER", os.getenv("DB_USER")),
+        "PASSWORD": os.getenv("DB_READ_PASSWORD", os.getenv("DB_PASSWORD")),
+        "HOST": os.getenv("DB_READ_HOST"),
+        "PORT": os.getenv("DB_READ_PORT", os.getenv("DB_PORT")),
+        "CONN_MAX_AGE": 600,
+        "OPTIONS": {
+            "connect_timeout": 10,
+            "options": "-c statement_timeout=30000",
+        },
+        "CONN_HEALTH_CHECKS": True,
+    }
+
+    # Enable database router for read/write splitting
+    DATABASE_ROUTERS = ['arena_backend.db_router.ReadReplicaRouter']
+else:
+    DATABASE_ROUTERS = []
 
 
 # Password validation
@@ -216,18 +255,33 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+# Redis configuration - use environment variable for host to support both dev and prod
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 'redis' for Docker, '127.0.0.1' for local dev
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+
+# Session configuration - using Redis for load balancing support
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_AGE = 2592000  # 30 days
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = True
 
+# Cache configuration
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        }
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
+            'SOCKET_CONNECT_TIMEOUT': 5,
+            'SOCKET_TIMEOUT': 5,
+        },
+        'KEY_PREFIX': 'arena',
+        'TIMEOUT': 300,  # 5 minutes default
     }
 }
 
@@ -276,20 +330,27 @@ AI_MODEL_CONFIG = {
     'MAX_RETRIES': 3,
 }
 
-# CHANNEL_LAYERS = {
-#     'default': {
-#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-#         'CONFIG': {
-#             "hosts": [('127.0.0.1', 6379)],
-#         },
-#     },
-# }
-
+# Channel Layers - Redis backend for distributed WebSocket support
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer'
-    }
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [(REDIS_HOST, int(REDIS_PORT))],
+            "capacity": 1500,  # Number of messages to store
+            "expiry": 10,  # Message expiry in seconds
+            "group_expiry": 86400,  # Group membership expiry (24 hours)
+            "symmetric_encryption_keys": [SECRET_KEY],  # Encrypt messages
+        },
+    },
 }
+
+# Fallback to in-memory for local development (set USE_REDIS_CHANNELS=False in .env)
+if os.getenv('USE_REDIS_CHANNELS', 'True').lower() == 'false':
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer'
+        }
+    }
 
 # WebSocket authentication
 CHANNELS_MIDDLEWARE = [
