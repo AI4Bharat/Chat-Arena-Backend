@@ -35,7 +35,9 @@ ALLOWED_HOSTS = ['http://127.0.0.1:3000','98.70.28.77', 'localhost', '127.0.0.1'
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
+    "https://backend.arena.ai4bharat.org",
     "https://dev.arena.ai4bharat.org",
+    "https://dev.ai4bharat.org",
     "https://*.arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",

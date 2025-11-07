@@ -156,7 +156,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 try:
                     history = MessageService._get_conversation_history(session)
                     history.pop()
-                    full_content = ""
+                    chunks = []
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                         user_prompt=user_message.content,
@@ -164,11 +164,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                         model=session.model_a.model_code,
                     ):
                         if chunk:
-                            full_content += chunk
+                            chunks.append(chunk)
                             escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                             yield f'a0:"{escaped_chunk}"\n'
                     
-                    assistant_message.content = full_content
+                    assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
                     assistant_message.save()
                     
@@ -181,7 +181,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 chunk_queue = queue.Queue()
         
                 def stream_model_a():
-                    full_content_a = ""
+                    chunks_a = []
                     try:
                         history = MessageService._get_conversation_history(session, 'a')
                         history.pop()
@@ -192,11 +192,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                             model=session.model_a.model_code,
                         ):
                             if chunk:
-                                full_content_a += chunk
+                                chunks_a.append(chunk)
                                 escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                                 chunk_queue.put(('a', f'a0:"{escaped_chunk}"\n'))
                         
-                        assistant_message_a.content = full_content_a
+                        assistant_message_a.content = "".join(chunks_a)
                         assistant_message_a.status = 'success'
                         assistant_message_a.save()
                         
@@ -210,7 +210,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
-                    full_content_b = ""
+                    chunks_b = []
                     try:
                         history = MessageService._get_conversation_history(session, 'b')
                         history.pop()
@@ -221,11 +221,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                             model=session.model_b.model_code,
                         ):
                             if chunk:
-                                full_content_b += chunk
+                                chunks_b.append(chunk)
                                 escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                                 chunk_queue.put(('b', f'b0:"{escaped_chunk}"\n'))
                         
-                        assistant_message_b.content = full_content_b
+                        assistant_message_b.content = "".join(chunks_b)
                         assistant_message_b.status = 'success'
                         assistant_message_b.save()
                         
@@ -300,7 +300,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     if history and history[-1]['role'] == 'user':
                         history.pop()
                     
-                    full_content = ""
+                    chunks = []
                     model = session.model_a if participant == 'a' else session.model_b
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
@@ -309,15 +309,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         model=model.model_code,
                     ):
                         if chunk:
-                            full_content += chunk
+                            chunks.append(chunk)
                             escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                             yield f'{participant}0:"{escaped_chunk}"\n'
                     
-                    assistant_message.content = full_content
+                    assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
                     assistant_message.save()
-                    
-                    yield f'{participant}d:{"finishReason":"stop"}\n'
+                    yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
                     assistant_message.save()

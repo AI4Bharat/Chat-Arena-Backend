@@ -93,7 +93,7 @@ def get_gemini_output(system_prompt, user_prompt, history, model):
             message = "Invalid response from the LLM."
         else:
             message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
-        yield message
+        raise Exception(message)
 
 def get_gpt5_output(system_prompt, user_prompt, history):
     client = OpenAI(
@@ -127,7 +127,7 @@ def get_gpt5_output(system_prompt, user_prompt, history):
             message = "Invalid response from the LLM."
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
 
 def get_gpt4_output(system_prompt, user_prompt, history, model):
     if model == "GPT4":
@@ -176,7 +176,7 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
 
 def get_gpt3_output(system_prompt, user_prompt, history):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
@@ -219,7 +219,7 @@ def get_gpt3_output(system_prompt, user_prompt, history):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
 
 def get_llama2_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
@@ -316,7 +316,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
     
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
