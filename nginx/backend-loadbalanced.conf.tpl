@@ -45,7 +45,7 @@ location ~ ^/(ready|live)/ {
 }
 
 # Streaming endpoints (SSE) - use dedicated upstream with least_conn
-location ~ ^/(messages/(stream|[^/]+/regenerate/?)|chat/stream|models/([^/]+/test/?|compare/?))
+location ~ ^/(messages/(stream|[^/]+/regenerate/?)|chat/stream|models/([^/]+/test/?|compare/?)) {
     # Rate limiting for streaming
     limit_req zone=streaming_limit burst=5000 nodelay;
     limit_conn conn_limit 5000;
