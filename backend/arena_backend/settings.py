@@ -31,7 +31,7 @@ SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['http://127.0.0.1:3000', 'localhost', '127.0.0.1', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org', '98.70.28.77:443', "ai4bharat.github.io", "backend.arena.ai4bharat.org", 'https://backend.arena.ai4bharat.org']
+ALLOWED_HOSTS = ['http://127.0.0.1:3000','98.70.28.77', 'localhost', '127.0.0.1', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org']
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
@@ -39,6 +39,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://dev.arena.ai4bharat.org",
     "https://dev.ai4bharat.org",
     "https://*.arena.ai4bharat.org",
+    "https://backend.arena.ai4bharat.org",
+    "https://arena.ai4bharat.org",
 ]
 
 CSRF_COOKIE_SECURE = True
@@ -144,6 +146,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://ai4bharat.github.io",
     "https://dev.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
+    "https://backend.arena.ai4bharat.org",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -216,18 +219,33 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+# Redis configuration - use environment variable for host to support both dev and prod
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 'redis' for Docker, '127.0.0.1' for local dev
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+
+# Session configuration - using Redis for load balancing support
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_AGE = 2592000  # 30 days
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = True
 
+# Cache configuration
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        }
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
+            'SOCKET_CONNECT_TIMEOUT': 5,
+            'SOCKET_TIMEOUT': 5,
+        },
+        'KEY_PREFIX': 'arena',
+        'TIMEOUT': 300,  # 5 minutes default
     }
 }
 
@@ -276,20 +294,27 @@ AI_MODEL_CONFIG = {
     'MAX_RETRIES': 3,
 }
 
-# CHANNEL_LAYERS = {
-#     'default': {
-#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-#         'CONFIG': {
-#             "hosts": [('127.0.0.1', 6379)],
-#         },
-#     },
-# }
-
+# Channel Layers - Redis backend for distributed WebSocket support
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer'
-    }
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [(REDIS_HOST, int(REDIS_PORT))],
+            "capacity": 1500,  # Number of messages to store
+            "expiry": 10,  # Message expiry in seconds
+            "group_expiry": 86400,  # Group membership expiry (24 hours)
+            "symmetric_encryption_keys": [SECRET_KEY],  # Encrypt messages
+        },
+    },
 }
+
+# Fallback to in-memory for local development (set USE_REDIS_CHANNELS=False in .env)
+if os.getenv('USE_REDIS_CHANNELS', 'True').lower() == 'false':
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer'
+        }
+    }
 
 # WebSocket authentication
 CHANNELS_MIDDLEWARE = [
