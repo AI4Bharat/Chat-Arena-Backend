@@ -39,7 +39,22 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             if request:
                 return f"{request.scheme}://{request.get_host()}/chat/shared/{obj.share_token}"
         return None
-
+    
+    def to_representation(self, instance):
+        """Conditionally hide model names for random mode."""
+        data = super().to_representation(instance)
+        if instance.mode == 'random' and not instance.has_feedback:
+            data['model_a'] = {
+                'id': None,
+                'display_name': 'Model A',
+                'provider': 'Random'
+            }
+            data['model_b'] = {
+                'id': None,
+                'display_name': 'Model B',
+                'provider': 'Random'
+            }
+        return data
 
 class ChatSessionCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating chat sessions"""
@@ -127,6 +142,14 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
     def get_message_count(self, obj):
         # Use prefetch_related in view to optimize
         return getattr(obj, '_message_count', 0)
+    
+    def to_representation(self, instance):
+        """Conditionally hide model names for random mode."""
+        data = super().to_representation(instance)
+        if instance.mode == 'random' and not instance.has_feedback:
+            data['model_a_name'] = 'Model A'
+            data['model_b_name'] = 'Model B'
+        return data
 
 
 class ChatSessionShareSerializer(serializers.Serializer):
@@ -157,3 +180,28 @@ class ChatSessionExportSerializer(serializers.Serializer):
     )
     include_metadata = serializers.BooleanField(default=False)
     include_timestamps = serializers.BooleanField(default=True)
+
+
+class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
+    model_a = AIModelListSerializer(read_only=True)
+    model_b = AIModelListSerializer(read_only=True)
+
+    class Meta:
+        model = ChatSession
+        fields = [
+            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b'
+        ]
+
+    def to_representation(self, instance):
+        """Conditionally hide model names for random mode."""
+        data = super().to_representation(instance)
+        if instance.mode == 'random' and not instance.has_feedback:
+            data['model_a'] = {
+                'id': None,
+                'display_name': 'Model A',
+            }
+            data['model_b'] = {
+                'id': None,
+                'display_name': 'Model B',
+            }
+        return data
