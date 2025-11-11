@@ -6,6 +6,7 @@ from chat_session.models import ChatSession
 from message.models import Message
 from ai_model.serializers import AIModelListSerializer
 from feedback.services import FeedbackAnalyticsService
+from chat_session.serializers import ChatSessionSerializer
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
@@ -42,16 +43,32 @@ class FeedbackSerializer(serializers.ModelSerializer):
 
 class FeedbackCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating feedback"""
-    session_id = serializers.UUIDField(required=True)
-    message_id = serializers.JSONField(required=True)
+    session_id = serializers.UUIDField(required=True, write_only=True)
+    message_id = serializers.JSONField(required=True, write_only=True)
     preference = serializers.CharField(required=True, write_only=True)
-    
+
+    session_update = ChatSessionSerializer(source='session', read_only=True)
+
     class Meta:
         model = Feedback
         fields = [
+            'id',
             'session_id', 'message_id', 'feedback_type',
-            'preference', 'rating', 'categories', 'comment'
+            'preference', 'rating', 'categories', 'comment',
+            'session_update'
         ]
+        read_only_fields = ['id']
+    
+    def to_representation(self, instance):
+        """Customize the output to only include session_update on first feedback."""
+        data = super().to_representation(instance)
+        session = instance.session
+
+        if session.mode == 'random' and session.feedbacks.count() == 1:
+            return data
+        else:
+            data.pop('session_update', None)
+            return data
     
     def validate_rating(self, value):
         if value is not None and self.initial_data.get('feedback_type') != 'rating':

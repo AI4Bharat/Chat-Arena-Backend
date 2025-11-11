@@ -113,6 +113,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a = message
                     else:
                         assistant_message_b = message
+        
+        if session.mode == 'random':
+            if 'assistant_message_a' in locals() and session.model_a_id:
+                assistant_message_a['modelId'] = session.model_a_id
+            if 'assistant_message_b' in locals() and session.model_b_id:
+                assistant_message_b['modelId'] = session.model_b_id
 
         # Create user message
         with transaction.atomic():
