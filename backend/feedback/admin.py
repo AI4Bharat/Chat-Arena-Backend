@@ -1,16 +1,17 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
-from django.db.models import Count, Avg
+from django.db.models import Avg
 from feedback.models import Feedback
 from feedback.utils import FeedbackExporter
 from django.http import HttpResponse
+from ai_model.models import AIModel
 
 @admin.register(Feedback)
 class FeedbackAdmin(admin.ModelAdmin):
     list_display = [
         'feedback_type', 'user_display', 'session_link', 'rating_display',
-        'preferred_model_display', 'created_at'
+        'preferred_models_display', 'created_at'
     ]
     list_filter = ['feedback_type', 'rating', 'created_at']
     search_fields = ['user__email', 'user__display_name', 'comment']
@@ -24,7 +25,7 @@ class FeedbackAdmin(admin.ModelAdmin):
             'fields': ('id', 'user', 'session_link', 'feedback_type')
         }),
         ('Feedback Details', {
-            'fields': ('rating', 'preferred_model', 'categories_display', 'comment')
+            'fields': ('rating', 'preferred_model_ids', 'categories_display', 'comment')
         }),
         ('Related Message', {
             'fields': ('message_preview',),
@@ -64,12 +65,17 @@ class FeedbackAdmin(admin.ModelAdmin):
         return '-'
     rating_display.short_description = 'Rating'
     
-    def preferred_model_display(self, obj):
-        if obj.preferred_model:
-            return f"{obj.preferred_model.display_name}"
-        return '-'
-    preferred_model_display.short_description = 'Preferred Model'
-    
+    def preferred_models_display(self, obj):
+        preferred_ids = obj.preferred_model_ids
+        if not preferred_ids:
+            return '-'
+        
+        models = AIModel.objects.filter(id__in=preferred_ids)
+        model_names = [model.display_name for model in models]
+        
+        return ", ".join(model_names)
+    preferred_models_display.short_description = 'Preferred Models'
+
     def categories_display(self, obj):
         if obj.categories:
             return ', '.join(obj.categories)

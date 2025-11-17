@@ -69,3 +69,10 @@ class ChatSession(models.Model):
     
     def __str__(self):
         return f"{self.mode} - {self.title or 'Untitled'} ({self.user.display_name})"
+    
+    @property
+    def has_feedback(self):
+        """
+        Checks if any feedback has been submitted for this session.
+        """
+        return self.feedbacks.exists()
