@@ -45,14 +45,6 @@ from openai import OpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
-from anthropic import AnthropicVertex
-from google import genai
-from google.genai import types
-from google.genai.types import GenerateContentConfig
-from google.auth.transport import requests
-from google.auth import default
-import vertexai
-import openai
 
 GPT35 = "GPT3.5"
 GPT4 = "GPT4"
@@ -72,99 +64,9 @@ def process_history(history):
     return messages
 
 def get_gemini_output(system_prompt, user_prompt, history, model):
-    client = genai.Client(
-        vertexai=True,
-        project=os.getenv("GOOGLE_CLOUD_PROJECT_ID"),
-        location="global",
-    )
-    
-    contents = []
-    for msg in history:
-        if msg["role"] == "user":
-            contents.append(types.Content(
-                role="user",
-                parts=[types.Part(text=msg["content"])]
-            ))
-        elif msg["role"] == "assistant":
-            contents.append(types.Content(
-                role="model",
-                parts=[types.Part(text=msg["content"])]
-            ))
-    
-    contents.append(types.Content(
-        role="user",
-        parts=[types.Part(text=user_prompt)]
-    ))
-    
-    try:
-        response = client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=GenerateContentConfig(
-                system_instruction=system_prompt
-            ),
-        )
-        
-        for chunk in response:
-            if chunk.text:
-                yield chunk.text
-    
-    except Exception as e:
-        err_msg = str(e)
-        if "policy" in err_msg.lower():
-            message = "Prompt violates LLM policy. Please enter a new prompt."
-        elif "not found" in err_msg.lower():
-            message = "Model not found. Check the model name."
-        else:
-            message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
-        raise Exception(message)
- 
-def get_anthropic_vertex_output(system_prompt, user_prompt, history, model):    
-    client = AnthropicVertex(
-        region="global",
-        project_id=os.getenv("GOOGLE_CLOUD_PROJECT_ID"),
-    )
-
-    input_items = list(history)
-    input_items.append({"role": "user", "content": user_prompt})
-    
-    try:
-        with client.messages.stream(
-            model=model,
-            max_tokens=2048,
-            system=system_prompt,
-            messages=input_items
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
-    
-    except Exception as e:
-        err_msg = str(e)
-        if "invalid" in err_msg.lower() or "policy" in err_msg.lower():
-            message = "Prompt violates LLM policy. Please enter a new prompt."
-        elif "authentication" in err_msg.lower() or "permission" in err_msg.lower():
-            message = "Authentication error with Anthropic Vertex AI. Check your credentials."
-        elif "not found" in err_msg.lower():
-            message = "Model not found. Check the model name."
-        else:
-            message = f"An error occurred while interacting with Anthropic LLM: {err_msg}"
-        raise Exception(message)
-
-def get_llama_output(system_prompt, user_prompt, history, model):
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT_ID")
-    location = "us-central1"
-    
-    vertexai.init(project=project_id, location=location)
-    
-    credentials, _ = default()
-    auth_request = requests.Request()
-    credentials.refresh(auth_request)
-     
-    maas_endpoint = f"{location}-aiplatform.googleapis.com"
-    
-    client = openai.OpenAI(
-        base_url=f"https://{maas_endpoint}/v1beta1/projects/{project_id}/locations/{location}/endpoints/openapi",
-        api_key=credentials.token,
+    client = OpenAI(
+        api_key=os.getenv("GOOGLE_API_KEY"),
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
     )
 
     input_items = [{"role": "system", "content": system_prompt}]
@@ -185,14 +87,12 @@ def get_llama_output(system_prompt, user_prompt, history, model):
 
     except Exception as e:
         err_msg = str(e)
-        if "policy" in err_msg.lower():
+        if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
-        elif "not found" in err_msg.lower():
-            message = "Model not found. Check the model name."
-        elif "authentication" in err_msg.lower():
-            message = "Authentication error. Check your GCP credentials."
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM."
         else:
-            message = f"An error occurred while interacting with Llama LLM: {err_msg}"
+            message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
         raise Exception(message)
 
 def get_gpt5_output(system_prompt, user_prompt, history, model):
@@ -441,12 +341,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_llama2_output(system_prompt, history, user_prompt)
     elif model == SARVAM_M:
         out = get_sarvam_m_output(system_prompt, history, user_prompt)
-    elif model.startswith("gemini"):
+    elif model == "gemini-2.5-flash" or model == "gemini-2.5-pro" or model == "gemini-2.5-flash-lite":
         out = get_gemini_output(system_prompt, user_prompt, history, model)
-    elif model.startswith("claude"):
-        out = get_anthropic_vertex_output(system_prompt, user_prompt, history, model)
-    elif model.startswith("meta/llama"):
-        out = get_llama_output(system_prompt, user_prompt, history, model)
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out
