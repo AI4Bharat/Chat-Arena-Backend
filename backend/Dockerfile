@@ -15,7 +15,10 @@ RUN apt-get update && apt-get install -y \
     gir1.2-glib-2.0 \
     build-essential \
     meson \
-    cmake
+    cmake \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY ./deploy/requirements.txt /usr/src/backend/requirements.txt
 RUN pip install --default-timeout=200 -r requirements.txt
