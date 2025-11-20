@@ -341,7 +341,7 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_llama2_output(system_prompt, history, user_prompt)
     elif model == SARVAM_M:
         out = get_sarvam_m_output(system_prompt, history, user_prompt)
-    elif model == "gemini-2.5-flash" or model == "gemini-2.5-pro" or model == "gemini-2.5-flash-lite":
+    elif model.startswith("gemini"):
         out = get_gemini_output(system_prompt, user_prompt, history, model)
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
