@@ -22,7 +22,7 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             'id', 'user', 'mode', 'title', 'model_a', 'model_b',
             'is_public', 'share_token', 'created_at', 'updated_at',
             'metadata', 'expires_at', 'message_count', 'last_message_at',
-            'share_url'
+            'share_url', 'is_pinned'
         ]
         read_only_fields = ['id', 'user', 'share_token', 'created_at', 'updated_at']
     
