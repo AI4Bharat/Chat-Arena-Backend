@@ -121,7 +121,7 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
         model = ChatSession
         fields = [
             'id', 'mode', 'title', 'model_a_name', 'model_b_name',
-            'created_at', 'updated_at', 'message_count'
+            'created_at', 'updated_at', 'message_count', 'is_pinned'
         ]
     
     def get_message_count(self, obj):
