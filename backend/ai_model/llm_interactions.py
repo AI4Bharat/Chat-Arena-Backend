@@ -45,6 +45,7 @@ from openai import OpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
+from litellm import completion
 
 GPT35 = "GPT3.5"
 GPT4 = "GPT4"
@@ -330,6 +331,37 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
         raise Exception(message)
     
+def get_ibm_output(system_prompt, user_prompt, history, model):
+    history_messages = history
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = completion(
+            model="watsonx/"+model,
+            project_id=os.getenv("IBM_WATSONX_PROJECT_ID"),
+            messages=messages,
+            stream=True,
+        )
+        
+        for chunk in response:
+            if hasattr(chunk, 'choices') and chunk.choices:
+                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                    content = chunk.choices[0].delta.content
+                    if content is not None:
+                        yield content
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+        raise Exception(message)
+    
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
@@ -343,6 +375,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_sarvam_m_output(system_prompt, history, user_prompt)
     elif model.startswith("gemini"):
         out = get_gemini_output(system_prompt, user_prompt, history, model)
+    elif model.startswith("ibm"):
+        out = get_ibm_output(system_prompt, user_prompt, history, model)
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out
