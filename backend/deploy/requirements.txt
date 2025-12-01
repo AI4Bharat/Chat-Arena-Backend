@@ -47,7 +47,7 @@ google-crc32c==1.7.1
 google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpcio
-grpcio-status==1.75.1
+grpcio-status
 gunicorn==21.2.0
 h11==0.16.0
 h2==4.3.0
@@ -130,5 +130,6 @@ wheel==0.45.1
 yarl==1.20.1
 zope.interface==8.0.1
 locust == 2.29.0
+
 
 
