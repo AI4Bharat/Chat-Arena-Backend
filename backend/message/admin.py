@@ -39,9 +39,12 @@ class MessageAdmin(admin.ModelAdmin):
     
     def truncated_content(self, obj):
         max_length = 100
-        if len(obj.content) > max_length:
-            return f"{obj.content[:max_length]}..."
-        return obj.content
+        if hasattr(obj, 'content'):
+            content = obj.content
+            if len(content) > max_length:
+                return f"{content[:max_length]}..."
+            return content
+        return str(obj)
     truncated_content.short_description = 'Content'
     
     def session_link(self, obj):
@@ -85,10 +88,11 @@ class MessageAdmin(admin.ModelAdmin):
         for parent_id in obj.parent_message_ids:
             try:
                 parent = Message.objects.get(id=parent_id)
+                parent_preview = self.truncated_content(parent)[:50]
                 links.append(format_html(
                     '<a href="/admin/message/message/{}/change/">Parent: {} ({})</a>',
                     parent_id,
-                    parent.truncated_content()[:50],
+                    parent_preview,
                     parent.role
                 ))
             except Message.DoesNotExist:
@@ -105,10 +109,11 @@ class MessageAdmin(admin.ModelAdmin):
         for child_id in obj.child_ids:
             try:
                 child = Message.objects.get(id=child_id)
+                child_preview = self.truncated_content(child)[:50]
                 links.append(format_html(
                     '<a href="/admin/message/message/{}/change/">Child: {} ({})</a>',
                     child_id,
-                    child.truncated_content()[:50],
+                    child_preview,
                     child.role
                 ))
             except Message.DoesNotExist:
@@ -161,14 +166,6 @@ class MessageAdmin(admin.ModelAdmin):
         )
     analyze_messages.short_description = 'Analyze selected messages'
     
-    def truncated_content(self, content):
-        """Helper method to truncate content"""
-        max_length = 100
-        if len(content) > max_length:
-            return f"{content[:max_length]}..."
-        return content
-
-
 @admin.register(MessageRelation)
 class MessageRelationAdmin(admin.ModelAdmin):
     list_display = ['parent_preview', 'child_preview', 'relation_type', 'created_at']

@@ -131,7 +131,7 @@ class MessageStreamSerializer(serializers.Serializer):
         required=False,
         default=list
     )
-    modelId = serializers.CharField(required=False)
+    modelId = serializers.CharField(required=False, allow_null=True)
     participant = serializers.CharField(required=False)
     status = serializers.ChoiceField(choices=['pending', 'streaming', 'success', 'failed'], required=True)
     temperature = serializers.FloatField(default=0.7, min_value=0, max_value=2)
@@ -141,13 +141,14 @@ class MessageStreamSerializer(serializers.Serializer):
     def validate(self, attrs):
         role = attrs.get('role')
         content = attrs.get('content')
+        model_id = attrs.get('modelId')
         if role == 'assistant':
-            try:
-                AIModel.objects.get(id=attrs.get('modelId'), is_active=True)
-            except AIModel.DoesNotExist:
-                raise serializers.ValidationError("One or both models not found or inactive")
-            # hanfle participant for compare mode
-            # handle participant for compare mode
+            if model_id:
+                try:
+                    AIModel.objects.get(id=model_id, is_active=True)
+                except AIModel.DoesNotExist:
+                    raise serializers.ValidationError("Model not found or inactive")
+                    # handle participant for compare mode
 
         if role != 'assistant' and not content:
             raise serializers.ValidationError({
