@@ -25,6 +25,7 @@ import os
 import base64
 import io
 import subprocess
+import json
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -112,6 +113,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a = message
                     else:
                         assistant_message_b = message
+        
+        if session.mode == 'random':
+            if 'assistant_message_a' in locals() and session.model_a_id:
+                assistant_message_a['modelId'] = session.model_a_id
+            if 'assistant_message_b' in locals() and session.model_b_id:
+                assistant_message_b['modelId'] = session.model_b_id
 
         # Create user message
         with transaction.atomic():
@@ -176,7 +183,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     assistant_message.status = 'error'
                     assistant_message.save()
-                    yield f'ad:{{"finishReason":"error","error":"{str(e)}"}}\n'
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": str(e),
+                    }
+                    yield f"ad:{json.dumps(error_payload)}\n"
             else:
                 chunk_queue = queue.Queue()
         
@@ -205,7 +216,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                     except Exception as e:
                         assistant_message_a.status = 'error'
                         assistant_message_a.save()
-                        chunk_queue.put(('a', f'ad:{{"finishReason":"error","error":"{str(e)}"}}\n'))
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": str(e),
+                        }
+                        chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
                     finally:
                         chunk_queue.put(('a', None))
 
@@ -234,7 +249,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                     except Exception as e:
                         assistant_message_b.status = 'error'
                         assistant_message_b.save()
-                        chunk_queue.put(('b', f'bd:{{"finishReason":"error","error":"{str(e)}"}}\n'))
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": str(e),
+                        }
+                        chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
                     finally:
                         chunk_queue.put(('b', None))
 
@@ -320,8 +339,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     assistant_message.status = 'error'
                     assistant_message.save()
-                    yield f'{participant}d:{{"finishReason":"error","error":"{str(e)}"}}\n'
-        
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": str(e),
+                    }
+                    yield f"{participant}d:{json.dumps(error_payload)}\n"
             return StreamingHttpResponse(generate(), content_type='text/plain')
             
         except Message.DoesNotExist:

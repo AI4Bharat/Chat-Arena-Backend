@@ -37,6 +37,7 @@ class ChatSession(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # For anonymous user cleanup
     meta_stats_json = models.JSONField(default=dict, blank=True)
+    is_pinned = models.BooleanField(default=False)
     
     class Meta:
         db_table = 'chat_sessions'
@@ -69,3 +70,10 @@ class ChatSession(models.Model):
     
     def __str__(self):
         return f"{self.mode} - {self.title or 'Untitled'} ({self.user.display_name})"
+    
+    @property
+    def has_feedback(self):
+        """
+        Checks if any feedback has been submitted for this session.
+        """
+        return self.feedbacks.exists()
