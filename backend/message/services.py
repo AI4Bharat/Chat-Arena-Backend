@@ -38,13 +38,15 @@ class MessageService:
                 id=message_obj['id'],
                 session=session,
                 role=message_obj['role'],
-                content=message_obj['content'],
+                content=message_obj.get('content') or "",
                 parent_message_ids=message_obj['parent_message_ids'] or [],
                 position=position,
                 participant=message_obj.get('participant'),
                 model = AIModel.objects.get(pk=message_obj['modelId']) if message_obj.get('modelId') else None,
                 status='success' if message_obj['role'] == 'user' else 'streaming',
-                attachments=attachments or []
+                attachments=attachments or [],
+                audio_path=message_obj.get('audio_path'),
+                language=message_obj.get('language'),
             )
             
             # Update parent messages
