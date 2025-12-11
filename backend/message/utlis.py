@@ -3,9 +3,12 @@ from django.core.cache import cache
 from django.db.models import Q, F
 import re
 import json
-from datetime import timedelta
+import datetime
 from message.models import Message
-
+from google.cloud import storage
+from django.conf import settings
+import uuid
+import os
 
 class MessageAnalyzer:
     """Analyze message content and patterns"""
@@ -262,3 +265,56 @@ def format_message_for_export(message: 'Message', format_type: str = 'plain') ->
         })
     
     return message.content
+
+def generate_signed_url(blob_name, expiration=900):
+    """
+    Generates a v4 signed URL for a blob.
+    """
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(settings.GS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+
+        url = blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(seconds=expiration),
+            method="GET",
+        )
+        return url
+    except Exception as e:
+        print(f"Error generating signed URL: {e}")
+        return None
+
+# def upload_to_gcs(file_obj, folder="asr-audios"):
+#     """
+#     Uploads a file to Google Cloud Storage and returns the public URL.
+#     Assumes Google Application Credentials are set in environment.
+#     """
+#     try:
+#         # If running on GCP, it picks up credentials automatically.
+#         # If local, ensure GOOGLE_APPLICATION_CREDENTIALS env var is set.
+#         client = storage.Client()
+#         bucket = client.bucket(settings.GS_BUCKET_NAME) # Add this to your settings.py
+        
+#         # Generate unique filename
+#         ext = os.path.splitext(file_obj.name)[1]
+#         filename = f"{folder}/{uuid.uuid4()}{ext}"
+#         blob = bucket.blob(filename)
+        
+#         # Upload
+#         blob.upload_from_file(file_obj, content_type=file_obj.content_type)
+        
+#         # Depending on your bucket privacy settings:
+#         # Option A: Make public (if bucket allows)
+#         # blob.make_public()
+#         # return blob.public_url
+
+#         # Option B: Return Signed URL (safer, good for 1 hour)
+#         # return blob.generate_signed_url(expiration=3600)
+        
+#         # Option C: If bucket is purely public read:
+#         return f"https://storage.googleapis.com/{settings.GS_BUCKET_NAME}/{filename}"
+        
+#     except Exception as e:
+#         print(f"GCS Upload Error: {str(e)}")
+#         raise e

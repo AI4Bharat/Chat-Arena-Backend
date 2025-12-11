@@ -349,3 +349,5 @@ ANONYMOUS_USER_SETTINGS = {
     'ALLOW_MODEL_SELECTION': True,  # Allow guests to choose models
     'ALLOWED_MODELS': ['gpt-3.5-turbo', 'claude-2', 'gemini-pro'],  # Limit premium models
 }
+
+GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME")

@@ -146,7 +146,8 @@ class ModelSelector:
     @staticmethod
     def get_random_models_for_comparison(
         exclude_ids: List[str] = None,
-        category: Optional[str] = None
+        category: Optional[str] = None,
+        model_type: Optional[str] = None,
     ) -> tuple:
         """Get two random models for comparison"""
         
@@ -157,6 +158,9 @@ class ModelSelector:
         
         if exclude_ids:
             queryset = queryset.exclude(id__in=exclude_ids)
+
+        if model_type:
+            queryset = queryset.filter(model_type=model_type)
         
         models = list(queryset)
         

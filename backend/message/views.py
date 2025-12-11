@@ -1,4 +1,5 @@
 from ai_model.llm_interactions import get_model_output
+from ai_model.asr_interactions import get_asr_output
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -26,6 +27,14 @@ import base64
 import io
 import subprocess
 import json
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.decorators import action
+from google.cloud import storage
+from django.conf import settings
+import datetime
+import uuid
+import tempfile
+from message.utlis import generate_signed_url
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -104,7 +113,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         for message in serializer.validated_data:
             if message['role'] == 'user':
-                user_message = message
+                org_user_message = message
             elif message['role'] == 'assistant':
                 if session.mode == 'direct':
                     assistant_message = message
@@ -124,7 +133,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             user_message = MessageService.create_message(
                 session=session,
-                message_obj=user_message
+                message_obj=org_user_message
             )
             if session.mode == 'direct':
                 assistant_message = MessageService.create_message(
@@ -277,8 +286,106 @@ class MessageViewSet(viewsets.ModelViewSet):
                 
                 thread_a.join()
                 thread_b.join()
+
+        def generate_asr_output():
+            if session.mode == 'direct':
+                try:
+                    # history = MessageService._get_conversation_history(session)
+                    # history.pop()
+
+                    output = get_asr_output(org_user_message['temp_audio_url'], org_user_message['language'], model=session.model_a.model_code)
+                    # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
+                    yield f'a0:"{output}"\n'
+                    
+                    assistant_message.content = output
+                    assistant_message.status = 'success'
+                    assistant_message.save()
+                    
+                    yield 'ad:{"finishReason":"stop"}\n'
+                except Exception as e:
+                    assistant_message.status = 'error'
+                    assistant_message.save()
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": str(e),
+                    }
+                    yield f"ad:{json.dumps(error_payload)}\n"
+            else:
+                chunk_queue = queue.Queue()
+        
+                def stream_model_a():
+                    try:
+                        # history = MessageService._get_conversation_history(session, 'a')
+                        # history.pop()
+                        output_a = get_asr_output(org_user_message['temp_audio_url'], org_user_message['language'], model=session.model_a.model_code)
+                        chunk_queue.put(('a', f'a0:"{output_a}"\n'))
+                        
+                        assistant_message_a.content = output_a
+                        assistant_message_a.status = 'success'
+                        assistant_message_a.save()
+                        
+                        chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
+                        
+                    except Exception as e:
+                        assistant_message_a.status = 'error'
+                        assistant_message_a.save()
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": str(e),
+                        }
+                        chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
+                    finally:
+                        chunk_queue.put(('a', None))
+
+                def stream_model_b():
+                    try:
+                        # history = MessageService._get_conversation_history(session, 'b')
+                        # history.pop()
+                        output_b = get_asr_output(org_user_message['temp_audio_url'], org_user_message['language'], model=session.model_b.model_code)
+                        chunk_queue.put(('b', f'b0:"{output_b}"\n'))
+                        
+                        assistant_message_b.content = output_b
+                        assistant_message_b.status = 'success'
+                        assistant_message_b.save()
+                        
+                        chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
+                        
+                    except Exception as e:
+                        assistant_message_b.status = 'error'
+                        assistant_message_b.save()
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": str(e),
+                        }
+                        chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
+                    finally:
+                        chunk_queue.put(('b', None))
+
+                thread_a = threading.Thread(target=stream_model_a)
+                thread_b = threading.Thread(target=stream_model_b)
+                
+                thread_a.start()
+                thread_b.start()
+                
+                completed = {'a': False, 'b': False}
+                
+                while not all(completed.values()):
+                    try:
+                        model, chunk = chunk_queue.get(timeout=0.1)
+                        if chunk is None:
+                            completed[model] = True
+                        else:
+                            yield chunk
+                    except queue.Empty:
+                        continue
+                
+                thread_a.join()
+                thread_b.join()
     
-        return StreamingHttpResponse(generate(), content_type='text/plain')
+        if request.data.get('mode') == 'ASR':
+            return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
+        else:
+            return StreamingHttpResponse(generate(), content_type='text/plain')
 
     @action(detail=True, methods=['post'])
     def regenerate(self, request, pk=None):
@@ -344,7 +451,33 @@ class MessageViewSet(viewsets.ModelViewSet):
                         "error": str(e),
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
-            return StreamingHttpResponse(generate(), content_type='text/plain')
+
+            def generate_asr_output():
+                participant = assistant_message.participant
+                if participant == None:
+                    participant = 'a'
+                try:
+                    model = session.model_a if participant == 'a' else session.model_b
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code)
+                    yield f'{participant}0:"{output}"\n'
+                    
+                    assistant_message.content = output
+                    assistant_message.status = 'success'
+                    assistant_message.save()
+                    yield f'{participant}d:{{"finishReason":"stop"}}\n'
+                except Exception as e:
+                    assistant_message.status = 'error'
+                    assistant_message.save()
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": str(e),
+                    }
+                    yield f"{participant}d:{json.dumps(error_payload)}\n"
+
+            if session.session_type == 'ASR':
+                return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
+            else:
+                return StreamingHttpResponse(generate(), content_type='text/plain')
             
         except Message.DoesNotExist:
             return Response(
@@ -454,7 +587,102 @@ class MessageViewSet(viewsets.ModelViewSet):
             'path': MessageSerializer(path, many=True).data,
             'distance': len(path)
         })
-    
+
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_audio(self, request):
+        if 'audio' not in request.FILES:
+            return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        audio_file = request.FILES['audio']
+
+        try:
+            # Save original file temporarily
+            temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1])
+            for chunk in audio_file.chunks():
+                temp_input.write(chunk)
+            temp_input.close()
+
+            # Output WAV temp file
+            temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            temp_output_path = temp_output.name
+            temp_output.close()
+
+            # Convert using ffmpeg (subprocess method)
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",  # Overwrite
+                "-i", temp_input.name,  # input file
+                "-ac", "1",             # mono
+                "-ar", "16000",         # 16k sample rate (best for ASR)
+                "-f", "wav",
+                temp_output_path
+            ]
+
+            result = subprocess.run(
+                ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+
+            if result.returncode != 0:
+                return Response({
+                    "error": "FFmpeg conversion failed",
+                    "details": result.stderr.decode()
+                }, status=500)
+
+            # Upload the WAV file to GCS
+            client = storage.Client()
+            bucket = client.bucket(settings.GS_BUCKET_NAME)
+
+            blob_name = f"asr-audios/{uuid.uuid4()}.wav"
+            blob = bucket.blob(blob_name)
+
+            with open(temp_output_path, "rb") as f:
+                blob.upload_from_file(f, content_type="audio/wav")
+
+            signed_url = blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(minutes=15),
+                method="GET",
+            )
+
+            # Cleanup temporary files
+            os.remove(temp_input.name)
+            os.remove(temp_output_path)
+
+            return Response({
+                "path": blob_name,
+                "url": signed_url,
+            }, status=200)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+#   def upload_audio(self, request):
+#         if 'audio' not in request.FILES:
+#             return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+#         audio_file = request.FILES['audio']
+#         try:
+#             client = storage.Client()
+#             bucket = client.bucket(settings.GS_BUCKET_NAME)
+#             ext = os.path.splitext(audio_file.name)[1]
+#             blob_name = f"asr-audios/{uuid.uuid4()}{ext}"
+#             blob = bucket.blob(blob_name)
+#             blob.upload_from_file(audio_file, content_type=audio_file.content_type)
+            
+#             signed_url = blob.generate_signed_url(
+#                 version="v4",
+#                 expiration=datetime.timedelta(minutes=15),
+#                 method="GET",
+#             )
+            
+#             return Response({
+#                 'path': blob_name,
+#                 'url': signed_url,
+#             }, status=status.HTTP_200_OK)
+            
+#         except Exception as e:
+#             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]
 
