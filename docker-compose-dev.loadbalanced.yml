@@ -11,7 +11,7 @@ services:
       - letsencrypt_certs:/etc/letsencrypt
       - certbot_acme_challenge:/var/www/certbot
       - ./vhosts:/etc/nginx/vhosts
-      - ./nginx/load-balancer.conf:/etc/nginx/conf.d/load-balancer.conf
+      - ./nginx/load-balancer-dev.conf:/etc/nginx/conf.d/load-balancer.conf
       - static_volume:/usr/src/backend/static
     ports:
       - "80:80"
