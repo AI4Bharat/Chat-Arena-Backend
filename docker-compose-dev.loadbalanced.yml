@@ -50,7 +50,7 @@ services:
   redis:
     container_name: redis
     image: "redis:7-alpine"
-    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru --maxclients 2000 --tcp-backlog 512 --timeout 0 --tcp-keepalive 60 --hz 100
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru --maxclients 100 --tcp-backlog 512 --timeout 0 --tcp-keepalive 60 --hz 100
     ports:
       - 6379:6379
     volumes:
@@ -76,7 +76,7 @@ services:
   web-1:
     build: ./backend
     container_name: arena-web-1
-    command: gunicorn --bind 0.0.0.0:8000 --workers 12 --worker-class gthread --threads 6 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 2 --worker-class gthread --threads 2 --timeout 50 --worker-connections 100 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
@@ -116,7 +116,7 @@ services:
   web-2:
     build: ./backend
     container_name: arena-web-2
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 6 --timeout 900 --worker-connections 1000 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 2 --worker-class gthread --threads 2 --timeout 50 --worker-connections 100 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
     env_file:
       - ./config.env
     volumes:
