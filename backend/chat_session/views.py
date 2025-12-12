@@ -292,13 +292,16 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         """Generate AI-based title for the session"""
         session = self.get_object()
         
-        first_user_message = session.messages.filter(role='user').first()
-        if not first_user_message:
+        if session.session_type == "LLM":
+            message = session.messages.filter(role='user').first()
+        else:
+            message = session.messages.filter(role='assistant').first()
+        if not message:
             return Response({'error': 'No messages in session'}, status=400)
         
         prompt = f"""Based on this message, create a brief title (max 5 words).
 
-        Message: {first_user_message.content}
+        Message: {message.content}
 
         Rules:
         - No quotes or quotation marks
