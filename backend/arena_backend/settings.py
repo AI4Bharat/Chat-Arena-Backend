@@ -41,6 +41,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
+    
 ]
 
 CSRF_COOKIE_SECURE = True
@@ -147,6 +149,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://dev.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
 ]
 
 CORS_ALLOW_HEADERS = [

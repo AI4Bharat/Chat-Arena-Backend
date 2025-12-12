@@ -12,6 +12,7 @@ class AIModel(models.Model):
         ('deepseek', 'DeepSeek'),
         ('qwen', 'Qwen'),
         ('sarvam', 'Sarvam'),
+        ('ibm', 'IBM'),
         ('ai4b', 'AI4Bharat'),
     ]
 
