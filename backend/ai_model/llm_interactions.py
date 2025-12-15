@@ -108,20 +108,20 @@ def get_gpt5_output(system_prompt, user_prompt, history, model):
     request_args = {
         "model": model,
         "input": input_items,
-        "text": {"verbosity": "medium"},
+        "text": {"verbosity": "low"},
         "stream": True,
     }
 
     if model.startswith("gpt-5"):
         if model == "gpt-5-pro":
-            request_args["reasoning"] = {"effort": "high"}
+            request_args["reasoning"] = {"effort": "low"}
         else:
-            request_args["reasoning"] = {"effort": "medium"}
-            request_args["text"] = {"verbosity": "medium"}
+            request_args["reasoning"] = {"effort": "low"}
+            request_args["text"] = {"verbosity": "low"}
     else:
         request_args["temperature"] = 0.7
         request_args["top_p"] = 0.95
-        request_args["text"] = {"verbosity": "medium"}
+        request_args["text"] = {"verbosity": "low"}
 
     try:
         response = client.responses.create(**request_args)
