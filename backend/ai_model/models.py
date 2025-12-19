@@ -12,6 +12,7 @@ class AIModel(models.Model):
         ('deepseek', 'DeepSeek'),
         ('qwen', 'Qwen'),
         ('sarvam', 'Sarvam'),
+        ('ibm', 'IBM'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
