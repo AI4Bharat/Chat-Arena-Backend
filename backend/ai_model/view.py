@@ -65,7 +65,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 Q(model_code__icontains=search)
             )
         
-        return queryset.order_by('provider', 'model_name')
+        return queryset.order_by('-release_date', 'display_name')
     
     @action(detail=False, methods=['get'], url_path='type')
     def filtered_by_type(self, request):
