@@ -63,7 +63,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 Q(model_code__icontains=search)
             )
         
-        return queryset.order_by('-release_date', 'display_name')
+        return queryset.order_by('-release_date', 'provider', 'display_name')
     
     @action(detail=False, methods=['get'])
     def providers(self, request):
