@@ -24,6 +24,7 @@ class AIModel(models.Model):
     max_tokens = models.IntegerField(null=True, blank=True)
     supports_streaming = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
+    release_date = models.DateField(null=True, blank=True)
     config = models.JSONField(default=dict, blank=True)  # API endpoints, model-specific settings
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
