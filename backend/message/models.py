@@ -28,6 +28,7 @@ class Message(models.Model):
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='messages')
     role = models.CharField(max_length=50, choices=ROLE_CHOICES)
     content = models.TextField()
+    audio_path = models.CharField(max_length=1024, null=True, blank=True)
     model = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True, blank=True)
     parent_message_ids = ArrayField(
         models.UUIDField(),
@@ -65,6 +66,7 @@ class Message(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
+    language = models.CharField(max_length=100, null=True, blank=True)
     
     class Meta:
         db_table = 'messages'

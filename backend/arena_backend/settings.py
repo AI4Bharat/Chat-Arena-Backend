@@ -41,6 +41,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
+    
 ]
 
 CSRF_COOKIE_SECURE = True
@@ -147,6 +149,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://dev.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -349,3 +352,5 @@ ANONYMOUS_USER_SETTINGS = {
     'ALLOW_MODEL_SELECTION': True,  # Allow guests to choose models
     'ALLOWED_MODELS': ['gpt-3.5-turbo', 'claude-2', 'gemini-pro'],  # Limit premium models
 }
+
+GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME")
