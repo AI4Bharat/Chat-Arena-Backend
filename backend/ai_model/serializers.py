@@ -41,6 +41,7 @@ class AIModelListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'provider', 'model_code', 'display_name',
             'capabilities', 'is_active', 'release_date', 'model_type',
+        ]
 
 
 class ModelMetricSerializer(serializers.ModelSerializer):
