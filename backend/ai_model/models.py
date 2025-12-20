@@ -44,7 +44,7 @@ class AIModel(models.Model):
             models.Index(fields=['provider', 'is_active']),
             models.Index(fields=['model_code']),
         ]
-        ordering = ['-release_date', 'display_name']
+        ordering = ['-release_date', 'provider', 'display_name']
     
     def __str__(self):
         return f"{self.display_name} ({self.provider})"

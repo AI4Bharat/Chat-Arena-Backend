@@ -113,7 +113,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         for message in serializer.validated_data:
             if message['role'] == 'user':
-                org_user_message = message
+                user_message = message
             elif message['role'] == 'assistant':
                 if session.mode == 'direct':
                     assistant_message = message
@@ -133,7 +133,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             user_message = MessageService.create_message(
                 session=session,
-                message_obj=org_user_message
+                message_obj=user_message
             )
             if session.mode == 'direct':
                 assistant_message = MessageService.create_message(
@@ -293,7 +293,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
 
-                    output = get_asr_output(org_user_message['temp_audio_url'], org_user_message['language'], model=session.model_a.model_code)
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output}"\n'
                     
@@ -317,7 +317,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
-                        output_a = get_asr_output(org_user_message['temp_audio_url'], org_user_message['language'], model=session.model_a.model_code)
+                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code)
                         chunk_queue.put(('a', f'a0:"{output_a}"\n'))
                         
                         assistant_message_a.content = output_a
@@ -341,7 +341,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
-                        output_b = get_asr_output(org_user_message['temp_audio_url'], org_user_message['language'], model=session.model_b.model_code)
+                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code)
                         chunk_queue.put(('b', f'b0:"{output_b}"\n'))
                         
                         assistant_message_b.content = output_b

@@ -138,7 +138,6 @@ class MessageStreamSerializer(serializers.Serializer):
     max_tokens = serializers.IntegerField(default=2000, min_value=1, max_value=8000)
     stream = serializers.BooleanField(default=True)
     audio_path = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    temp_audio_url = serializers.URLField(required=False, allow_null=True, allow_blank=True)
     language = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     def validate(self, attrs):
@@ -146,7 +145,6 @@ class MessageStreamSerializer(serializers.Serializer):
         content = attrs.get('content')
         model_id = attrs.get('modelId')
         audio_path = attrs.get('audio_path')
-        temp_audio_url = attrs.get('temp_audio_url')
         language = attrs.get('language')
         if role == 'assistant':
             if model_id:
@@ -157,7 +155,7 @@ class MessageStreamSerializer(serializers.Serializer):
                     # handle participant for compare mode
 
         if role != 'assistant' and not content:
-            if not audio_path and not temp_audio_url and not language:
+            if not audio_path and not language:
                 raise serializers.ValidationError({
                     'content': 'This field is required when role is not "assistant".'
                 })
