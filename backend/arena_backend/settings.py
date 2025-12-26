@@ -97,6 +97,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "tenants.middleware.TenantMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -177,8 +178,19 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
-    }
+    },
+    "aquarium": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("AQUARIUM_DB_NAME"),
+        "USER": os.getenv("AQUARIUM_DB_USER"),
+        "PASSWORD": os.getenv("AQUARIUM_DB_PASSWORD"),
+        "HOST": os.getenv("AQUARIUM_DB_HOST"),
+        "PORT": os.getenv("AQUARIUM_DB_PORT"),
+    },
 }
+
+# Database Router for multi-tenant support
+DATABASE_ROUTERS = ['tenants.db_router.TenantDatabaseRouter']
 
 
 # Password validation
