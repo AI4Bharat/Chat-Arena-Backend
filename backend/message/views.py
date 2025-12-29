@@ -113,7 +113,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         for message in serializer.validated_data:
             if message['role'] == 'user':
-                user_message = message
+                org_user_message = message
             elif message['role'] == 'assistant':
                 if session.mode == 'direct':
                     assistant_message = message
@@ -122,6 +122,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a = message
                     else:
                         assistant_message_b = message
+        
+        # Extract image URL for multimodal LLM support
+        temp_image_url = org_user_message.get('temp_image_url', None)
         
         if session.mode == 'random':
             if 'assistant_message_a' in locals() and session.model_a_id:
@@ -133,7 +136,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             user_message = MessageService.create_message(
                 session=session,
-                message_obj=user_message
+                message_obj=org_user_message
             )
             if session.mode == 'direct':
                 assistant_message = MessageService.create_message(
@@ -178,6 +181,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         user_prompt=user_message.content,
                         history=history,
                         model=session.model_a.model_code,
+                        image_url=temp_image_url,
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -210,6 +214,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             user_prompt=user_message.content,
                             history=history,
                             model=session.model_a.model_code,
+                            image_url=temp_image_url,
                         ):
                             if chunk:
                                 chunks_a.append(chunk)
@@ -243,6 +248,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             user_prompt=user_message.content,
                             history=history,
                             model=session.model_b.model_code,
+                            image_url=temp_image_url,
                         ):
                             if chunk:
                                 chunks_b.append(chunk)
@@ -656,6 +662,33 @@ class MessageViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_image(self, request):
+        if 'image' not in request.FILES:
+            return Response({'error': 'No image provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        image_file = request.FILES['image']
+        try:
+            client = storage.Client()
+            bucket = client.bucket(settings.GS_BUCKET_NAME)
+            ext = os.path.splitext(image_file.name)[1]
+            blob_name = f"llm-images-input/{uuid.uuid4()}{ext}"
+            blob = bucket.blob(blob_name)
+            blob.upload_from_file(image_file, content_type=image_file.content_type)
+            
+            signed_url = blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(minutes=15),
+                method="GET",
+            )
+            
+            return Response({
+                'path': blob_name,
+                'url': signed_url,
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 #   def upload_audio(self, request):
 #         if 'audio' not in request.FILES:
 #             return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
