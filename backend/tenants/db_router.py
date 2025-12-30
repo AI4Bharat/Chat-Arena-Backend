@@ -41,8 +41,8 @@ class TenantDatabaseRouter:
         Allow relations only if both objects are in the same database.
         """
         # Get the databases for both objects
-        db1 = self._get_tenant_db()
-        db2 = self._get_tenant_db()
+        db1 = obj1._state.db or self._get_tenant_db()
+        db2 = obj2._state.db or self._get_tenant_db()
         
         # Only allow relations within the same database
         if db1 == db2:
