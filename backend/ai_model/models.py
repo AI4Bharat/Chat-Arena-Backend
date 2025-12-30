@@ -33,6 +33,7 @@ class AIModel(models.Model):
     max_tokens = models.IntegerField(null=True, blank=True)
     supports_streaming = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
+    release_date = models.DateField(default="2020-01-01")
     config = models.JSONField(default=dict, blank=True)  # API endpoints, model-specific settings
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
@@ -43,7 +44,7 @@ class AIModel(models.Model):
             models.Index(fields=['provider', 'is_active']),
             models.Index(fields=['model_code']),
         ]
-        ordering = ['provider', 'model_name']
+        ordering = ['-release_date', 'provider', 'display_name']
     
     def __str__(self):
         return f"{self.display_name} ({self.provider})"
