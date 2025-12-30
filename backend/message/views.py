@@ -743,6 +743,60 @@ class MessageViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_document(self, request):
+        if 'document' not in request.FILES:
+            return Response({'error': 'No document provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        doc_file = request.FILES['document']
+        
+        # Validate file type - allow common document formats
+        allowed_types = [
+            'application/pdf',  # PDF
+            'application/msword',  # DOC
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  # DOCX
+            'text/plain',  # TXT
+            'text/markdown',  # MD
+            'application/rtf',  # RTF
+            'application/vnd.ms-excel',  # XLS
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # XLSX
+            'text/csv',  # CSV
+        ]
+        
+        if doc_file.content_type not in allowed_types:
+            return Response({
+                'error': f'Invalid document type: {doc_file.content_type}. Allowed: PDF, DOC, DOCX, TXT, MD, RTF, XLS, XLSX, CSV'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate file size (max 20MB for documents)
+        if doc_file.size > 20 * 1024 * 1024:
+            return Response({
+                'error': 'Document size must be less than 20MB'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            client = storage.Client()
+            bucket = client.bucket(settings.GS_BUCKET_NAME)
+            ext = os.path.splitext(doc_file.name)[1]
+            blob_name = f"llm-documents-input/{uuid.uuid4()}{ext}"
+            blob = bucket.blob(blob_name)
+            blob.upload_from_file(doc_file, content_type=doc_file.content_type)
+            
+            signed_url = blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(minutes=15),
+                method="GET",
+            )
+            
+            return Response({
+                'path': blob_name,
+                'url': signed_url,
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
             
 #         audio_file = request.FILES['audio']
 #         try:
