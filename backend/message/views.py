@@ -169,10 +169,16 @@ class MessageViewSet(viewsets.ModelViewSet):
         # return StreamingManager.create_streaming_response(generator)
 
         def generate():
+            # Capture database alias from session for explicit routing
+            db_alias = session._state.db
+            
             if session.mode == 'direct':
                 try:
                     history = MessageService._get_conversation_history(session)
-                    history.pop()
+                    # Remove the last message (current user message) from history to avoid duplication
+                    # Only pop if history exists - first message in a new session has empty history
+                    if history:
+                        history.pop()
                     chunks = []
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
@@ -187,12 +193,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
                         "error": str(e),
@@ -205,7 +211,10 @@ class MessageViewSet(viewsets.ModelViewSet):
                     chunks_a = []
                     try:
                         history = MessageService._get_conversation_history(session, 'a')
-                        history.pop()
+                        # Remove the last message from history to avoid duplication
+                        # Only pop if history exists - first message in a new session has empty history
+                        if history:
+                            history.pop()
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                             user_prompt=user_message.content,
@@ -219,13 +228,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_a.content = "".join(chunks_a)
                         assistant_message_a.status = 'success'
-                        assistant_message_a.save()
+                        assistant_message_a.save(using=db_alias)
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
-                        assistant_message_a.save()
+                        assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
                             "error": str(e),
@@ -238,7 +247,10 @@ class MessageViewSet(viewsets.ModelViewSet):
                     chunks_b = []
                     try:
                         history = MessageService._get_conversation_history(session, 'b')
-                        history.pop()
+                        # Remove the last message from history to avoid duplication
+                        # Only pop if history exists - first message in a new session has empty history
+                        if history:
+                            history.pop()
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                             user_prompt=user_message.content,
@@ -252,13 +264,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_b.content = "".join(chunks_b)
                         assistant_message_b.status = 'success'
-                        assistant_message_b.save()
+                        assistant_message_b.save(using=db_alias)
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
-                        assistant_message_b.save()
+                        assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
                             "error": str(e),
@@ -289,6 +301,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_b.join()
 
         def generate_asr_output():
+            # Capture database alias from session for explicit routing
+            db_alias = session._state.db
+            
             if session.mode == 'direct':
                 try:
                     # history = MessageService._get_conversation_history(session)
@@ -300,12 +315,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = output
                     assistant_message.status = 'success'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
                         "error": str(e),
@@ -323,13 +338,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_a.content = output_a
                         assistant_message_a.status = 'success'
-                        assistant_message_a.save()
+                        assistant_message_a.save(using=db_alias)
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
-                        assistant_message_a.save()
+                        assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
                             "error": str(e),
@@ -347,13 +362,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_b.content = output_b
                         assistant_message_b.status = 'success'
-                        assistant_message_b.save()
+                        assistant_message_b.save(using=db_alias)
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
-                        assistant_message_b.save()
+                        assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
                             "error": str(e),
@@ -513,6 +528,9 @@ class MessageViewSet(viewsets.ModelViewSet):
             session = assistant_message.session
             
             def generate():
+                # Capture database alias from session for explicit routing
+                db_alias = session._state.db
+                
                 participant = assistant_message.participant
                 history = MessageService._get_conversation_history(session, participant)
                 if participant == None:
@@ -539,11 +557,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
                         "error": str(e),
@@ -551,6 +569,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
             def generate_asr_output():
+                # Capture database alias from session for explicit routing
+                db_alias = session._state.db
+                
                 participant = assistant_message.participant
                 if participant == None:
                     participant = 'a'
@@ -561,11 +582,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = output
                     assistant_message.status = 'success'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
-                    assistant_message.save()
+                    assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
                         "error": str(e),
