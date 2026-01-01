@@ -34,6 +34,8 @@ class AIModelViewSet(viewsets.ModelViewSet):
             return ModelTestSerializer
         elif self.action == 'compare':
             return ModelComparisonSerializer
+        elif self.action == 'filtered_by_type':
+            return AIModelListSerializer
         return AIModelSerializer
     
     def get_queryset(self):
@@ -63,8 +65,22 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 Q(model_code__icontains=search)
             )
         
-        return queryset.order_by('provider', 'model_name')
+        return queryset.order_by('-release_date', 'provider', 'display_name')
     
+    @action(detail=False, methods=['get'], url_path='type')
+    def filtered_by_type(self, request):
+        """
+        Returns models filtered by model_type
+        """
+        model_type = request.query_params.get('model_type')
+        qs = self.get_queryset()
+
+        if model_type:
+            qs = qs.filter(model_type=model_type)
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
     @action(detail=False, methods=['get'])
     def providers(self, request):
         """Get list of available providers"""

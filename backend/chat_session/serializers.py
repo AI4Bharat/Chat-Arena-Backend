@@ -60,10 +60,11 @@ class ChatSessionCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating chat sessions"""
     model_a_id = serializers.UUIDField(required=False, allow_null=True)
     model_b_id = serializers.UUIDField(required=False, allow_null=True)
+    session_type = serializers.CharField(required=False, default='LLM')
     
     class Meta:
         model = ChatSession
-        fields = ['mode', 'title', 'model_a_id', 'model_b_id', 'metadata']
+        fields = ['mode', 'title', 'model_a_id', 'model_b_id', 'metadata', 'session_type']
     
     def validate(self, attrs):
         mode = attrs.get('mode')
@@ -136,7 +137,8 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
         model = ChatSession
         fields = [
             'id', 'mode', 'title', 'model_a_name', 'model_b_name',
-            'created_at', 'updated_at', 'message_count', 'is_pinned'
+            'created_at', 'updated_at', 'message_count', 'is_pinned',
+            'session_type',
         ]
     
     def get_message_count(self, obj):
@@ -189,7 +191,7 @@ class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatSession
         fields = [
-            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b'
+            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b', 'session_type'
         ]
 
     def to_representation(self, instance):
