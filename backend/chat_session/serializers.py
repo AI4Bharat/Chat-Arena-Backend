@@ -191,7 +191,7 @@ class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatSession
         fields = [
-            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b'
+            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b', 'session_type'
         ]
 
     def to_representation(self, instance):
