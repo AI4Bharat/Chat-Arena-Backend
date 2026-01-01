@@ -45,6 +45,7 @@ from openai import OpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
+from litellm import completion
 
 GPT35 = "GPT3.5"
 GPT4 = "GPT4"
@@ -63,7 +64,39 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
-def get_gpt5_output(system_prompt, user_prompt, history):
+def get_gemini_output(system_prompt, user_prompt, history, model):
+    client = OpenAI(
+        api_key=os.getenv("GOOGLE_API_KEY"),
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    )
+
+    input_items = [{"role": "system", "content": system_prompt}]
+    input_items.extend(history)
+    input_items.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=input_items,
+            stream=True,
+        )
+
+        for chunk in response:
+            delta = chunk.choices[0].delta
+            if delta and getattr(delta, "content", None):
+                yield delta.content
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM."
+        else:
+            message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
+        raise Exception(message)
+
+def get_gpt5_output(system_prompt, user_prompt, history, model):
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY_GPT_5")
     )
@@ -72,14 +105,26 @@ def get_gpt5_output(system_prompt, user_prompt, history):
     input_items.extend(history)
     input_items.append({"role": "user", "content": user_prompt})
 
+    request_args = {
+        "model": model,
+        "input": input_items,
+        "text": {"verbosity": "medium"},
+        "stream": True,
+    }
+
+    if model.startswith("gpt-5"):
+        if model == "gpt-5-pro":
+            request_args["reasoning"] = {"effort": "high"}
+        else:
+            request_args["reasoning"] = {"effort": "medium"}
+            request_args["text"] = {"verbosity": "medium"}
+    else:
+        request_args["temperature"] = 0.7
+        request_args["top_p"] = 0.95
+        request_args["text"] = {"verbosity": "medium"}
+
     try:
-        response = client.responses.create(
-            model="gpt-5",
-            input=input_items,
-            reasoning={"effort": "medium"},
-            text={"verbosity": "medium"},
-            stream=True,
-        )
+        response = client.responses.create(**request_args)
 
         for event in response:
             if event.type == "response.output_text.delta":
@@ -95,7 +140,7 @@ def get_gpt5_output(system_prompt, user_prompt, history):
             message = "Invalid response from the LLM."
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
 
 def get_gpt4_output(system_prompt, user_prompt, history, model):
     if model == "GPT4":
@@ -144,7 +189,7 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
 
 def get_gpt3_output(system_prompt, user_prompt, history):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
@@ -187,7 +232,7 @@ def get_gpt3_output(system_prompt, user_prompt, history):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
 
 def get_llama2_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
@@ -284,21 +329,54 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        yield message
+        raise Exception(message)
+    
+def get_ibm_output(system_prompt, user_prompt, history, model):
+    history_messages = history
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = completion(
+            model="watsonx/"+model,
+            project_id=os.getenv("IBM_WATSONX_PROJECT_ID"),
+            messages=messages,
+            stream=True,
+        )
+        
+        for chunk in response:
+            if hasattr(chunk, 'choices') and chunk.choices:
+                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                    content = chunk.choices[0].delta.content
+                    if content is not None:
+                        yield content
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+        raise Exception(message)
     
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
     if model == GPT35:
         out = get_gpt3_output(system_prompt, user_prompt, history)
-    elif model in [GPT4, GPT4O, GPT4OMini]:
-        out = get_gpt4_output(system_prompt, user_prompt, history, model)
-    elif model == "GPT5":
-        out = get_gpt5_output(system_prompt, user_prompt, history)
+    elif model.startswith("gpt"):
+        out = get_gpt5_output(system_prompt, user_prompt, history, model)
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt)
     elif model == SARVAM_M:
         out = get_sarvam_m_output(system_prompt, history, user_prompt)
+    elif model.startswith("gemini"):
+        out = get_gemini_output(system_prompt, user_prompt, history, model)
+    elif model.startswith("ibm"):
+        out = get_ibm_output(system_prompt, user_prompt, history, model)
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out

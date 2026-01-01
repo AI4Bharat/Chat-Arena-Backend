@@ -22,7 +22,7 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             'id', 'user', 'mode', 'title', 'model_a', 'model_b',
             'is_public', 'share_token', 'created_at', 'updated_at',
             'metadata', 'expires_at', 'message_count', 'last_message_at',
-            'share_url'
+            'share_url', 'is_pinned'
         ]
         read_only_fields = ['id', 'user', 'share_token', 'created_at', 'updated_at']
     
@@ -39,7 +39,22 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             if request:
                 return f"{request.scheme}://{request.get_host()}/chat/shared/{obj.share_token}"
         return None
-
+    
+    def to_representation(self, instance):
+        """Conditionally hide model names for random mode."""
+        data = super().to_representation(instance)
+        if instance.mode == 'random' and not instance.has_feedback:
+            data['model_a'] = {
+                'id': None,
+                'display_name': 'Model A',
+                'provider': 'Random'
+            }
+            data['model_b'] = {
+                'id': None,
+                'display_name': 'Model B',
+                'provider': 'Random'
+            }
+        return data
 
 class ChatSessionCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating chat sessions"""
@@ -121,12 +136,20 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
         model = ChatSession
         fields = [
             'id', 'mode', 'title', 'model_a_name', 'model_b_name',
-            'created_at', 'updated_at', 'message_count'
+            'created_at', 'updated_at', 'message_count', 'is_pinned'
         ]
     
     def get_message_count(self, obj):
         # Use prefetch_related in view to optimize
         return getattr(obj, '_message_count', 0)
+    
+    def to_representation(self, instance):
+        """Conditionally hide model names for random mode."""
+        data = super().to_representation(instance)
+        if instance.mode == 'random' and not instance.has_feedback:
+            data['model_a_name'] = 'Model A'
+            data['model_b_name'] = 'Model B'
+        return data
 
 
 class ChatSessionShareSerializer(serializers.Serializer):
@@ -157,3 +180,28 @@ class ChatSessionExportSerializer(serializers.Serializer):
     )
     include_metadata = serializers.BooleanField(default=False)
     include_timestamps = serializers.BooleanField(default=True)
+
+
+class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
+    model_a = AIModelListSerializer(read_only=True)
+    model_b = AIModelListSerializer(read_only=True)
+
+    class Meta:
+        model = ChatSession
+        fields = [
+            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b'
+        ]
+
+    def to_representation(self, instance):
+        """Conditionally hide model names for random mode."""
+        data = super().to_representation(instance)
+        if instance.mode == 'random' and not instance.has_feedback:
+            data['model_a'] = {
+                'id': None,
+                'display_name': 'Model A',
+            }
+            data['model_b'] = {
+                'id': None,
+                'display_name': 'Model B',
+            }
+        return data
