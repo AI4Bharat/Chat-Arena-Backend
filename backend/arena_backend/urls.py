@@ -14,7 +14,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework import permissions, routers
@@ -49,6 +49,16 @@ urlpatterns = [
     path('', include('message.urls')),
     path('', include('model_metrics.urls')),
     path('', include('leaderboards.urls')),
+
+# Tenant-prefixed URLs (for multi-tenant support)
+# Using re_path to match tenant without passing it as a view argument
+# Middleware handles tenant detection via request.tenant
+    re_path(r'^[a-zA-Z0-9_-]+/', include('user.urls')),
+    re_path(r'^[a-zA-Z0-9_-]+/', include('ai_model.urls')),
+    re_path(r'^[a-zA-Z0-9_-]+/', include('chat_session.urls')),
+    re_path(r'^[a-zA-Z0-9_-]+/', include('feedback.urls')),
+    re_path(r'^[a-zA-Z0-9_-]+/', include('message.urls')),
+    re_path(r'^[a-zA-Z0-9_-]+/', include('model_metrics.urls')),
 
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
