@@ -64,7 +64,7 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
-def get_gemini_output(system_prompt, user_prompt, history, model):
+def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None):
     client = OpenAI(
         api_key=os.getenv("GOOGLE_API_KEY"),
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -72,7 +72,16 @@ def get_gemini_output(system_prompt, user_prompt, history, model):
 
     input_items = [{"role": "system", "content": system_prompt}]
     input_items.extend(history)
-    input_items.append({"role": "user", "content": user_prompt})
+    
+    # Handle multimodal input (text + image)
+    if image_url:
+        user_content = [
+            {"type": "text", "text": user_prompt},
+            {"type": "image_url", "image_url": {"url": image_url}}
+        ]
+        input_items.append({"role": "user", "content": user_content})
+    else:
+        input_items.append({"role": "user", "content": user_prompt})
 
     try:
         response = client.chat.completions.create(
@@ -96,14 +105,23 @@ def get_gemini_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
         raise Exception(message)
 
-def get_gpt5_output(system_prompt, user_prompt, history, model):
+def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None):
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY_GPT_5")
     )
 
     input_items = [{"role": "system", "content": system_prompt}]
     input_items.extend(history)
-    input_items.append({"role": "user", "content": user_prompt})
+    
+    # Handle multimodal input (text + image)
+    if image_url:
+        user_content = [
+            {"type": "text", "text": user_prompt},
+            {"type": "image_url", "image_url": {"url": image_url}}
+        ]
+        input_items.append({"role": "user", "content": user_content})
+    else:
+        input_items.append({"role": "user", "content": user_prompt})
 
     request_args = {
         "model": model,
@@ -296,7 +314,7 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         print(f"Full response data: {response_data}")
         raise
 
-def get_deepinfra_output(system_prompt, user_prompt, history, model):
+def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None):
     try:
         client = OpenAI(
             api_key=os.getenv("DEEPINFRA_API_KEY"),
@@ -306,7 +324,16 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         history_messages = history
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history_messages)
-        messages.append({"role": "user", "content": user_prompt})
+        
+        # Handle multimodal input (text + image)
+        if image_url:
+            user_content = [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": image_url}}
+            ]
+            messages.append({"role": "user", "content": user_content})
+        else:
+            messages.append({"role": "user", "content": user_prompt})
 
         stream = client.chat.completions.create(
             model=model,
@@ -362,23 +389,23 @@ def get_ibm_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
         raise Exception(message)
     
-def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
+def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
     if model == GPT35:
         out = get_gpt3_output(system_prompt, user_prompt, history)
     elif model.startswith("gpt"):
-        out = get_gpt5_output(system_prompt, user_prompt, history, model)
+        out = get_gpt5_output(system_prompt, user_prompt, history, model, image_url=image_url)
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt)
     elif model == SARVAM_M:
         out = get_sarvam_m_output(system_prompt, history, user_prompt)
     elif model.startswith("gemini"):
-        out = get_gemini_output(system_prompt, user_prompt, history, model)
+        out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url)
     elif model.startswith("ibm"):
         out = get_ibm_output(system_prompt, user_prompt, history, model)
     else:
-        out = get_deepinfra_output(system_prompt, user_prompt, history, model)
+        out = get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=image_url)
     return out
 
 def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
