@@ -19,6 +19,7 @@ from chat_session.permissions import IsSessionOwner, CanAccessSharedSession
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
 from ai_model.llm_interactions import get_model_output
 import re
+from message.utlis import generate_signed_url
 
 
 class ChatSessionViewSet(viewsets.ModelViewSet):
@@ -83,6 +84,8 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             return ChatSessionDuplicateSerializer
         elif self.action == 'export':
             return ChatSessionExportSerializer
+        elif self.action == 'filtered_by_type':
+            return ChatSessionListSerializer
         return ChatSessionSerializer
     
     def create(self, request, *args, **kwargs):
@@ -93,7 +96,8 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         if serializer.validated_data['mode'] == 'random':
             session = ChatSessionService.create_session_with_random_models(
                 user=request.user,
-                metadata=serializer.validated_data.get('metadata')
+                metadata=serializer.validated_data.get('metadata'),
+                session_type=serializer.validated_data.get('session_type'),
             )
         else:
             session = serializer.save()
@@ -103,6 +107,20 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             ChatSessionSerializer(session, context={'request': request}).data,
             status=status.HTTP_201_CREATED
         )
+    
+    @action(detail=False, methods=['get'], url_path='type')
+    def filtered_by_type(self, request):
+        """
+        Returns sessions filtered by session_type
+        """
+        session_type = request.query_params.get('session_type')
+        qs = self.get_queryset()
+
+        if session_type:
+            qs = qs.filter(session_type=session_type)
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def share(self, request, pk=None):
@@ -258,7 +276,10 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                     'participant': msg.participant,
                     'status': msg.status,
                     'feedback': msg.feedback,
-                    'created_at': msg.created_at.isoformat()
+                    'created_at': msg.created_at.isoformat(),
+                    'audio_path': msg.audio_path,
+                    'language': msg.language,
+                    **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {})
                 }
                 for msg in reversed(messages)
             ]
@@ -271,13 +292,16 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         """Generate AI-based title for the session"""
         session = self.get_object()
         
-        first_user_message = session.messages.filter(role='user').first()
-        if not first_user_message:
+        if session.session_type == "LLM" or session.session_type == "TTS":
+            message = session.messages.filter(role='user').first()
+        else:
+            message = session.messages.filter(role='assistant').first()
+        if not message:
             return Response({'error': 'No messages in session'}, status=400)
         
-        prompt = f"""Based on this message, create a brief title (max 5 words).
+        prompt_llm = f"""Based on this message, create a brief title (max 5 words).
 
-        Message: {first_user_message.content}
+        Message: {message.content}
 
         Rules:
         - No quotes or quotation marks
@@ -287,12 +311,26 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         - Be descriptive but concise
 
         Return only the title text, nothing else."""
+
+        prompt_tts = f"""Based on this text that will be spoken by an AI voice, create a brief title (max 5 words).
+
+        Message: {message.content}
+
+        Rules:
+        - No quotes or quotation marks
+        - No colons or special punctuation
+        - Simple, direct phrasing
+        - Capitalize appropriately
+        - Be descriptive but concise
+        - Describe the content being narrated
+
+        Return only the title text, nothing else."""
         
         try:
             title_chunks = []
             for chunk in get_model_output(
                 system_prompt="You are a helpful assistant that creates short, descriptive titles.",
-                user_prompt=prompt,
+                user_prompt=prompt_tts if session.session_type == "TTS" else prompt_llm,
                 history=[],
                 model="GPT3.5"
             ):

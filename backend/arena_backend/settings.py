@@ -41,6 +41,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
+    
 ]
 
 CSRF_COOKIE_SECURE = True
@@ -88,6 +90,7 @@ INSTALLED_APPS = [
     "drf_yasg",
     "corsheaders",
     "rest_framework",
+    "leaderboards",
 ]
 
 MIDDLEWARE = [
@@ -95,6 +98,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "tenants.middleware.TenantMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -147,6 +151,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://dev.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -174,8 +179,19 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
-    }
+    },
+    "aquarium": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("AQUARIUM_DB_NAME"),
+        "USER": os.getenv("AQUARIUM_DB_USER"),
+        "PASSWORD": os.getenv("AQUARIUM_DB_PASSWORD"),
+        "HOST": os.getenv("AQUARIUM_DB_HOST"),
+        "PORT": os.getenv("AQUARIUM_DB_PORT"),
+    },
 }
+
+# Database Router for multi-tenant support
+DATABASE_ROUTERS = ['tenants.db_router.TenantDatabaseRouter']
 
 
 # Password validation
@@ -349,3 +365,5 @@ ANONYMOUS_USER_SETTINGS = {
     'ALLOW_MODEL_SELECTION': True,  # Allow guests to choose models
     'ALLOWED_MODELS': ['gpt-3.5-turbo', 'claude-2', 'gemini-pro'],  # Limit premium models
 }
+
+GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME")

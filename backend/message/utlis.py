@@ -1,11 +1,16 @@
+import base64
 from typing import List, Dict, Optional, Set, Tuple
 from django.core.cache import cache
 from django.db.models import Q, F
 import re
 import json
-from datetime import timedelta
+import datetime
 from message.models import Message
-
+from google.cloud import storage
+from django.conf import settings
+import uuid
+import os
+import io
 
 class MessageAnalyzer:
     """Analyze message content and patterns"""
@@ -262,3 +267,52 @@ def format_message_for_export(message: 'Message', format_type: str = 'plain') ->
         })
     
     return message.content
+
+def generate_signed_url(blob_name, expiration=900):
+    """
+    Generates a v4 signed URL for a blob.
+    """
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(settings.GS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+
+        url = blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(seconds=expiration),
+            method="GET",
+        )
+        return url
+    except Exception as e:
+        print(f"Error generating signed URL: {e}")
+        return None
+
+def upload_audio(audio_base64, folder='tts-audios'):
+    try:
+        # Decode base64 string to bytes
+        audio_bytes = base64.b64decode(audio_base64)
+
+        # Create a file-like object
+        audio_file = io.BytesIO(audio_bytes)
+
+        # Upload to Google Cloud Storage
+        client = storage.Client()
+        bucket = client.bucket(settings.GS_BUCKET_NAME)
+        blob_name = f"{folder}/{uuid.uuid4()}{'.wav'}"
+        blob = bucket.blob(blob_name)
+        blob.upload_from_file(audio_file, content_type="audio/wav")
+
+        # Generate signed URL
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(minutes=15),
+            method="GET",
+        )
+
+        return {
+            'path': blob_name,
+            'url': signed_url,
+        }
+
+    except Exception as e:
+        raise Exception(f"Failed to upload audio: {str(e)}")

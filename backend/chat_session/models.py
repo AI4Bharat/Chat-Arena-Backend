@@ -11,6 +11,12 @@ class ChatSession(models.Model):
         ('compare', 'Compare Models'),
         ('random', 'Random Models')
     ]
+
+    TYPE_CHOICES = [
+        ('LLM', 'Large Language Model'),
+        ('ASR', 'Automatic Speech Recognition'),
+        ('TTS', 'Text to Speech'),
+    ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_sessions')
@@ -37,6 +43,7 @@ class ChatSession(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # For anonymous user cleanup
     meta_stats_json = models.JSONField(default=dict, blank=True)
+    session_type = models.CharField(max_length=100, default='LLM', choices=TYPE_CHOICES)  # e.g., 'llm', 'asr', 'tts
     is_pinned = models.BooleanField(default=False)
     
     class Meta:
