@@ -11,7 +11,8 @@ from chat_session.models import ChatSession
 from chat_session.serializers import (
     ChatSessionSerializer, ChatSessionCreateSerializer,
     ChatSessionListSerializer, ChatSessionShareSerializer,
-    ChatSessionDuplicateSerializer, ChatSessionExportSerializer
+    ChatSessionDuplicateSerializer, ChatSessionExportSerializer,
+    ChatSessionRetrieveSerializer
 )
 from chat_session.services import ChatSessionService
 from chat_session.permissions import IsSessionOwner, CanAccessSharedSession
@@ -244,21 +245,10 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             session=session
         ).order_by('-position')[:50]
         
+        session_data = ChatSessionRetrieveSerializer(session, context={'request': request}).data
+        
         response_data = {
-            'session': {
-                'id': str(session.id),
-                'mode': session.mode,
-                'title': session.title,
-                'created_at': session.created_at.isoformat(),
-                'model_a': {
-                    'id': str(session.model_a.id),
-                    'display_name': session.model_a.display_name
-                } if session.model_a else None,
-                'model_b': {
-                    'id': str(session.model_b.id),
-                    'display_name': session.model_b.display_name
-                } if session.model_b else None,
-            },
+            'session': session_data,
             'messages': [
                 {
                     'id': str(msg.id),

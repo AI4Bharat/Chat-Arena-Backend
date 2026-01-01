@@ -1,0 +1,192 @@
+version: '3.3'
+
+services:
+  nginx:
+    build: ./nginx
+    image: evgeniy-khyst/nginx
+    env_file:
+      - ./config.env
+    volumes:
+      - nginx_conf:/etc/nginx/sites
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_acme_challenge:/var/www/certbot
+      - ./vhosts:/etc/nginx/vhosts
+      - ./nginx/load-balancer-dev.conf:/etc/nginx/conf.d/load-balancer.conf
+      - static_volume:/usr/src/backend/static
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    depends_on:
+      - web-1
+      - web-2
+    networks:
+      - arena-network
+
+  certbot:
+    build: ./certbot
+    image: evgeniy-khyst/certbot
+    env_file:
+      - ./config.env
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_acme_challenge:/var/www/certbot
+    networks:
+      - arena-network
+
+  cron:
+    build: ./cron
+    image: evgeniy-khyst/cron
+    environment:
+      COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/workdir:ro
+    restart: unless-stopped
+    networks:
+      - arena-network
+
+  # Redis - Shared session store and cache
+  redis:
+    container_name: redis
+    image: "redis:7-alpine"
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru --maxclients 100 --tcp-backlog 512 --timeout 0 --tcp-keepalive 60 --hz 100
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - arena-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Django Backend - 10 replicas for load balancing
+  web-1:
+    build: ./backend
+    container_name: arena-web-1
+    command: gunicorn --bind 0.0.0.0:8000 --workers 2 --worker-class gthread --threads 2 --timeout 50 --worker-connections 100 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
+    volumes:
+      - ./backend/:/usr/src/backend/
+      - static_volume:/usr/src/backend/static
+      - logs_vol:/logs
+    env_file:
+      - ./config.env
+    expose:
+      - 8000
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONTAINER_NAME=web-1
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  web-2:
+    build: ./backend
+    container_name: arena-web-2
+    command: gunicorn --bind 0.0.0.0:8000 --workers 2 --worker-class gthread --threads 2 --timeout 50 --worker-connections 100 --graceful-timeout 120 --access-logfile - --error-logfile - arena_backend.wsgi
+    env_file:
+      - ./config.env
+    volumes:
+      - ./backend/:/usr/src/backend/
+      - static_volume:/usr/src/backend/static
+      - logs_vol:/logs
+    expose:
+      - 8000
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONTAINER_NAME=web-2
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - arena-network
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+  # Celery workers - Uncomment when ready
+  # celery:
+  #   container_name: celery-default
+  #   restart: always
+  #   build: ./backend
+  #   command: celery -A arena_backend.celery worker -Q default --concurrency=2 --loglevel=info
+  #   volumes:
+  #     - ./backend/:/usr/src/backend/
+  #     - logs_vol:/logs
+  #   depends_on:
+  #     - redis
+  #   networks:
+  #     - arena-network
+
+  # celery-beat:
+  #  build: ./backend
+  #  command: celery -A arena_backend.celery beat --loglevel=info
+  #  volumes:
+  #    - ./backend/:/usr/src/backend
+  #  depends_on:
+  #    - redis
+  #  networks:
+  #    - arena-network
+
+networks:
+  arena-network:
+    driver: bridge
+
+volumes:
+  logs_vol:
+    external: true
+  nginx_conf:
+    external: true
+  letsencrypt_certs:
+    external: true
+  certbot_acme_challenge:
+  static_volume:
+  redis_data:
