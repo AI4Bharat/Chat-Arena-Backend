@@ -374,8 +374,46 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
     def get_object(self):
         share_token = self.kwargs.get('share_token')
         
-        # Try to get by share token
+        # Try to get by share token - must be public
         try:
-            return ChatSession.objects.get(share_token=share_token)
+            session = ChatSession.objects.get(share_token=share_token, is_public=True)
+            return session
         except ChatSession.DoesNotExist:
             raise Http404("Session not found")
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Get session details with messages"""
+        session = self.get_object()
+        
+        # Fetch messages for this session
+        messages = Message.objects.filter(
+            session=session
+        ).order_by('position')
+        
+        print(f"[SharedSession] Session ID: {session.id}")
+        print(f"[SharedSession] Message count: {messages.count()}")
+        print(f"[SharedSession] Session is_public: {session.is_public}")
+        
+        response_data = {
+            'session': ChatSessionSerializer(
+                session, 
+                context={'request': request}
+            ).data,
+            'messages': [
+                {
+                    'id': str(msg.id),
+                    'role': msg.role,
+                    'content': msg.content,
+                    'position': msg.position,
+                    'participant': msg.participant,
+                    'status': msg.status,
+                    'feedback': msg.feedback,
+                    'created_at': msg.created_at.isoformat()
+                }
+                for msg in messages
+            ]
+        }
+        
+        print(f"[SharedSession] Response messages count: {len(response_data['messages'])}")
+        
+        return Response(response_data)
