@@ -1,5 +1,6 @@
 from ai_model.llm_interactions import get_model_output
 from ai_model.asr_interactions import get_asr_output
+from ai_model.tts_interactions import get_tts_output
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -381,9 +382,106 @@ class MessageViewSet(viewsets.ModelViewSet):
                 
                 thread_a.join()
                 thread_b.join()
+
+        def generate_tts_output():
+            if session.mode == 'direct':
+                try:
+                    # history = MessageService._get_conversation_history(session)
+                    # history.pop()
+
+                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code)
+                    # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
+                    yield f'a0:"{output["url"]}"\n'
+                    
+                    assistant_message.audio_path = output["path"]
+                    assistant_message.status = 'success'
+                    assistant_message.save()
+                    
+                    yield 'ad:{"finishReason":"stop"}\n'
+                except Exception as e:
+                    assistant_message.status = 'error'
+                    assistant_message.save()
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": str(e),
+                    }
+                    yield f"ad:{json.dumps(error_payload)}\n"
+            else:
+                chunk_queue = queue.Queue()
+        
+                def stream_model_a():
+                    try:
+                        # history = MessageService._get_conversation_history(session, 'a')
+                        # history.pop()
+                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code)
+                        chunk_queue.put(('a', f'a0:"{output_a["url"]}"\n'))
+                        
+                        assistant_message_a.audio_path = output_a["path"]
+                        assistant_message_a.status = 'success'
+                        assistant_message_a.save()
+                        
+                        chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
+                        
+                    except Exception as e:
+                        assistant_message_a.status = 'error'
+                        assistant_message_a.save()
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": str(e),
+                        }
+                        chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
+                    finally:
+                        chunk_queue.put(('a', None))
+
+                def stream_model_b():
+                    try:
+                        # history = MessageService._get_conversation_history(session, 'b')
+                        # history.pop()
+                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code)
+                        chunk_queue.put(('b', f'b0:"{output_b["url"]}"\n'))
+                        
+                        assistant_message_b.audio_path = output_b["path"]
+                        assistant_message_b.status = 'success'
+                        assistant_message_b.save()
+                        
+                        chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
+                        
+                    except Exception as e:
+                        assistant_message_b.status = 'error'
+                        assistant_message_b.save()
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": str(e),
+                        }
+                        chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
+                    finally:
+                        chunk_queue.put(('b', None))
+
+                thread_a = threading.Thread(target=stream_model_a)
+                thread_b = threading.Thread(target=stream_model_b)
+                
+                thread_a.start()
+                thread_b.start()
+                
+                completed = {'a': False, 'b': False}
+                
+                while not all(completed.values()):
+                    try:
+                        model, chunk = chunk_queue.get(timeout=0.1)
+                        if chunk is None:
+                            completed[model] = True
+                        else:
+                            yield chunk
+                    except queue.Empty:
+                        continue
+                
+                thread_a.join()
+                thread_b.join()
     
-        if request.data.get('mode') == 'ASR':
+        if session.session_type == 'ASR':
             return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
+        elif session.session_type == 'TTS':
+            return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
         else:
             return StreamingHttpResponse(generate(), content_type='text/plain')
 
@@ -474,8 +572,32 @@ class MessageViewSet(viewsets.ModelViewSet):
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
+            def generate_tts_output():
+                participant = assistant_message.participant
+                if participant == None:
+                    participant = 'a'
+                try:
+                    model = session.model_a if participant == 'a' else session.model_b
+                    output = get_tts_output(user_message.content, user_message.language, model=model.model_code)
+                    yield f'{participant}0:"{output["url"]}"\n'
+                    
+                    assistant_message.audio_path = output["path"]
+                    assistant_message.status = 'success'
+                    assistant_message.save()
+                    yield f'{participant}d:{{"finishReason":"stop"}}\n'
+                except Exception as e:
+                    assistant_message.status = 'error'
+                    assistant_message.save()
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": str(e),
+                    }
+                    yield f"{participant}d:{json.dumps(error_payload)}\n"
+
             if session.session_type == 'ASR':
                 return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
+            elif session.session_type == 'TTS':
+                return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
             else:
                 return StreamingHttpResponse(generate(), content_type='text/plain')
             
