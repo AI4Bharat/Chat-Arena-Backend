@@ -271,6 +271,9 @@ def generate_signed_url(blob_name, expiration=900):
     Generates a v4 signed URL for a blob.
     """
     try:
+        if not blob_name:
+            return None
+            
         storage_client = storage.Client()
         bucket = storage_client.bucket(settings.GS_BUCKET_NAME)
         blob = bucket.blob(blob_name)
