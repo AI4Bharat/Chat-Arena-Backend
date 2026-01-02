@@ -65,9 +65,8 @@ def get_sarvam_tts_output(tts_input, lang, model, gender):
     except Exception as e:
         raise Exception(str(e))
 
-def get_tts_output(tts_input, lang, model):
+def get_tts_output(tts_input, lang, model, gender="male"):
     out = ""
-    gender = random.choice(["male", "female"])
     if model == "ai4bharat_tts":
         out = get_dhruva_output(tts_input, lang, gender)
     elif model.startswith("bulbul"):
