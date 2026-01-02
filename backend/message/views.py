@@ -115,7 +115,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         for message in serializer.validated_data:
             if message['role'] == 'user':
-                user_message = message
+                org_user_message = message
             elif message['role'] == 'assistant':
                 if session.mode == 'direct':
                     assistant_message = message
@@ -124,6 +124,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a = message
                     else:
                         assistant_message_b = message
+        
+        # Extract image URL for multimodal LLM support
+        temp_image_url = org_user_message.get('temp_image_url', None)
         
         if session.mode == 'random':
             if 'assistant_message_a' in locals() and session.model_a_id:
@@ -135,7 +138,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             user_message = MessageService.create_message(
                 session=session,
-                message_obj=user_message
+                message_obj=org_user_message
             )
             if session.mode == 'direct':
                 assistant_message = MessageService.create_message(
@@ -186,6 +189,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         user_prompt=user_message.content,
                         history=history,
                         model=session.model_a.model_code,
+                        image_url=temp_image_url,
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -221,6 +225,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             user_prompt=user_message.content,
                             history=history,
                             model=session.model_a.model_code,
+                            image_url=temp_image_url,
                         ):
                             if chunk:
                                 chunks_a.append(chunk)
@@ -257,6 +262,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             user_prompt=user_message.content,
                             history=history,
                             model=session.model_b.model_code,
+                            image_url=temp_image_url,
                         ):
                             if chunk:
                                 chunks_b.append(chunk)
@@ -801,9 +807,141 @@ class MessageViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
-#   def upload_audio(self, request):
-#         if 'audio' not in request.FILES:
-#             return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_image(self, request):
+        if 'image' not in request.FILES:
+            return Response({'error': 'No image provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        image_file = request.FILES['image']
+        try:
+            client = storage.Client()
+            bucket = client.bucket(settings.GS_BUCKET_NAME)
+            ext = os.path.splitext(image_file.name)[1]
+            blob_name = f"llm-images-input/{uuid.uuid4()}{ext}"
+            blob = bucket.blob(blob_name)
+            blob.upload_from_file(image_file, content_type=image_file.content_type)
+            
+            signed_url = blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(minutes=15),
+                method="GET",
+            )
+            
+            return Response({
+                'path': blob_name,
+                'url': signed_url,
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_audio(self, request):
+        if 'audio' not in request.FILES:
+            return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        audio_file = request.FILES['audio']
+        
+        # Validate file type - allow common audio formats
+        allowed_types = [
+            'audio/mpeg',  # mp3
+            'audio/mp3',
+            'audio/wav',
+            'audio/wave',
+            'audio/x-wav',
+            'audio/ogg',
+            'audio/webm',
+            'audio/mp4',
+            'audio/m4a',
+            'audio/x-m4a',
+        ]
+        
+        if audio_file.content_type not in allowed_types:
+            return Response({
+                'error': f'Invalid audio file type: {audio_file.content_type}. Allowed types: mp3, wav, ogg, webm, m4a'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate file size (max 50MB for audio)
+        if audio_file.size > 50 * 1024 * 1024:
+            return Response({
+                'error': 'Audio file size must be less than 50MB'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            client = storage.Client()
+            bucket = client.bucket(settings.GS_BUCKET_NAME)
+            ext = os.path.splitext(audio_file.name)[1]
+            blob_name = f"llm-audios-input/{uuid.uuid4()}{ext}"
+            blob = bucket.blob(blob_name)
+            blob.upload_from_file(audio_file, content_type=audio_file.content_type)
+            
+            signed_url = blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(minutes=15),
+                method="GET",
+            )
+            
+            return Response({
+                'path': blob_name,
+                'url': signed_url,
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_document(self, request):
+        if 'document' not in request.FILES:
+            return Response({'error': 'No document provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        doc_file = request.FILES['document']
+        
+        # Validate file type - allow common document formats
+        allowed_types = [
+            'application/pdf',  # PDF
+            'application/msword',  # DOC
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  # DOCX
+            'text/plain',  # TXT
+            'text/markdown',  # MD
+            'application/rtf',  # RTF
+            'application/vnd.ms-excel',  # XLS
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # XLSX
+            'text/csv',  # CSV
+        ]
+        
+        if doc_file.content_type not in allowed_types:
+            return Response({
+                'error': f'Invalid document type: {doc_file.content_type}. Allowed: PDF, DOC, DOCX, TXT, MD, RTF, XLS, XLSX, CSV'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate file size (max 20MB for documents)
+        if doc_file.size > 20 * 1024 * 1024:
+            return Response({
+                'error': 'Document size must be less than 20MB'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            client = storage.Client()
+            bucket = client.bucket(settings.GS_BUCKET_NAME)
+            ext = os.path.splitext(doc_file.name)[1]
+            blob_name = f"llm-documents-input/{uuid.uuid4()}{ext}"
+            blob = bucket.blob(blob_name)
+            blob.upload_from_file(doc_file, content_type=doc_file.content_type)
+            
+            signed_url = blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(minutes=15),
+                method="GET",
+            )
+            
+            return Response({
+                'path': blob_name,
+                'url': signed_url,
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
             
 #         audio_file = request.FILES['audio']
 #         try:
