@@ -1,3 +1,4 @@
+import base64
 from typing import List, Dict, Optional, Set, Tuple
 from django.core.cache import cache
 from django.db.models import Q, F
@@ -9,6 +10,7 @@ from google.cloud import storage
 from django.conf import settings
 import uuid
 import os
+import io
 
 class MessageAnalyzer:
     """Analyze message content and patterns"""
@@ -288,36 +290,32 @@ def generate_signed_url(blob_name, expiration=900):
         print(f"Error generating signed URL: {e}")
         return None
 
-# def upload_to_gcs(file_obj, folder="asr-audios"):
-#     """
-#     Uploads a file to Google Cloud Storage and returns the public URL.
-#     Assumes Google Application Credentials are set in environment.
-#     """
-#     try:
-#         # If running on GCP, it picks up credentials automatically.
-#         # If local, ensure GOOGLE_APPLICATION_CREDENTIALS env var is set.
-#         client = storage.Client()
-#         bucket = client.bucket(settings.GS_BUCKET_NAME) # Add this to your settings.py
-        
-#         # Generate unique filename
-#         ext = os.path.splitext(file_obj.name)[1]
-#         filename = f"{folder}/{uuid.uuid4()}{ext}"
-#         blob = bucket.blob(filename)
-        
-#         # Upload
-#         blob.upload_from_file(file_obj, content_type=file_obj.content_type)
-        
-#         # Depending on your bucket privacy settings:
-#         # Option A: Make public (if bucket allows)
-#         # blob.make_public()
-#         # return blob.public_url
+def upload_audio(audio_base64, folder='tts-audios'):
+    try:
+        # Decode base64 string to bytes
+        audio_bytes = base64.b64decode(audio_base64)
 
-#         # Option B: Return Signed URL (safer, good for 1 hour)
-#         # return blob.generate_signed_url(expiration=3600)
-        
-#         # Option C: If bucket is purely public read:
-#         return f"https://storage.googleapis.com/{settings.GS_BUCKET_NAME}/{filename}"
-        
-#     except Exception as e:
-#         print(f"GCS Upload Error: {str(e)}")
-#         raise e
+        # Create a file-like object
+        audio_file = io.BytesIO(audio_bytes)
+
+        # Upload to Google Cloud Storage
+        client = storage.Client()
+        bucket = client.bucket(settings.GS_BUCKET_NAME)
+        blob_name = f"{folder}/{uuid.uuid4()}{'.wav'}"
+        blob = bucket.blob(blob_name)
+        blob.upload_from_file(audio_file, content_type="audio/wav")
+
+        # Generate signed URL
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(minutes=15),
+            method="GET",
+        )
+
+        return {
+            'path': blob_name,
+            'url': signed_url,
+        }
+
+    except Exception as e:
+        raise Exception(f"Failed to upload audio: {str(e)}")

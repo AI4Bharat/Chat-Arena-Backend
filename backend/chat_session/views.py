@@ -279,7 +279,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                     'created_at': msg.created_at.isoformat(),
                     'audio_path': msg.audio_path,
                     'language': msg.language,
-                    'temp_audio_url': generate_signed_url(msg.audio_path)
+                    **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {})
                 }
                 for msg in reversed(messages)
             ]
@@ -292,14 +292,14 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         """Generate AI-based title for the session"""
         session = self.get_object()
         
-        if session.session_type == "LLM":
+        if session.session_type == "LLM" or session.session_type == "TTS":
             message = session.messages.filter(role='user').first()
         else:
             message = session.messages.filter(role='assistant').first()
         if not message:
             return Response({'error': 'No messages in session'}, status=400)
         
-        prompt = f"""Based on this message, create a brief title (max 5 words).
+        prompt_llm = f"""Based on this message, create a brief title (max 5 words).
 
         Message: {message.content}
 
@@ -311,12 +311,26 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         - Be descriptive but concise
 
         Return only the title text, nothing else."""
+
+        prompt_tts = f"""Based on this text that will be spoken by an AI voice, create a brief title (max 5 words).
+
+        Message: {message.content}
+
+        Rules:
+        - No quotes or quotation marks
+        - No colons or special punctuation
+        - Simple, direct phrasing
+        - Capitalize appropriately
+        - Be descriptive but concise
+        - Describe the content being narrated
+
+        Return only the title text, nothing else."""
         
         try:
             title_chunks = []
             for chunk in get_model_output(
                 system_prompt="You are a helpful assistant that creates short, descriptive titles.",
-                user_prompt=prompt,
+                user_prompt=prompt_tts if session.session_type == "TTS" else prompt_llm,
                 history=[],
                 model="GPT3.5"
             ):
