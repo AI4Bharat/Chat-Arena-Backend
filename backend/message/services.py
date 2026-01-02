@@ -71,7 +71,7 @@ class MessageService:
             session.save()
             
             # Send WebSocket update
-            # MessageService._send_message_update(message, 'created')
+            MessageService._send_message_update(message, 'created')
             
             return message
     
