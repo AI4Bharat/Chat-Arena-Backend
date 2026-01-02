@@ -3,6 +3,8 @@ import requests
 from rest_framework.response import Response
 from rest_framework import status
 from message.utlis import upload_audio
+from sarvamai import SarvamAI
+import random
 
 misc_tts_url = os.getenv("MISC_TTS_API_URL")
 indo_aryan_tts_url = os.getenv("INDO_ARYAN_TTS_API_URL")
@@ -19,7 +21,7 @@ def get_tts_url(language):
     else:
         return None
 
-def get_dhruva_output(tts_input, lang, gender="male"):
+def get_dhruva_output(tts_input, lang, gender):
     tts_url = get_tts_url(lang)
     sentence_json_data = {
         "input": [{'source': tts_input}],
@@ -39,9 +41,35 @@ def get_dhruva_output(tts_input, lang, gender="male"):
     except Exception as e:
         raise Exception(str(e))
 
+def get_sarvam_tts_output(tts_input, lang, model, gender):
+    client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY_BULBUL"))
+    speakerV2Female = ["anushka", "vidya", "manisha", "arya"]
+    speakerV2Male = ["abhilash", "karun", "hitesh"]
+    speakerV3Female = ["ritu", "priya", "neha", "pooja", "simran", "kavya", "ishita", "shreya", "roopa", "amelia", "sophia"]
+    speakerV3Male = ["aditya", "ashutosh", "rahul", "rohan", "amit", "dev", "ratan", "varun", "manan", "sumit", "kabir", "aayan", "shubh", "advait"]
+    if model == "bulbul:v2":
+        speaker = random.choice(speakerV2Female) if gender == "female" else random.choice(speakerV2Male)
+    elif model == "bulbul:v3-beta":
+        speaker = random.choice(speakerV3Female) if gender == "female" else random.choice(speakerV3Male)
 
-def get_tts_output(tts_input, lang, model="DHRUVA_TTS"):
+    try:
+        response = client.text_to_speech.convert(
+            target_language_code=lang+"-IN",
+            text=tts_input,
+            model=model,
+            speaker=speaker,
+        )
+        audioBase64 = response.audios[0]
+        audio = upload_audio(audioBase64)
+        return audio
+    except Exception as e:
+        raise Exception(str(e))
+
+def get_tts_output(tts_input, lang, model):
     out = ""
-    # if model == "DHRUVA_TTS":
-    out = get_dhruva_output(tts_input, lang)
+    gender = random.choice(["male", "female"])
+    if model == "ai4bharat_tts":
+        out = get_dhruva_output(tts_input, lang, gender)
+    elif model.startswith("bulbul"):
+        out = get_sarvam_tts_output(tts_input, lang, model, gender)
     return out
