@@ -18,7 +18,7 @@ class ChatSessionService:
     """Service for managing chat sessions"""
     
     @staticmethod
-    def create_session_with_random_models(user, metadata: Dict = None, session_type: str = None) -> ChatSession:
+    def create_session_with_random_models(user, mode: str = 'random', metadata: Dict = None, session_type: str = None) -> ChatSession:
         """Create a session with randomly selected models"""
         try:
             model_a, model_b = ModelSelector.get_random_models_for_comparison(model_type=session_type)
@@ -27,7 +27,7 @@ class ChatSessionService:
         
         session = ChatSession.objects.create(
             user=user,
-            mode='random',
+            mode=mode,
             model_a=model_a,
             model_b=model_b,
             metadata=metadata or {},

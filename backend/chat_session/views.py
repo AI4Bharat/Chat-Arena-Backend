@@ -91,11 +91,12 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Handle random mode
-        if serializer.validated_data['mode'] == 'random':
+
+        # Handle random and academic modes (both use random model selection)
+        if serializer.validated_data['mode'] in ['random', 'academic']:
             session = ChatSessionService.create_session_with_random_models(
                 user=request.user,
+                mode=serializer.validated_data['mode'],
                 metadata=serializer.validated_data.get('metadata'),
                 session_type=serializer.validated_data.get('session_type'),
             )
