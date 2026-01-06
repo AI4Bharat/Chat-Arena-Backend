@@ -9,7 +9,8 @@ class ChatSession(models.Model):
     MODE_CHOICES = [
         ('direct', 'Direct Chat'),
         ('compare', 'Compare Models'),
-        ('random', 'Random Models')
+        ('random', 'Random Models'),
+        ('academic', 'Academic Benchmarking')
     ]
 
     TYPE_CHOICES = [

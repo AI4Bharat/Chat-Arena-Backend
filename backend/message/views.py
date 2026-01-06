@@ -37,6 +37,8 @@ import uuid
 import tempfile
 from message.utlis import generate_signed_url
 import random
+from academic_prompts.models import AcademicPrompt
+from django.db.models import Min
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -125,7 +127,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     else:
                         assistant_message_b = message
         
-        if session.mode == 'random':
+        if session.mode == 'random' or session.mode == 'academic':
             if 'assistant_message_a' in locals() and session.model_a_id:
                 assistant_message_a['modelId'] = session.model_a_id
             if 'assistant_message_b' in locals() and session.model_b_id:
@@ -487,6 +489,25 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_b.join()
 
         def generate_tts_output():
+            # For academic mode, get random prompt from database
+            if session.mode == 'academic':
+                language = user_message.language
+
+                # Get least used prompt for uniform distribution
+                prompts = AcademicPrompt.objects.filter(language=language, is_active=True)
+                if prompts.exists():
+                    min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
+                    least_used_prompts = prompts.filter(usage_count=min_usage_count)
+                    selected_prompt = random.choice(list(least_used_prompts))
+
+                    # Update user message with the selected prompt
+                    user_message.content = selected_prompt.text
+                    user_message.save(update_fields=['content'])
+
+                    selected_prompt.increment_usage()
+                    escaped_prompt = selected_prompt.text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+                    yield f'prompt:"{escaped_prompt}"\n'
+
             gender = random.choice(["male", "female"])
             if session.mode == 'direct':
                 try:

@@ -49,6 +49,7 @@ urlpatterns = [
     path('', include('message.urls')),
     path('', include('model_metrics.urls')),
     path('', include('leaderboards.urls')),
+    path('', include('academic_prompts.urls')),
 
 # Tenant-prefixed URLs (for multi-tenant support)
 # Using re_path to match tenant without passing it as a view argument
