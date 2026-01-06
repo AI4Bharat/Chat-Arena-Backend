@@ -36,6 +36,7 @@ import datetime
 import uuid
 import tempfile
 from message.utlis import generate_signed_url
+import random
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -114,7 +115,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         for message in serializer.validated_data:
             if message['role'] == 'user':
-                org_user_message = message
+                user_message = message
             elif message['role'] == 'assistant':
                 if session.mode == 'direct':
                     assistant_message = message
@@ -123,9 +124,6 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a = message
                     else:
                         assistant_message_b = message
-        
-        # Extract image URL for multimodal LLM support
-        temp_image_url = org_user_message.get('temp_image_url', None)
         
         if session.mode == 'random':
             if 'assistant_message_a' in locals() and session.model_a_id:
@@ -137,7 +135,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             user_message = MessageService.create_message(
                 session=session,
-                message_obj=org_user_message
+                message_obj=user_message
             )
             if session.mode == 'direct':
                 assistant_message = MessageService.create_message(
@@ -188,7 +186,6 @@ class MessageViewSet(viewsets.ModelViewSet):
                         user_prompt=user_message.content,
                         history=history,
                         model=session.model_a.model_code,
-                        image_url=temp_image_url,
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -224,7 +221,6 @@ class MessageViewSet(viewsets.ModelViewSet):
                             user_prompt=user_message.content,
                             history=history,
                             model=session.model_a.model_code,
-                            image_url=temp_image_url,
                         ):
                             if chunk:
                                 chunks_a.append(chunk)
@@ -261,7 +257,6 @@ class MessageViewSet(viewsets.ModelViewSet):
                             user_prompt=user_message.content,
                             history=history,
                             model=session.model_b.model_code,
-                            image_url=temp_image_url,
                         ):
                             if chunk:
                                 chunks_b.append(chunk)
@@ -405,12 +400,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_b.join()
 
         def generate_tts_output():
+            gender = random.choice(["male", "female"])
             if session.mode == 'direct':
                 try:
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
 
-                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code)
+                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output["url"]}"\n'
                     
@@ -434,7 +430,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
-                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code)
+                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender)
                         chunk_queue.put(('a', f'a0:"{output_a["url"]}"\n'))
                         
                         assistant_message_a.audio_path = output_a["path"]
@@ -458,7 +454,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
-                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code)
+                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code, gender=gender)
                         chunk_queue.put(('b', f'b0:"{output_b["url"]}"\n'))
                         
                         assistant_message_b.audio_path = output_b["path"]

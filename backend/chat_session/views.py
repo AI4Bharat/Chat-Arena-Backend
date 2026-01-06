@@ -373,9 +373,10 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
     def get_object(self):
         share_token = self.kwargs.get('share_token')
         
-        # Try to get by share token
+        # Try to get by share token - must be public
         try:
-            return ChatSession.objects.get(share_token=share_token)
+            session = ChatSession.objects.get(share_token=share_token, is_public=True)
+            return session
         except ChatSession.DoesNotExist:
             raise Http404("Session not found")
 

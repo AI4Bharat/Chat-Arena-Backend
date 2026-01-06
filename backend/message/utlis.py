@@ -290,7 +290,7 @@ def generate_signed_url(blob_name, expiration=900):
         print(f"Error generating signed URL: {e}")
         return None
 
-def upload_audio(audio_base64, folder='tts-audios'):
+def upload_tts_audio(audio_base64, folder='tts-audios'):
     try:
         # Decode base64 string to bytes
         audio_bytes = base64.b64decode(audio_base64)
