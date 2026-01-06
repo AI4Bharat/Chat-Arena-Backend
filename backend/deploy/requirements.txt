@@ -42,7 +42,9 @@ google-api-core==2.25.1
 google-auth==2.41.0
 google-cloud-core==2.4.3
 google-cloud-firestore==2.21.0
-google-cloud-storage==3.4.0
+google-cloud-resource-manager==1.15.0
+google-cloud-storage==2.19.0
+google-cloud-texttospeech==2.33.0
 google-crc32c==1.7.1
 google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
@@ -78,7 +80,8 @@ platformdirs==4.4.0
 prompt_toolkit==3.0.52
 propcache==0.3.2
 proto-plus==1.26.1
-protobuf==6.32.1
+protobuf==5.29.3
+psutil==7.1.2
 psycopg2==2.9.10
 psycopg2-binary==2.9.10
 pyasn1==0.6.1
@@ -131,6 +134,3 @@ wheel==0.45.1
 yarl==1.20.1
 zope.interface==8.0.1
 locust == 2.29.0
-
-
-

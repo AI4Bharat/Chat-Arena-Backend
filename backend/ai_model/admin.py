@@ -26,7 +26,7 @@ class AIModelAdmin(admin.ModelAdmin):
             'fields': ('capabilities', 'max_tokens', 'supports_streaming', 'config')
         }),
         ('Status', {
-            'fields': ('is_active', 'created_at')
+            'fields': ('is_active', 'created_at', 'release_date')
         }),
         ('Statistics', {
             'fields': ('usage_stats',),

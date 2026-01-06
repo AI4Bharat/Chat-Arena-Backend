@@ -64,7 +64,7 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         session = instance.session
 
-        if session.mode == 'random' and session.feedbacks.count() == 1:
+        if (session.mode == 'random' or session.mode == 'academic') and session.feedbacks.count() == 1:
             return data
         else:
             data.pop('session_update', None)
