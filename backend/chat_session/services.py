@@ -20,8 +20,17 @@ class ChatSessionService:
     @staticmethod
     def create_session_with_random_models(user, metadata: Dict = None, session_type: str = None) -> ChatSession:
         """Create a session with randomly selected models"""
+        
+        # Check metadata for multimodal requirements
+        requires_multimodal = False
+        if metadata:
+            requires_multimodal = metadata.get('has_image', False) or metadata.get('has_audio', False)
+
         try:
-            model_a, model_b = ModelSelector.get_random_models_for_comparison(model_type=session_type)
+            model_a, model_b = ModelSelector.get_random_models_for_comparison(
+                model_type=session_type,
+                requires_multimodal=requires_multimodal
+            )
         except ValueError as e:
             raise ValueError("Not enough active models for random comparison")
         

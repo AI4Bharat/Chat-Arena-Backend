@@ -181,11 +181,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                     if history:
                         history.pop()
                     chunks = []
+                    # Generate signed URL for image if present
+                    image_url = None
+                    if hasattr(user_message, 'image_path') and user_message.image_path:
+                        image_url = generate_signed_url(user_message.image_path, 900)
+                    
+                    # Document logic
+                    prompt_content = user_message.content
+                    if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                        try:
+                            # Ensure metadata dict exists
+                            if not user_message.metadata:
+                                user_message.metadata = {}
+                            
+                            # Extract if not already cached
+                            if 'extracted_text' not in user_message.metadata:
+                                from message.document_utils import extract_text_from_document
+                                doc_text = extract_text_from_document(user_message.doc_path)
+                                if doc_text:
+                                    user_message.metadata['extracted_text'] = doc_text
+                                    user_message.save(update_fields=['metadata'])
+                            
+                            # Use cached text
+                            doc_text = user_message.metadata.get('extracted_text')
+                            if doc_text:
+                                prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                        except Exception as e:
+                            print(f"Error processing document: {e}")
+                    
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                        user_prompt=user_message.content,
+                        user_prompt=prompt_content,
                         history=history,
                         model=session.model_a.model_code,
+                        image_url=image_url,
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -216,11 +245,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Only pop if history exists - first message in a new session has empty history
                         if history:
                             history.pop()
+                        # Generate signed URL for image if present
+                        image_url = None
+                        if hasattr(user_message, 'image_path') and user_message.image_path:
+                            image_url = generate_signed_url(user_message.image_path, 900)
+                        
+                        # Document logic
+                        prompt_content = user_message.content
+                        if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                            try:
+                                # Ensure metadata dict exists
+                                if not user_message.metadata:
+                                    user_message.metadata = {}
+                                
+                                # Extract if not already cached
+                                if 'extracted_text' not in user_message.metadata:
+                                    from message.document_utils import extract_text_from_document
+                                    doc_text = extract_text_from_document(user_message.doc_path)
+                                    if doc_text:
+                                        user_message.metadata['extracted_text'] = doc_text
+                                        user_message.save(update_fields=['metadata'])
+                                
+                                # Use cached text
+                                doc_text = user_message.metadata.get('extracted_text')
+                                if doc_text:
+                                    prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                            except Exception as e:
+                                print(f"Error processing document: {e}")
+                        
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                            user_prompt=user_message.content,
+                            user_prompt=prompt_content,
                             history=history,
                             model=session.model_a.model_code,
+                            image_url=image_url,
                         ):
                             if chunk:
                                 chunks_a.append(chunk)
@@ -252,11 +310,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Only pop if history exists - first message in a new session has empty history
                         if history:
                             history.pop()
+                        # Generate signed URL for image if present
+                        image_url = None
+                        if hasattr(user_message, 'image_path') and user_message.image_path:
+                            image_url = generate_signed_url(user_message.image_path, 900)
+                        
+                        # Document logic
+                        prompt_content = user_message.content
+                        if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                            try:
+                                # Ensure metadata dict exists
+                                if not user_message.metadata:
+                                    user_message.metadata = {}
+                                
+                                # Extract if not already cached
+                                if 'extracted_text' not in user_message.metadata:
+                                    from message.document_utils import extract_text_from_document
+                                    doc_text = extract_text_from_document(user_message.doc_path)
+                                    if doc_text:
+                                        user_message.metadata['extracted_text'] = doc_text
+                                        user_message.save(update_fields=['metadata'])
+                                
+                                # Use cached text
+                                doc_text = user_message.metadata.get('extracted_text')
+                                if doc_text:
+                                    prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                            except Exception as e:
+                                print(f"Error processing document: {e}")
+                        
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                            user_prompt=user_message.content,
+                            user_prompt=prompt_content,
                             history=history,
                             model=session.model_b.model_code,
+                            image_url=image_url,
                         ):
                             if chunk:
                                 chunks_b.append(chunk)
@@ -546,11 +633,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     chunks = []
                     model = session.model_a if participant == 'a' else session.model_b
+                    # Generate signed URL for image if present
+                    image_url = None
+                    if hasattr(user_message, 'image_path') and user_message.image_path:
+                        image_url = generate_signed_url(user_message.image_path, 900)
+                    
+                    # Document logic
+                    prompt_content = user_message.content
+                    if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                        try:
+                            # Ensure metadata dict exists
+                            if not user_message.metadata:
+                                user_message.metadata = {}
+                            
+                            # Extract if not already cached
+                            if 'extracted_text' not in user_message.metadata:
+                                from message.document_utils import extract_text_from_document
+                                doc_text = extract_text_from_document(user_message.doc_path)
+                                if doc_text:
+                                    user_message.metadata['extracted_text'] = doc_text
+                                    user_message.save(update_fields=['metadata'])
+                            
+                            # Use cached text
+                            doc_text = user_message.metadata.get('extracted_text')
+                            if doc_text:
+                                prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                        except Exception as e:
+                            print(f"Error processing document: {e}")
+                    
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                        user_prompt=user_message.content,
+                        user_prompt=prompt_content,
                         history=history,
                         model=model.model_code,
+                        image_url=image_url,
                     ):
                         if chunk:
                             chunks.append(chunk)
