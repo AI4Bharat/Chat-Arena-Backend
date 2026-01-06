@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "message",
     "model_metrics",
     "user",
+    "academic_prompts",
     "channels",
     "drf_yasg",
     "corsheaders",
