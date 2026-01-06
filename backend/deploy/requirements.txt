@@ -134,3 +134,7 @@ wheel==0.45.1
 yarl==1.20.1
 zope.interface==8.0.1
 locust == 2.29.0
+python-docx
+pypdf
+
+

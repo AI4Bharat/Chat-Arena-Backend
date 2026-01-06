@@ -140,6 +140,18 @@ class ModelCostCalculator:
         }
 
 
+
+# Models that support multimodal inputs (images, documents, audio)
+MULTIMODAL_MODELS_NAMES = [
+  'GPT 5', 'GPT 5.2', 'GPT 5 Pro', 'GPT 4o', 'GPT 4o Mini', 'GPT 4',
+  'Gemini 2.5 Pro', 'Gemini 2.5 Flash', 'Gemini 2.5 Flash Lite',
+  'Gemini 3 Pro', 'Gemini 3 Flash',
+  'Claude Opus 4', 'Claude Opus 4.1', 'Claude Sonnet 4.5', 'Claude Haiku 4.5',
+  'Llama 4 Maverick 17B 128E Instruct', 'Llama 4 Scout 17B 16E Instruct',
+  'IBM Granite 4',
+  'Qwen 3 30B A3B'
+]
+
 class ModelSelector:
     """Select models based on various criteria"""
     
@@ -148,6 +160,7 @@ class ModelSelector:
         exclude_ids: List[str] = None,
         category: Optional[str] = None,
         model_type: Optional[str] = None,
+        requires_multimodal: bool = False,
     ) -> tuple:
         """Get two random models for comparison"""
         
@@ -161,10 +174,17 @@ class ModelSelector:
 
         if model_type:
             queryset = queryset.filter(model_type=model_type)
+
+        if requires_multimodal:
+            queryset = queryset.filter(display_name__in=MULTIMODAL_MODELS_NAMES)
         
         models = list(queryset)
         
         if len(models) < 2:
+            if requires_multimodal:
+                 # If explicit multimodal required but not enough found, log a warning and fall back (soft fail) or raise error?
+                 # Raising error is safer to prevent sending image to a blind model
+                 raise ValueError("Not enough multimodal models available for comparison")
             raise ValueError("Not enough models available for comparison")
         
         return random.sample(models, 2)

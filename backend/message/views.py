@@ -183,11 +183,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                     if history:
                         history.pop()
                     chunks = []
+                    # Generate signed URL for image if present
+                    image_url = None
+                    if hasattr(user_message, 'image_path') and user_message.image_path:
+                        image_url = generate_signed_url(user_message.image_path, 900)
+                    
+                    # Document logic
+                    prompt_content = user_message.content
+                    if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                        try:
+                            # Ensure metadata dict exists
+                            if not user_message.metadata:
+                                user_message.metadata = {}
+                            
+                            # Extract if not already cached
+                            if 'extracted_text' not in user_message.metadata:
+                                from message.document_utils import extract_text_from_document
+                                doc_text = extract_text_from_document(user_message.doc_path)
+                                if doc_text:
+                                    user_message.metadata['extracted_text'] = doc_text
+                                    user_message.save(update_fields=['metadata'])
+                            
+                            # Use cached text
+                            doc_text = user_message.metadata.get('extracted_text')
+                            if doc_text:
+                                prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                        except Exception as e:
+                            print(f"Error processing document: {e}")
+                    
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                        user_prompt=user_message.content,
+                        user_prompt=prompt_content,
                         history=history,
                         model=session.model_a.model_code,
+                        image_url=image_url,
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -218,11 +247,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Only pop if history exists - first message in a new session has empty history
                         if history:
                             history.pop()
+                        # Generate signed URL for image if present
+                        image_url = None
+                        if hasattr(user_message, 'image_path') and user_message.image_path:
+                            image_url = generate_signed_url(user_message.image_path, 900)
+                        
+                        # Document logic
+                        prompt_content = user_message.content
+                        if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                            try:
+                                # Ensure metadata dict exists
+                                if not user_message.metadata:
+                                    user_message.metadata = {}
+                                
+                                # Extract if not already cached
+                                if 'extracted_text' not in user_message.metadata:
+                                    from message.document_utils import extract_text_from_document
+                                    doc_text = extract_text_from_document(user_message.doc_path)
+                                    if doc_text:
+                                        user_message.metadata['extracted_text'] = doc_text
+                                        user_message.save(update_fields=['metadata'])
+                                
+                                # Use cached text
+                                doc_text = user_message.metadata.get('extracted_text')
+                                if doc_text:
+                                    prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                            except Exception as e:
+                                print(f"Error processing document: {e}")
+                        
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                            user_prompt=user_message.content,
+                            user_prompt=prompt_content,
                             history=history,
                             model=session.model_a.model_code,
+                            image_url=image_url,
                         ):
                             if chunk:
                                 chunks_a.append(chunk)
@@ -254,11 +312,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Only pop if history exists - first message in a new session has empty history
                         if history:
                             history.pop()
+                        # Generate signed URL for image if present
+                        image_url = None
+                        if hasattr(user_message, 'image_path') and user_message.image_path:
+                            image_url = generate_signed_url(user_message.image_path, 900)
+                        
+                        # Document logic
+                        prompt_content = user_message.content
+                        if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                            try:
+                                # Ensure metadata dict exists
+                                if not user_message.metadata:
+                                    user_message.metadata = {}
+                                
+                                # Extract if not already cached
+                                if 'extracted_text' not in user_message.metadata:
+                                    from message.document_utils import extract_text_from_document
+                                    doc_text = extract_text_from_document(user_message.doc_path)
+                                    if doc_text:
+                                        user_message.metadata['extracted_text'] = doc_text
+                                        user_message.save(update_fields=['metadata'])
+                                
+                                # Use cached text
+                                doc_text = user_message.metadata.get('extracted_text')
+                                if doc_text:
+                                    prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                            except Exception as e:
+                                print(f"Error processing document: {e}")
+                        
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                            user_prompt=user_message.content,
+                            user_prompt=prompt_content,
                             history=history,
                             model=session.model_b.model_code,
+                            image_url=image_url,
                         ):
                             if chunk:
                                 chunks_b.append(chunk)
@@ -567,11 +654,40 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     chunks = []
                     model = session.model_a if participant == 'a' else session.model_b
+                    # Generate signed URL for image if present
+                    image_url = None
+                    if hasattr(user_message, 'image_path') and user_message.image_path:
+                        image_url = generate_signed_url(user_message.image_path, 900)
+                    
+                    # Document logic
+                    prompt_content = user_message.content
+                    if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                        try:
+                            # Ensure metadata dict exists
+                            if not user_message.metadata:
+                                user_message.metadata = {}
+                            
+                            # Extract if not already cached
+                            if 'extracted_text' not in user_message.metadata:
+                                from message.document_utils import extract_text_from_document
+                                doc_text = extract_text_from_document(user_message.doc_path)
+                                if doc_text:
+                                    user_message.metadata['extracted_text'] = doc_text
+                                    user_message.save(update_fields=['metadata'])
+                            
+                            # Use cached text
+                            doc_text = user_message.metadata.get('extracted_text')
+                            if doc_text:
+                                prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                        except Exception as e:
+                            print(f"Error processing document: {e}")
+                    
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                        user_prompt=user_message.content,
+                        user_prompt=prompt_content,
                         history=history,
                         model=model.model_code,
+                        image_url=image_url,
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -754,73 +870,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             'distance': len(path)
         })
 
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
-    def upload_audio(self, request):
-        if 'audio' not in request.FILES:
-            return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
 
-        audio_file = request.FILES['audio']
-
-        try:
-            # Save original file temporarily
-            temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1])
-            for chunk in audio_file.chunks():
-                temp_input.write(chunk)
-            temp_input.close()
-
-            # Output WAV temp file
-            temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            temp_output_path = temp_output.name
-            temp_output.close()
-
-            # Convert using ffmpeg (subprocess method)
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-y",  # Overwrite
-                "-i", temp_input.name,  # input file
-                "-ac", "1",             # mono
-                "-ar", "16000",         # 16k sample rate (best for ASR)
-                "-f", "wav",
-                temp_output_path
-            ]
-
-            result = subprocess.run(
-                ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-
-            if result.returncode != 0:
-                return Response({
-                    "error": "FFmpeg conversion failed",
-                    "details": result.stderr.decode()
-                }, status=500)
-
-            # Upload the WAV file to GCS
-            client = storage.Client()
-            bucket = client.bucket(settings.GS_BUCKET_NAME)
-
-            blob_name = f"asr-audios/{uuid.uuid4()}.wav"
-            blob = bucket.blob(blob_name)
-
-            with open(temp_output_path, "rb") as f:
-                blob.upload_from_file(f, content_type="audio/wav")
-
-            signed_url = blob.generate_signed_url(
-                version="v4",
-                expiration=datetime.timedelta(minutes=15),
-                method="GET",
-            )
-
-            # Cleanup temporary files
-            os.remove(temp_input.name)
-            os.remove(temp_output_path)
-
-            return Response({
-                "path": blob_name,
-                "url": signed_url,
-            }, status=200)
-
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_image(self, request):
@@ -836,11 +886,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             blob = bucket.blob(blob_name)
             blob.upload_from_file(image_file, content_type=image_file.content_type)
             
-            signed_url = blob.generate_signed_url(
-                version="v4",
-                expiration=datetime.timedelta(minutes=15),
-                method="GET",
-            )
+            signed_url = generate_signed_url(blob_name)
             
             return Response({
                 'path': blob_name,
@@ -851,7 +897,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
-    def upload_audio_llm(self, request):
+    def upload_audio(self, request):
         if 'audio' not in request.FILES:
             return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
             
@@ -883,18 +929,59 @@ class MessageViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
+            # Save original file temporarily
+            temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1])
+            for chunk in audio_file.chunks():
+                temp_input.write(chunk)
+            temp_input.close()
+
+            # Output WAV temp file
+            temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            temp_output_path = temp_output.name
+            temp_output.close()
+
+            # Convert using ffmpeg (subprocess method)
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",  # Overwrite
+                "-i", temp_input.name,  # input file
+                "-ac", "1",             # mono
+                "-ar", "16000",         # 16k sample rate (best for ASR)
+                "-f", "wav",
+                temp_output_path
+            ]
+
+            result = subprocess.run(
+                ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+
+            if result.returncode != 0:
+                # Cleanup on failure
+                os.remove(temp_input.name)
+                if os.path.exists(temp_output_path):
+                    os.remove(temp_output_path)
+                    
+                return Response({
+                    "error": "FFmpeg conversion failed",
+                    "details": result.stderr.decode()
+                }, status=500)
+
+            # Upload the WAV file to GCS
             client = storage.Client()
             bucket = client.bucket(settings.GS_BUCKET_NAME)
-            ext = os.path.splitext(audio_file.name)[1]
-            blob_name = f"llm-audios-input/{uuid.uuid4()}{ext}"
+
+            # Use asr-audios folder as it seems preferred for ASR
+            blob_name = f"asr-audios/{uuid.uuid4()}.wav"
             blob = bucket.blob(blob_name)
-            blob.upload_from_file(audio_file, content_type=audio_file.content_type)
+
+            with open(temp_output_path, "rb") as f:
+                blob.upload_from_file(f, content_type="audio/wav")
+
+            # Cleanup temporary files
+            os.remove(temp_input.name)
+            os.remove(temp_output_path)
             
-            signed_url = blob.generate_signed_url(
-                version="v4",
-                expiration=datetime.timedelta(minutes=15),
-                method="GET",
-            )
+            signed_url = generate_signed_url(blob_name)
             
             return Response({
                 'path': blob_name,
@@ -902,6 +989,12 @@ class MessageViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
+            # Attempt cleanup if temp files exist
+            try:
+                if 'temp_input' in locals(): os.remove(temp_input.name)
+                if 'temp_output_path' in locals(): os.remove(temp_output_path)
+            except:
+                pass
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
@@ -943,11 +1036,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             blob = bucket.blob(blob_name)
             blob.upload_from_file(doc_file, content_type=doc_file.content_type)
             
-            signed_url = blob.generate_signed_url(
-                version="v4",
-                expiration=datetime.timedelta(minutes=15),
-                method="GET",
-            )
+            signed_url = generate_signed_url(blob_name)
             
             return Response({
                 'path': blob_name,
@@ -956,30 +1045,6 @@ class MessageViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            
-#         audio_file = request.FILES['audio']
-#         try:
-#             client = storage.Client()
-#             bucket = client.bucket(settings.GS_BUCKET_NAME)
-#             ext = os.path.splitext(audio_file.name)[1]
-#             blob_name = f"asr-audios/{uuid.uuid4()}{ext}"
-#             blob = bucket.blob(blob_name)
-#             blob.upload_from_file(audio_file, content_type=audio_file.content_type)
-            
-#             signed_url = blob.generate_signed_url(
-#                 version="v4",
-#                 expiration=datetime.timedelta(minutes=15),
-#                 method="GET",
-#             )
-            
-#             return Response({
-#                 'path': blob_name,
-#                 'url': signed_url,
-#             }, status=status.HTTP_200_OK)
-            
-#         except Exception as e:
-#             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]
