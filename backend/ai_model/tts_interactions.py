@@ -2,7 +2,7 @@ import os
 import requests
 from rest_framework.response import Response
 from rest_framework import status
-from message.utlis import upload_audio
+from message.utlis import upload_tts_audio
 from sarvamai import SarvamAI
 import random
 from google.cloud import texttospeech
@@ -39,7 +39,7 @@ def get_dhruva_output(tts_input, lang, gender):
             json=sentence_json_data,
         )
         audioBase64 = response.json()["audio"][0]["audioContent"]
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
@@ -63,7 +63,7 @@ def get_sarvam_tts_output(tts_input, lang, model, gender):
             speaker=speaker,
         )
         audioBase64 = response.audios[0]
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))

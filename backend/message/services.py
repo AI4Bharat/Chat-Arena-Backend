@@ -46,6 +46,8 @@ class MessageService:
                 status='success' if message_obj['role'] == 'user' else 'streaming',
                 attachments=attachments or [],
                 audio_path=message_obj.get('audio_path'),
+                image_path=message_obj.get('image_path'),
+                doc_path=message_obj.get('doc_path'),
                 language=message_obj.get('language'),
             )
             
@@ -278,9 +280,13 @@ class MessageService:
         
         history = []
         for msg in messages:
+            content = msg.content
+            if msg.metadata and 'extracted_text' in msg.metadata:
+                content += f"\n\n[Attached Document Content]:\n{msg.metadata['extracted_text']}"
+                
             history.append({
                 'role': msg.role,
-                'content': msg.content
+                'content': content
             })
         
         return history

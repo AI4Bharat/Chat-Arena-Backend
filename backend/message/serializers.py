@@ -141,6 +141,8 @@ class MessageStreamSerializer(serializers.Serializer):
     language = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     temp_image_url = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     image_path = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    doc_path = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    temp_doc_url = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     def validate(self, attrs):
         role = attrs.get('role')
