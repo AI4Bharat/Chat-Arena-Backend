@@ -66,6 +66,10 @@ class Message(models.Model):
         default=None,
         help_text="User feedback: Tie for both models, Model A and Model B for respective models and Both are bad for neither"
     )
+    has_detailed_feedback = models.BooleanField(
+        default=False,
+        help_text="Whether detailed TTS evaluation feedback has been submitted for this message"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
     language = models.CharField(max_length=100, null=True, blank=True)
