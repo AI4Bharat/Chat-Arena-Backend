@@ -91,7 +91,7 @@ def get_gemini_output(tts_input, lang, model, gender):
         response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
 
         audioBase64 = base64.b64encode(response.audio_content).decode("utf-8")
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
