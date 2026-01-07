@@ -143,13 +143,7 @@ class ModelCostCalculator:
 
 # Models that support multimodal inputs (images, documents, audio)
 MULTIMODAL_MODELS_NAMES = [
-  'GPT 5', 'GPT 5.2', 'GPT 5 Pro', 'GPT 4o', 'GPT 4o Mini', 'GPT 4',
-  'Gemini 2.5 Pro', 'Gemini 2.5 Flash', 'Gemini 2.5 Flash Lite',
-  'Gemini 3 Pro', 'Gemini 3 Flash',
-  'Claude Opus 4', 'Claude Opus 4.1', 'Claude Sonnet 4.5', 'Claude Haiku 4.5',
-  'Llama 4 Maverick 17B 128E Instruct', 'Llama 4 Scout 17B 16E Instruct',
-  'IBM Granite 4',
-  'Qwen 3 30B A3B'
+  'GPT 5', 'GPT 5.2', 'GPT 5 Pro', 'GPT 4o'
 ]
 
 class ModelSelector:
