@@ -280,6 +280,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                     'created_at': msg.created_at.isoformat(),
                     'audio_path': msg.audio_path,
                     'language': msg.language,
+                    'has_detailed_feedback': msg.has_detailed_feedback,
                     **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {})
                 }
                 for msg in reversed(messages)

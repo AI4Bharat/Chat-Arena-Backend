@@ -31,11 +31,16 @@ class Feedback(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     categories = models.JSONField(
-        default=list, 
+        default=list,
         blank=True,
         help_text="Categories like accuracy, helpfulness, creativity, etc."
     )
     comment = models.TextField(blank=True)
+    additional_feedback_json = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Additional structured feedback data (e.g., TTS evaluation parameters)"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
