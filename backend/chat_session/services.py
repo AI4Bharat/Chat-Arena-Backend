@@ -24,7 +24,7 @@ class ChatSessionService:
         # Check metadata for multimodal requirements
         requires_multimodal = False
         if metadata:
-            requires_multimodal = metadata.get('has_image', False) or metadata.get('has_audio', False)
+            requires_multimodal = metadata.get('has_image', False) or metadata.get('has_audio', False) or metadata.get('has_document', False)
 
         try:
             model_a, model_b = ModelSelector.get_random_models_for_comparison(
