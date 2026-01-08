@@ -72,7 +72,7 @@ def get_gemini_output(tts_input, lang, model, gender):
     PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
     speakerMale = ["Achird", "Algenib", "Algieba", "Alnilam", "Charon", "Enceladus", "Fenrir", "Iapetus", "Orus", "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Umbriel", "Zubenelgenubi"]
     speakerFemale = ["Achernar", "Aoede", "Autonoe", "Callirrhoe", "Despina", "Erinome", "Gacrux", "Kore", "Laomedeia", "Leda", "Pulcherrima", "Sulafat", "Vindemiatrix", "Zephyr"]
-    lang = "od" if lang == "or" else lang
+    lang = "od" if lang == "or" else "kok" if lang == "gom" else lang
     try:
         client = texttospeech.TextToSpeechClient(client_options=ClientOptions(api_endpoint="texttospeech.googleapis.com"))
         synthesis_input = texttospeech.SynthesisInput(text=tts_input, prompt="synthesize speech from input text")
