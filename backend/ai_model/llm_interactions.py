@@ -116,8 +116,8 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None):
     # Handle multimodal input (text + image)
     if image_url:
         user_content = [
-            {"type": "text", "text": user_prompt},
-            {"type": "image_url", "image_url": {"url": image_url}}
+            {"type": "input_text", "text": user_prompt},
+            {"type": "input_image", "image_url": image_url}  # Direct string, not object!
         ]
         input_items.append({"role": "user", "content": user_content})
     else:

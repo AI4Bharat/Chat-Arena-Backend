@@ -351,8 +351,8 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             return Response({'title': generated_title})
             
         except Exception as e:
-            fallback_title = first_user_message.content[:50]
-            if len(first_user_message.content) > 50:
+            fallback_title = message.content[:50]
+            if len(message.content) > 50:
                 fallback_title += "..."
             
             session.title = fallback_title
@@ -369,7 +369,6 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         return ChatSession.objects.filter(
-            is_public=True,
             share_token__isnull=False
         ).select_related('model_a', 'model_b', 'user')
     
@@ -382,7 +381,7 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
             return session
         except ChatSession.DoesNotExist:
             raise Http404("Session not found")
-    
+
     def retrieve(self, request, *args, **kwargs):
         """Get session details with messages"""
         session = self.get_object()
@@ -391,10 +390,6 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
         messages = Message.objects.filter(
             session=session
         ).order_by('position')
-        
-        print(f"[SharedSession] Session ID: {session.id}")
-        print(f"[SharedSession] Message count: {messages.count()}")
-        print(f"[SharedSession] Session is_public: {session.is_public}")
         
         response_data = {
             'session': ChatSessionSerializer(
@@ -410,12 +405,13 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
                     'participant': msg.participant,
                     'status': msg.status,
                     'feedback': msg.feedback,
-                    'created_at': msg.created_at.isoformat()
+                    'created_at': msg.created_at.isoformat(),
+                    'audio_path': msg.audio_path,
+                    'language': msg.language,
+                    'temp_audio_url': generate_signed_url(msg.audio_path)
                 }
                 for msg in messages
             ]
         }
-        
-        print(f"[SharedSession] Response messages count: {len(response_data['messages'])}")
         
         return Response(response_data)
