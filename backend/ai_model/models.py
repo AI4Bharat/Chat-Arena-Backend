@@ -30,6 +30,7 @@ class AIModel(models.Model):
     display_name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     capabilities = models.JSONField(default=list, blank=True)  # ['text', 'code', 'image', etc.]
+    supported_languages = models.JSONField(default=list, blank=True) # For ASR/TTS models
     max_tokens = models.IntegerField(null=True, blank=True)
     supports_streaming = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
