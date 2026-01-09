@@ -2,9 +2,12 @@ import os
 import requests
 from rest_framework.response import Response
 from rest_framework import status
-from message.utlis import upload_audio
+from message.utlis import upload_tts_audio
 from sarvamai import SarvamAI
 import random
+from google.cloud import texttospeech
+from google.api_core.client_options import ClientOptions
+import base64
 
 misc_tts_url = os.getenv("MISC_TTS_API_URL")
 indo_aryan_tts_url = os.getenv("INDO_ARYAN_TTS_API_URL")
@@ -36,7 +39,7 @@ def get_dhruva_output(tts_input, lang, gender):
             json=sentence_json_data,
         )
         audioBase64 = response.json()["audio"][0]["audioContent"]
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
@@ -51,7 +54,7 @@ def get_sarvam_tts_output(tts_input, lang, model, gender):
         speaker = random.choice(speakerV2Female) if gender == "female" else random.choice(speakerV2Male)
     elif model == "bulbul:v3-beta":
         speaker = random.choice(speakerV3Female) if gender == "female" else random.choice(speakerV3Male)
-
+    lang = "od" if lang == "or" else lang
     try:
         response = client.text_to_speech.convert(
             target_language_code=lang+"-IN",
@@ -60,7 +63,36 @@ def get_sarvam_tts_output(tts_input, lang, model, gender):
             speaker=speaker,
         )
         audioBase64 = response.audios[0]
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
+        return audio
+    except Exception as e:
+        raise Exception(str(e))
+
+def get_gemini_output(tts_input, lang, model, gender):
+    PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
+    speakerMale = ["Achird", "Algenib", "Algieba", "Alnilam", "Charon", "Enceladus", "Fenrir", "Iapetus", "Orus", "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Umbriel", "Zubenelgenubi"]
+    speakerFemale = ["Achernar", "Aoede", "Autonoe", "Callirrhoe", "Despina", "Erinome", "Gacrux", "Kore", "Laomedeia", "Leda", "Pulcherrima", "Sulafat", "Vindemiatrix", "Zephyr"]
+    lang = "od" if lang == "or" else "kok" if lang == "gom" else lang
+    try:
+        client = texttospeech.TextToSpeechClient(client_options=ClientOptions(api_endpoint="texttospeech.googleapis.com"))
+        synthesis_input = texttospeech.SynthesisInput(text=tts_input, prompt="synthesize speech from input text")
+
+        if gender == "female":
+            speaker = random.choice(speakerFemale)
+        else:
+            speaker = random.choice(speakerMale)
+
+        voice = texttospeech.VoiceSelectionParams(
+            language_code=lang+"-IN",
+            name=speaker,
+            model_name=model,
+        )
+
+        audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
+        response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+
+        audioBase64 = base64.b64encode(response.audio_content).decode("utf-8")
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
@@ -71,4 +103,6 @@ def get_tts_output(tts_input, lang, model, gender="male"):
         out = get_dhruva_output(tts_input, lang, gender)
     elif model.startswith("bulbul"):
         out = get_sarvam_tts_output(tts_input, lang, model, gender)
+    elif model.startswith("gemini"):
+        out = get_gemini_output(tts_input, lang, model, gender)
     return out

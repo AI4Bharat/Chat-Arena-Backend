@@ -20,7 +20,7 @@ class FeedbackSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'session', 'message', 'feedback_type',
             'preferred_model', 'rating', 'categories', 'comment',
-            'created_at', 'session_info', 'message_info'
+            'additional_feedback_json', 'created_at', 'session_info', 'message_info'
         ]
         read_only_fields = ['id', 'user', 'created_at']
     
@@ -55,7 +55,7 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
             'id',
             'session_id', 'message_id', 'feedback_type',
             'preference', 'rating', 'categories', 'comment',
-            'session_update'
+            'additional_feedback_json', 'session_update'
         ]
         read_only_fields = ['id']
     
@@ -64,7 +64,7 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         session = instance.session
 
-        if session.mode == 'random' and session.feedbacks.count() == 1:
+        if (session.mode == 'random' or session.mode == 'academic') and session.feedbacks.count() == 1:
             return data
         else:
             data.pop('session_update', None)
@@ -136,42 +136,62 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         # Remove the ID fields
+        session = validated_data.pop('session', None)
+        message = validated_data.pop('message', None)
         validated_data.pop('session_id', None)
         message_id = validated_data.pop('message_id', None)
         preference = validated_data.pop('preference', None)
+        feedback_type = validated_data.get('feedback_type')
+        user = self.context['request'].user
 
         try:
             userMessage = Message.objects.get(id=message_id)
         except Message.DoesNotExist:
             raise serializers.ValidationError("User Message not found")
 
-        for modelMessage in userMessage.child_ids:
-            modelMessageObj = Message.objects.get(id=modelMessage)
-            if modelMessageObj.participant == 'a':
-                modelAId = str(modelMessageObj.model_id)
-            elif modelMessageObj.participant == 'b':
-                modelBId = str(modelMessageObj.model_id)
+        # Handle preference-based feedback (compare modes)
+        if feedback_type == 'preference':
+            for modelMessage in userMessage.child_ids:
+                modelMessageObj = Message.objects.get(id=modelMessage)
+                if modelMessageObj.participant == 'a':
+                    modelAId = str(modelMessageObj.model_id)
+                elif modelMessageObj.participant == 'b':
+                    modelBId = str(modelMessageObj.model_id)
 
-        if preference == 'model_a':
-            preferred_model_ids = [modelAId]
-        elif preference == 'model_b':
-            preferred_model_ids = [modelBId]
-        elif preference == 'tie':
-            preferred_model_ids = [modelAId, modelBId]
-        else:
-            preferred_model_ids = []
-        
-        validated_data['preferred_model_ids'] = preferred_model_ids
-        validated_data['user'] = self.context['request'].user
-        
+            if preference == 'model_a':
+                preferred_model_ids = [modelAId]
+            elif preference == 'model_b':
+                preferred_model_ids = [modelBId]
+            elif preference == 'tie':
+                preferred_model_ids = [modelAId, modelBId]
+            else:
+                preferred_model_ids = []
+
+            validated_data['preferred_model_ids'] = preferred_model_ids
+
+        # Use update_or_create to handle both initial feedback and detailed feedback updates
         with transaction.atomic():
-            feedback = super().create(validated_data)
-            userMessage.feedback = preference
-            userMessage.save()
-        
+            feedback, created = Feedback.objects.update_or_create(
+                user=user,
+                session=session,
+                message=userMessage,
+                feedback_type=feedback_type,
+                defaults=validated_data
+            )
+
+            # Only update message feedback field on initial creation
+            if created and preference:
+                userMessage.feedback = preference
+                userMessage.save()
+
+            # If additional_feedback_json is provided, mark that detailed feedback has been submitted
+            if validated_data.get('additional_feedback_json'):
+                userMessage.has_detailed_feedback = True
+                userMessage.save()
+
         # Trigger analytics update
         # FeedbackAnalyticsService.process_new_feedback(feedback)
-        
+
         return feedback
 
 

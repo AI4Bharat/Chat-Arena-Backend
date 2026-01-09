@@ -7,26 +7,26 @@ from message.models import Message
 @admin.register(AIModel)
 class AIModelAdmin(admin.ModelAdmin):
     list_display = [
-        'display_name', 'provider', 'model_code', 
+        'display_name', 'provider', 'model_code', 'model_type',
         'is_active', 'supports_streaming', 'capabilities_display',
         'created_at'
     ]
-    list_filter = ['provider', 'is_active', 'supports_streaming', 'created_at']
+    list_filter = ['provider', 'model_type', 'is_active', 'supports_streaming', 'created_at']
     search_fields = ['display_name', 'model_name', 'model_code', 'description']
     readonly_fields = ['id', 'created_at', 'usage_stats']
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('id', 'provider', 'model_name', 'model_code', 'display_name')
+            'fields': ('id', 'provider', 'model_name', 'model_code', 'display_name', 'model_type')
         }),
         ('Description', {
             'fields': ('description',)
         }),
         ('Configuration', {
-            'fields': ('capabilities', 'max_tokens', 'supports_streaming', 'config')
+            'fields': ('capabilities', 'supported_languages', 'max_tokens', 'supports_streaming', 'config')
         }),
         ('Status', {
-            'fields': ('is_active', 'created_at')
+            'fields': ('is_active', 'created_at', 'release_date')
         }),
         ('Statistics', {
             'fields': ('usage_stats',),
