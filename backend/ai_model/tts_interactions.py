@@ -72,34 +72,6 @@ def get_gemini_output(tts_input, lang, model, gender):
     PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
     speakerMale = ["Achird", "Algenib", "Algieba", "Alnilam", "Charon", "Enceladus", "Fenrir", "Iapetus", "Orus", "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Umbriel", "Zubenelgenubi"]
     speakerFemale = ["Achernar", "Aoede", "Autonoe", "Callirrhoe", "Despina", "Erinome", "Gacrux", "Kore", "Laomedeia", "Leda", "Pulcherrima", "Sulafat", "Vindemiatrix", "Zephyr"]
-    try:
-        client = texttospeech.TextToSpeechClient(client_options=ClientOptions(api_endpoint="texttospeech.googleapis.com"))
-        synthesis_input = texttospeech.SynthesisInput(text=tts_input, prompt="synthesize speech from input text")
-
-        if gender == "female":
-            speaker = random.choice(speakerFemale)
-        else:
-            speaker = random.choice(speakerMale)
-
-        voice = texttospeech.VoiceSelectionParams(
-            language_code=lang+"-IN",
-            name=speaker,
-            model_name=model,
-        )
-
-        audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
-        response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
-
-        audioBase64 = base64.b64encode(response.audio_content).decode("utf-8")
-        audio = upload_tts_audio(audioBase64)
-        return audio
-    except Exception as e:
-        raise Exception(str(e))
-
-def get_gemini_output(tts_input, lang, model, gender):
-    PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
-    speakerMale = ["Achird", "Algenib", "Algieba", "Alnilam", "Charon", "Enceladus", "Fenrir", "Iapetus", "Orus", "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Umbriel", "Zubenelgenubi"]
-    speakerFemale = ["Achernar", "Aoede", "Autonoe", "Callirrhoe", "Despina", "Erinome", "Gacrux", "Kore", "Laomedeia", "Leda", "Pulcherrima", "Sulafat", "Vindemiatrix", "Zephyr"]
     lang = "od" if lang == "or" else "kok" if lang == "gom" else lang
     try:
         client = texttospeech.TextToSpeechClient(client_options=ClientOptions(api_endpoint="texttospeech.googleapis.com"))
@@ -120,7 +92,7 @@ def get_gemini_output(tts_input, lang, model, gender):
         response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
 
         audioBase64 = base64.b64encode(response.audio_content).decode("utf-8")
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
