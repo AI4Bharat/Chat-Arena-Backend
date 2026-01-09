@@ -281,8 +281,13 @@ class MessageService:
         history = []
         for msg in messages:
             content = msg.content
-            if msg.metadata and 'extracted_text' in msg.metadata:
-                content += f"\n\n[Attached Document Content]:\n{msg.metadata['extracted_text']}"
+            if msg.metadata:
+                # Include extracted document text if available
+                if 'extracted_text' in msg.metadata:
+                    content += f"\n\n[Attached Document Content]:\n{msg.metadata['extracted_text']}"
+                # Include audio transcription if available
+                if 'audio_transcription' in msg.metadata:
+                    content += f"\n\n[Audio Transcription]:\n{msg.metadata['audio_transcription']}"
                 
             history.append({
                 'role': msg.role,

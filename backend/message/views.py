@@ -211,6 +211,28 @@ class MessageViewSet(viewsets.ModelViewSet):
                         except Exception as e:
                             print(f"Error processing document: {e}")
                     
+                    # Audio transcription logic for direct mode
+                    if hasattr(user_message, 'audio_path') and user_message.audio_path:
+                        try:
+                            # Ensure metadata dict exists
+                            if not user_message.metadata:
+                                user_message.metadata = {}
+                            
+                            # Transcribe if not already cached
+                            if 'audio_transcription' not in user_message.metadata:
+                                language = getattr(user_message, 'language', None) or 'en'
+                                audio_url = generate_signed_url(user_message.audio_path, 120)
+                                transcription = get_asr_output(audio_url, language)
+                                user_message.metadata['audio_transcription'] = transcription
+                                user_message.save(update_fields=['metadata'])
+                            
+                            # Use cached transcription
+                            audio_transcription = user_message.metadata.get('audio_transcription')
+                            if audio_transcription:
+                                prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
+                        except Exception as e:
+                            print(f"Error processing audio: {e}")
+                    
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                         user_prompt=prompt_content,
@@ -274,6 +296,28 @@ class MessageViewSet(viewsets.ModelViewSet):
                                     prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
                             except Exception as e:
                                 print(f"Error processing document: {e}")
+                        
+                        # Audio transcription logic
+                        if hasattr(user_message, 'audio_path') and user_message.audio_path:
+                            try:
+                                # Ensure metadata dict exists
+                                if not user_message.metadata:
+                                    user_message.metadata = {}
+                                
+                                # Transcribe if not already cached
+                                if 'audio_transcription' not in user_message.metadata:
+                                    language = getattr(user_message, 'language', None) or 'en'
+                                    audio_url = generate_signed_url(user_message.audio_path, 120)
+                                    transcription = get_asr_output(audio_url, language)
+                                    user_message.metadata['audio_transcription'] = transcription
+                                    user_message.save(update_fields=['metadata'])
+                                
+                                # Use cached transcription
+                                audio_transcription = user_message.metadata.get('audio_transcription')
+                                if audio_transcription:
+                                    prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
+                            except Exception as e:
+                                print(f"Error processing audio: {e}")
                         
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
@@ -339,6 +383,31 @@ class MessageViewSet(viewsets.ModelViewSet):
                                     prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
                             except Exception as e:
                                 print(f"Error processing document: {e}")
+                        
+                        # Audio transcription logic
+                        if hasattr(user_message, 'audio_path') and user_message.audio_path:
+                            try:
+                                # Ensure metadata dict exists
+                                if not user_message.metadata:
+                                    user_message.metadata = {}
+                                
+                                # Transcribe if not already cached
+                                if 'audio_transcription' not in user_message.metadata:
+                                    language = getattr(user_message, 'language', None) or 'en'
+                                    audio_url = generate_signed_url(user_message.audio_path, 120)
+                                    transcription = get_asr_output(audio_url, language)
+                                    user_message.metadata['audio_transcription'] = transcription
+                                    user_message.save(update_fields=['metadata'])
+                                
+                                # Use cached transcription
+                                audio_transcription = user_message.metadata.get('audio_transcription')
+                                if audio_transcription:
+                                    prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
+                            except Exception as e:
+                                print(f"Error processing audio: {e}")
+                                audio_transcription = user_message.metadata.get('audio_transcription')
+                                if audio_transcription:
+                                    prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
                         
                         for chunk in get_model_output(
                             system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
@@ -682,6 +751,28 @@ class MessageViewSet(viewsets.ModelViewSet):
                         except Exception as e:
                             print(f"Error processing document: {e}")
                     
+                    # Audio transcription logic
+                    if hasattr(user_message, 'audio_path') and user_message.audio_path:
+                        try:
+                            # Ensure metadata dict exists
+                            if not user_message.metadata:
+                                user_message.metadata = {}
+                            
+                            # Transcribe if not already cached
+                            if 'audio_transcription' not in user_message.metadata:
+                                language = getattr(user_message, 'language', None) or 'en'
+                                audio_url = generate_signed_url(user_message.audio_path, 120)
+                                transcription = get_asr_output(audio_url, language)
+                                user_message.metadata['audio_transcription'] = transcription
+                                user_message.save(update_fields=['metadata'])
+                            
+                            # Use cached transcription
+                            audio_transcription = user_message.metadata.get('audio_transcription')
+                            if audio_transcription:
+                                prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
+                        except Exception as e:
+                            print(f"Error processing audio: {e}")
+                    
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                         user_prompt=prompt_content,
@@ -934,6 +1025,32 @@ class MessageViewSet(viewsets.ModelViewSet):
             for chunk in audio_file.chunks():
                 temp_input.write(chunk)
             temp_input.close()
+            
+            # Check audio duration using ffprobe
+            ffprobe_cmd = [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1:noprint_wrappers=1",
+                temp_input.name
+            ]
+            
+            try:
+                duration_result = subprocess.run(
+                    ffprobe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10
+                )
+                
+                if duration_result.returncode == 0:
+                    duration = float(duration_result.stdout.strip())
+                    # Check if duration exceeds 1 minute (60 seconds)
+                    if duration > 60:
+                        os.remove(temp_input.name)
+                        return Response({
+                            'error': f'Audio duration must be less than 1 minute. Your audio is {duration:.1f} seconds.'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+            except (ValueError, subprocess.TimeoutExpired):
+                # If we can't get duration, proceed with conversion (fallback)
+                pass
 
             # Output WAV temp file
             temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
