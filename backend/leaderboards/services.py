@@ -3,6 +3,19 @@ from user.models import User
 from tenants.config import get_tenant_by_slug
 from tenants.context import set_current_tenant, clear_current_tenant
 
+def mask_email(email):
+    if not email:
+        return None
+    try:
+        username, domain = email.split('@')
+        if len(username) <= 2:
+            masked_username = f"{username[0]}***"
+        else:
+            masked_username = f"{username[:2]}***{username[-1]}"
+        return f"{masked_username}@{domain}"
+    except ValueError:
+        return email
+
 def calculate_top_contributors(tenant_slug, language=None, arena_type=None):
     """
     Calculates top contributors based on chat sessions and feedback votes.
@@ -29,7 +42,7 @@ def calculate_top_contributors(tenant_slug, language=None, arena_type=None):
             session_filters &= Q(chat_sessions__messages__language__iexact=language)
             feedback_filters &= Q(feedbacks__session__messages__language__iexact=language)
 
-        users = User.objects.filter(is_active=True).annotate(
+        users = User.objects.filter(is_active=True, is_anonymous=False).annotate(
             chat_sessions_count=Count(
                 'chat_sessions',
                 filter=session_filters,
@@ -54,23 +67,33 @@ def calculate_top_contributors(tenant_slug, language=None, arena_type=None):
                 'feedbacks',
                 filter=feedback_filters & Q(feedbacks__session__mode='random'),
                 distinct=True
+            ),
+            votes_academic=Count(
+                'feedbacks',
+                filter=feedback_filters & Q(feedbacks__session__mode='academic'),
+                distinct=True
             )
         ).filter(
             Q(chat_sessions_count__gt=0) | Q(total_votes__gt=0)
-        ).order_by('-total_votes', '-chat_sessions_count')
+        ).order_by('-total_votes', '-chat_sessions_count')[:500]
 
         results = []
         for user in users:
+            breakdown = {
+                'Direct Chat': user.votes_direct,
+                'Comparison': user.votes_compare,
+                'Random': user.votes_random
+            }
+            
+            if arena_type and arena_type.lower() == 'tts':
+                breakdown['Academic Benchmarking'] = user.votes_academic
+
             results.append({
-                'email': user.email,
+                'email': mask_email(user.email),
                 'display_name': user.display_name,
                 'chat_sessions_count': user.chat_sessions_count,
                 'total_votes': user.total_votes,
-                'votes_breakdown': {
-                    'Direct Chat': user.votes_direct,
-                    'Comparison': user.votes_compare,
-                    'Random': user.votes_random
-                }
+                'votes_breakdown': breakdown
             })
         
         return results
