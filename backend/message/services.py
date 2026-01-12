@@ -180,45 +180,6 @@ class MessageService:
             }
     
     @staticmethod
-    def create_branch(
-        parent_message: Message,
-        content: str,
-        branch_type: str = 'alternative'
-    ) -> Message:
-        """Create a branch from an existing message"""
-        with transaction.atomic():
-            # Create new message at same position level
-            branch_message = Message.objects.create(
-                session=parent_message.session,
-                role='user',
-                content=content,
-                parent_message_ids=parent_message.parent_message_ids,
-                position=parent_message.position,
-                status='success',
-                metadata={
-                    'branch_type': branch_type,
-                    'branched_from': str(parent_message.id)
-                }
-            )
-            
-            # Update parent's children
-            for parent_id in parent_message.parent_message_ids:
-                parent = Message.objects.get(id=parent_id)
-                if branch_message.id not in parent.child_ids:
-                    parent.child_ids.append(branch_message.id)
-                    parent.save()
-            
-            # Create relations
-            for parent_id in parent_message.parent_message_ids:
-                MessageRelation.objects.create(
-                    parent_id=parent_id,
-                    child=branch_message,
-                    relation_type='branch'
-                )
-            
-            return branch_message
-    
-    @staticmethod
     def regenerate_message(
         message: Message,
         temperature: float = 0.7,

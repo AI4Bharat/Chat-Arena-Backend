@@ -187,16 +187,6 @@ class MessageTreeSerializer(serializers.ModelSerializer):
         return []
 
 
-class MessageBranchSerializer(serializers.Serializer):
-    """Serializer for creating message branches"""
-    parent_message_id = serializers.UUIDField(required=True)
-    content = serializers.CharField(required=True)
-    branch_type = serializers.ChoiceField(
-        choices=['alternative', 'continuation'],
-        default='alternative'
-    )
-
-
 class MessageRegenerateSerializer(serializers.Serializer):
     """Serializer for regenerating assistant messages"""
     temperature = serializers.FloatField(default=0.7, min_value=0, max_value=2)

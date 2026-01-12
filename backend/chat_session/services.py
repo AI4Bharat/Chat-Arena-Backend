@@ -120,6 +120,163 @@ class ChatSessionService:
         return new_session
     
     @staticmethod
+    def create_branched_session(
+        session: ChatSession,
+        assistant_message: Message,
+        user,
+        new_title: Optional[str] = None
+    ) -> ChatSession:
+        """
+        Create a new session branched from an assistant message.
+        
+        This copies the conversation history up to and including the specified
+        assistant message, creating a new independent session where the user
+        can continue the conversation in a different direction.
+        
+        Args:
+            session: The original session to branch from
+            assistant_message: The assistant message to branch from (must belong to session)
+            user: The user creating the branch
+            new_title: Optional title for the new session
+            
+        Returns:
+            The newly created branched session
+            
+        Raises:
+            ValueError: If the message doesn't belong to the session or isn't an assistant message
+        """
+        # Validate the assistant message belongs to this session
+        if assistant_message.session_id != session.id:
+            raise ValueError("The specified message does not belong to this session")
+        
+        # Validate it's an assistant message
+        if assistant_message.role != 'assistant':
+            raise ValueError("Can only branch from assistant messages")
+        
+        with transaction.atomic():
+            # Create new session with same configuration
+            branched_title = new_title or f"Branch from: {session.title or 'Untitled'}"
+            
+            new_session = ChatSession.objects.create(
+                user=user,
+                mode=session.mode,
+                title=branched_title,
+                model_a=session.model_a,
+                model_b=session.model_b,
+                session_type=session.session_type,
+                metadata={
+                    **session.metadata,
+                    'branched_from_session': str(session.id),
+                    'branched_from_message': str(assistant_message.id),
+                    'branched_at': timezone.now().isoformat(),
+                    'branch_type': 'assistant_message_branch'
+                }
+            )
+            
+            # Get all messages up to and including the assistant message
+            # We need to get the conversation path leading to this message
+            messages_to_copy = ChatSessionService._get_messages_up_to(
+                session, 
+                assistant_message
+            )
+            
+            # Create a mapping of old IDs to new IDs for parent-child relationships
+            id_mapping = {}
+            
+            for message in messages_to_copy:
+                old_id = message.id
+                
+                # Create new message
+                new_message = Message(
+                    session=new_session,
+                    role=message.role,
+                    content=message.content,
+                    model=message.model,
+                    position=message.position,
+                    participant=message.participant,
+                    status='success',  # Set as success since it's a copy
+                    attachments=message.attachments,
+                    audio_path=message.audio_path,
+                    image_path=message.image_path,
+                    doc_path=message.doc_path,
+                    language=message.language,
+                    metadata={
+                        **message.metadata,
+                        'copied_from': str(old_id),
+                        'copied_from_session': str(session.id)
+                    }
+                )
+                
+                # Map parent IDs to new IDs
+                if message.parent_message_ids:
+                    new_message.parent_message_ids = [
+                        id_mapping.get(str(pid), pid) 
+                        for pid in message.parent_message_ids
+                        if str(pid) in id_mapping  # Only include parents that were copied
+                    ]
+                
+                new_message.save()
+                id_mapping[str(old_id)] = new_message.id
+                
+                # Update child IDs for previously saved messages in new session
+                for parent_id in new_message.parent_message_ids:
+                    parent_msg = Message.objects.filter(id=parent_id).first()
+                    if parent_msg and parent_msg.session_id == new_session.id:
+                        if new_message.id not in parent_msg.child_ids:
+                            parent_msg.child_ids.append(new_message.id)
+                            parent_msg.save()
+            
+            return new_session
+    
+    @staticmethod
+    def _get_messages_up_to(session: ChatSession, target_message: Message) -> List[Message]:
+        """
+        Get all messages in the conversation path leading up to and including the target message.
+        
+        This traverses the message tree to find the linear path from the start
+        to the target message, handling branching conversations correctly.
+        
+        Args:
+            session: The session containing the messages
+            target_message: The message to trace back to
+            
+        Returns:
+            List of messages in order from first to target_message
+        """
+        # Get all messages up to the target message's position
+        # This is a simplified approach that works for linear conversations
+        # For branched conversations, we trace back through parent_message_ids
+        
+        result = []
+        visited = set()
+        
+        def trace_back(message):
+            """Recursively trace back through parents"""
+            if message.id in visited:
+                return
+            visited.add(message.id)
+            
+            # First, trace back to parents
+            if message.parent_message_ids:
+                for parent_id in message.parent_message_ids:
+                    parent = Message.objects.filter(
+                        id=parent_id, 
+                        session=session
+                    ).first()
+                    if parent:
+                        trace_back(parent)
+            
+            # Then add this message
+            result.append(message)
+        
+        trace_back(target_message)
+        
+        # Sort by position to ensure correct order
+        result.sort(key=lambda m: m.position)
+        
+        return result
+    
+    @staticmethod
     def export_session(
         session: ChatSession,
         format: str = 'json',
