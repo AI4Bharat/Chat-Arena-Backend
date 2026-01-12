@@ -2,19 +2,36 @@ from django.conf import settings
 from django.utils import timezone
 from typing import Optional, Dict
 import logging
-import pyrebase
 import uuid
+import os
 from rest_framework_simplejwt.tokens import RefreshToken
 from user.models import User
 from chat_session.models import ChatSession
+import firebase_admin
+from firebase_admin import credentials, auth
 
 logger = logging.getLogger(__name__)
 
-# Initialize Pyrebase
-firebase_config = settings.FIREBASE_CONFIG
+# Initialize Firebase Admin SDK
+if not firebase_admin._apps:
+    try:
+        # Path to service account key
+        cred_path = os.path.join(settings.BASE_DIR, 'serviceAccountKey.json')
 
-firebase = pyrebase.initialize_app(firebase_config)
-firebase_auth = firebase.auth()
+        # Log the path for debugging
+        logger.info(f"Loading Firebase credentials from: {cred_path}")
+
+        # Check if file exists
+        if not os.path.exists(cred_path):
+            logger.error(f"Firebase credentials file not found at: {cred_path}")
+            raise FileNotFoundError(f"Firebase credentials not found at: {cred_path}")
+
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+        logger.info("Firebase Admin SDK initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
+        raise
 
 
 class UserService:
@@ -38,15 +55,23 @@ class UserService:
     
     @staticmethod
     def verify_google_token_with_pyrebase(id_token: str) -> Optional[Dict]:
-        """Verify Google ID token using Pyrebase"""
+        """Verify Google ID token using Firebase Admin SDK"""
         try:
-            # Verify the token with Firebase
-            user_info = firebase_auth.get_account_info(id_token)
-            if user_info and 'users' in user_info and len(user_info['users']) > 0:
-                return user_info['users'][0]
-            return None
+            # Verify the token with Firebase Admin SDK
+            decoded_token = auth.verify_id_token(id_token)
+
+            # Get user info from Firebase
+            firebase_user = auth.get_user(decoded_token['uid'])
+
+            # Return user info in a format compatible with our code
+            return {
+                'localId': firebase_user.uid,
+                'email': firebase_user.email,
+                'displayName': firebase_user.display_name,
+                'phoneNumber': firebase_user.phone_number,
+            }
         except Exception as e:
-            logger.error(f"Error verifying Google token with Pyrebase: {e}")
+            logger.error(f"Error verifying Google token with Firebase Admin SDK: {e}")
             return None
     
     @staticmethod
@@ -72,7 +97,65 @@ class UserService:
                 auth_provider='google',
                 is_anonymous=False
             )
-        
+
+        return user
+
+    @staticmethod
+    def verify_phone_token_with_pyrebase(id_token: str) -> Optional[Dict]:
+        """Verify Phone ID token using Firebase Admin SDK"""
+        try:
+            logger.info("Starting phone token verification with Firebase Admin SDK")
+
+            # Verify the token with Firebase Admin SDK
+            decoded_token = auth.verify_id_token(id_token)
+            logger.info(f"Token decoded successfully for UID: {decoded_token.get('uid')}")
+
+            # Get user info from Firebase
+            firebase_user = auth.get_user(decoded_token['uid'])
+            logger.info(f"Firebase user retrieved: {firebase_user.uid}, phone: {firebase_user.phone_number}")
+
+            # Return user info in a format compatible with our code
+            return {
+                'localId': firebase_user.uid,
+                'email': firebase_user.email,
+                'displayName': firebase_user.display_name,
+                'phoneNumber': firebase_user.phone_number,
+            }
+        except Exception as e:
+            logger.error(f"Error verifying Phone token with Firebase Admin SDK: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+
+    @staticmethod
+    def get_or_create_phone_user(phone_user_info: dict, display_name: str) -> User:
+        """Get or create user from Phone auth info"""
+        phone_number = phone_user_info.get('phoneNumber')
+        uid = phone_user_info.get('localId')  # Pyrebase uses localId
+
+        if not phone_number:
+            raise ValueError("Phone number not found in user info")
+
+        if not display_name:
+            raise ValueError("Display name is required for phone authentication")
+
+        try:
+            user = User.objects.get(firebase_uid=uid)
+            # Update user info if changed
+            if user.phone_number != phone_number:
+                user.phone_number = phone_number
+            if user.display_name != display_name:
+                user.display_name = display_name
+            user.save()
+        except User.DoesNotExist:
+            user = User.objects.create(
+                firebase_uid=uid,
+                phone_number=phone_number,
+                display_name=display_name,
+                auth_provider='phone',
+                is_anonymous=False
+            )
+
         return user
     
     @staticmethod
