@@ -1,6 +1,6 @@
 from ai_model.llm_interactions import get_model_output
 from ai_model.asr_interactions import get_asr_output
-from ai_model.tts_interactions import get_tts_output
+from ai_model.tts_interactions import get_tts_output, is_presynthesized_model, get_presynthesized_sentence, has_presynthesized_sentences
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -561,20 +561,35 @@ class MessageViewSet(viewsets.ModelViewSet):
             # For academic mode, get random prompt from database
             if session.mode == 'academic':
                 language = user_message.language
-
-                # Get least used prompt for uniform distribution
-                prompts = AcademicPrompt.objects.filter(language=language, is_active=True)
-                if prompts.exists():
-                    min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
-                    least_used_prompts = prompts.filter(usage_count=min_usage_count)
-                    selected_prompt = random.choice(list(least_used_prompts))
-
+                
+                # Check if either model requires pre-synthesized sentences
+                model_a_presynthesized = is_presynthesized_model(session.model_a.model_code)
+                model_b_presynthesized = is_presynthesized_model(session.model_b.model_code) if session.model_b else False
+                uses_presynthesized_model = model_a_presynthesized or model_b_presynthesized
+                
+                selected_text = None
+                
+                # If using a pre-synthesized model, use pre-synthesized sentences
+                if uses_presynthesized_model and has_presynthesized_sentences(language):
+                    selected_text = get_presynthesized_sentence(language)
+                
+                # If no pre-synthesized sentence available, fall back to regular prompts
+                if not selected_text:
+                    # Get least used prompt for uniform distribution
+                    prompts = AcademicPrompt.objects.filter(language=language, is_active=True)
+                    if prompts.exists():
+                        min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
+                        least_used_prompts = prompts.filter(usage_count=min_usage_count)
+                        selected_prompt = random.choice(list(least_used_prompts))
+                        selected_text = selected_prompt.text
+                        selected_prompt.increment_usage()
+                
+                if selected_text:
                     # Update user message with the selected prompt
-                    user_message.content = selected_prompt.text
+                    user_message.content = selected_text
                     user_message.save(update_fields=['content'])
-
-                    selected_prompt.increment_usage()
-                    escaped_prompt = selected_prompt.text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+                    
+                    escaped_prompt = selected_text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                     yield f'prompt:"{escaped_prompt}"\n'
 
             gender = random.choice(["male", "female"])

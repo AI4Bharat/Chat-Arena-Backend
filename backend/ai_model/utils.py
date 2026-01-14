@@ -149,16 +149,28 @@ MULTIMODAL_MODELS_NAMES = [
 class ModelSelector:
     """Select models based on various criteria"""
     
+    # Academic-only models that should only be used in academic mode
+    ACADEMIC_ONLY_MODELS = ['elevenlabs', 'indicparlertts']
+    
     @staticmethod
     def get_random_models_for_comparison(
         exclude_ids: List[str] = None,
         category: Optional[str] = None,
         model_type: Optional[str] = None,
         requires_multimodal: bool = False,
+        mode: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> tuple:
         """Get two random models for comparison"""
+        from ai_model.tts_interactions import has_presynthesized_sentences
         
         queryset = AIModel.objects.filter(is_active=True)
+        
+        # Exclude academic-only models unless:
+        # 1. Mode is academic AND
+        # 2. Language has pre-synthesized sentences available
+        if mode != 'academic' or not has_presynthesized_sentences(language):
+            queryset = queryset.exclude(model_code__in=ModelSelector.ACADEMIC_ONLY_MODELS)
         
         if category:
             queryset = queryset.filter(capabilities__contains=[category])
