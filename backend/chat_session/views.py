@@ -94,13 +94,10 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
 
         # Handle random and academic modes (both use random model selection)
         if serializer.validated_data['mode'] in ['random', 'academic']:
-            # Extract language from metadata or request for academic mode filtering
-            metadata = serializer.validated_data.get('metadata') or {}
-            
             session = ChatSessionService.create_session_with_random_models(
                 user=request.user,
                 mode=serializer.validated_data['mode'],
-                metadata=metadata,
+                metadata=serializer.validated_data.get('metadata'),
                 session_type=serializer.validated_data.get('session_type'),
             )
         else:
