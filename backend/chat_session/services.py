@@ -29,7 +29,8 @@ class ChatSessionService:
         try:
             model_a, model_b = ModelSelector.get_random_models_for_comparison(
                 model_type=session_type,
-                requires_multimodal=requires_multimodal
+                requires_multimodal=requires_multimodal,
+                mode=mode,
             )
         except ValueError as e:
             raise ValueError("Not enough active models for random comparison")

@@ -149,16 +149,24 @@ MULTIMODAL_MODELS_NAMES = [
 class ModelSelector:
     """Select models based on various criteria"""
     
+    # Academic-only models that should only be used in academic mode
+    ACADEMIC_ONLY_MODELS = ['elevenlabs', 'indicparlertts']
+    
     @staticmethod
     def get_random_models_for_comparison(
         exclude_ids: List[str] = None,
         category: Optional[str] = None,
         model_type: Optional[str] = None,
         requires_multimodal: bool = False,
+        mode: Optional[str] = None,
     ) -> tuple:
         """Get two random models for comparison"""
-        
         queryset = AIModel.objects.filter(is_active=True)
+        
+        # Exclude academic-only models unless:
+        # 1. Mode is academic AND
+        if mode != 'academic':
+            queryset = queryset.exclude(model_code__in=ModelSelector.ACADEMIC_ONLY_MODELS)
         
         if category:
             queryset = queryset.filter(capabilities__contains=[category])
