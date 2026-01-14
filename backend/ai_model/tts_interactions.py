@@ -28,29 +28,21 @@ PARLER_GENDER_MAP = {
     "female": ["Divya"]
 }
 
-# Pre-synthesized sentences for ElevenLabs and IndicParlerTTS
-# These models ONLY work with these specific sentences
-# Add more sentences as they become available from the API provider
-PRESYNTHESIZED_SENTENCES = {
-    "hi": [
-        "चलो, शुभ काम में देरी कैसी? मार्केट बंद होने से पहले आज ही डील फाइनल कर लेते हैं।",
-    ],
-    # Add more languages and sentences as they become available
-}
-
-# Models that require pre-synthesized sentences
+# Models that only work with pre-synthesized sentences (academic mode only)
+# Note: ALL academic prompts in the database are pre-synthesized
 PRESYNTHESIZED_MODELS = ['elevenlabs', 'indicparlertts']
 
-def get_presynthesized_sentence(language):
-    """Get a random pre-synthesized sentence for the given language"""
-    sentences = PRESYNTHESIZED_SENTENCES.get(language, [])
-    if sentences:
-        return random.choice(sentences)
-    return None
-
 def has_presynthesized_sentences(language):
-    """Check if there are pre-synthesized sentences available for this language"""
-    return language in PRESYNTHESIZED_SENTENCES and len(PRESYNTHESIZED_SENTENCES[language]) > 0
+    """Check if there are pre-synthesized academic prompts available for this language"""
+    if not language:
+        return False
+    
+    # Import here to avoid circular imports
+    from academic_prompts.models import AcademicPrompt
+    
+    # Check if academic prompts exist for this language
+    # All academic prompts are pre-synthesized
+    return AcademicPrompt.objects.filter(language=language, is_active=True).exists()
 
 def is_presynthesized_model(model_code):
     """Check if a model requires pre-synthesized sentences"""
