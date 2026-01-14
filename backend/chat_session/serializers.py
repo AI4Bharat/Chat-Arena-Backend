@@ -43,8 +43,7 @@ class ChatSessionSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """Conditionally hide model names for random and academic modes."""
         data = super().to_representation(instance)
-        # Always mask models in academic mode; for random mode, mask only before feedback
-        if instance.mode == 'academic' or (instance.mode == 'random' and not instance.has_feedback):
+        if (instance.mode == 'random' or instance.mode == 'academic') and not instance.has_feedback:
             data['model_a'] = {
                 'id': None,
                 'display_name': 'Model A',
@@ -149,8 +148,7 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """Conditionally hide model names for random and academic modes."""
         data = super().to_representation(instance)
-        # Always mask models in academic mode; for random mode, mask only before feedback
-        if instance.mode == 'academic' or (instance.mode == 'random' and not instance.has_feedback):
+        if (instance.mode == 'random' or instance.mode == 'academic') and not instance.has_feedback:
             data['model_a_name'] = 'Model A'
             data['model_b_name'] = 'Model B'
         return data
@@ -199,8 +197,7 @@ class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """Conditionally hide model names for random and academic modes."""
         data = super().to_representation(instance)
-        # Always mask models in academic mode; for random mode, mask only before feedback
-        if instance.mode == 'academic' or (instance.mode == 'random' and not instance.has_feedback):
+        if (instance.mode == 'random' or instance.mode == 'academic') and not instance.has_feedback:
             data['model_a'] = {
                 'id': None,
                 'display_name': 'Model A',
