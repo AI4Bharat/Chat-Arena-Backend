@@ -46,15 +46,11 @@ class AIModelViewSet(viewsets.ModelViewSet):
         queryset = queryset.filter(is_active=True)
         
         # Exclude academic-only TTS models (ElevenLabs and IndicParlerTTS) unless:
-        # 1. Mode is academic AND
-        # 2. Language has pre-synthesized sentences available
-        from ai_model.tts_interactions import has_presynthesized_sentences
+        # 1. Mode is academic
         
         mode = self.request.query_params.get('mode')
-        language = self.request.query_params.get('language')
         
-        # Only include pre-synthesized models if mode is academic AND language has sentences
-        if mode != 'academic' or not has_presynthesized_sentences(language):
+        if mode != 'academic':
             queryset = queryset.exclude(
                 model_code__in=['elevenlabs', 'indicparlertts']
             )
@@ -86,8 +82,6 @@ class AIModelViewSet(viewsets.ModelViewSet):
         """
         Returns models filtered by model_type
         """
-        from ai_model.tts_interactions import has_presynthesized_sentences
-        
         model_type = request.query_params.get('model_type')
         mode = request.query_params.get('mode')
         language = request.query_params.get('language')
@@ -96,8 +90,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
         if model_type:
             qs = qs.filter(model_type=model_type)
         
-        # Exclude academic-only TTS models unless mode is academic AND language has pre-synthesized sentences
-        if mode != 'academic' or not has_presynthesized_sentences(language):
+        if mode != 'academic':
             qs = qs.exclude(model_code__in=['elevenlabs', 'indicparlertts'])
 
         serializer = self.get_serializer(qs, many=True)

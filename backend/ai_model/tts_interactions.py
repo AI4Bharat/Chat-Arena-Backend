@@ -16,38 +16,6 @@ dhruva_key = os.getenv("DHRUVA_KEY")
 elevenlabs_api_url = os.getenv("ELEVENLABS_API_URL")
 parler_api_url = os.getenv("PARLER_API_URL")
 
-# ElevenLabs Speaker Mapping (Gender -> List of Speaker Names)
-ELEVENLABS_GENDER_MAP = {
-    "male": ["Adam", "Bill"],
-    "female": ["Alice"]
-}
-
-# Parler Speaker Mapping (Gender -> List of Speaker Names)
-PARLER_GENDER_MAP = {
-    "male": ["Rohit"],
-    "female": ["Divya"]
-}
-
-# Models that only work with pre-synthesized sentences (academic mode only)
-# Note: ALL academic prompts in the database are pre-synthesized
-PRESYNTHESIZED_MODELS = ['elevenlabs', 'indicparlertts']
-
-def has_presynthesized_sentences(language):
-    """Check if there are pre-synthesized academic prompts available for this language"""
-    if not language:
-        return False
-    
-    # Import here to avoid circular imports
-    from academic_prompts.models import AcademicPrompt
-    
-    # Check if academic prompts exist for this language
-    # All academic prompts are pre-synthesized
-    return AcademicPrompt.objects.filter(language=language, is_active=True).exists()
-
-def is_presynthesized_model(model_code):
-    """Check if a model requires pre-synthesized sentences"""
-    return model_code in PRESYNTHESIZED_MODELS
-
 def get_tts_url(language):
     if language in ["brx", "en", "mni"]:
         return misc_tts_url
@@ -137,6 +105,11 @@ def get_elevenlabs_output(tts_input, lang, gender):
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
     API accepts either 'name' or 'gender' parameter
     """
+    # ElevenLabs Speaker Mapping (Gender -> List of Speaker Names)
+    ELEVENLABS_GENDER_MAP = {
+        "male": ["Adam", "Bill"],
+        "female": ["Alice"]
+    }
     try:
         # Select random speaker based on gender
         speaker = random.choice(ELEVENLABS_GENDER_MAP.get(gender.lower(), ELEVENLABS_GENDER_MAP["male"]))
@@ -167,6 +140,11 @@ def get_parler_output(tts_input, lang, gender):
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
     API accepts either 'name' or 'gender' parameter
     """
+    # Parler Speaker Mapping (Gender -> List of Speaker Names)
+    PARLER_GENDER_MAP = {
+        "male": ["Rohit"],
+        "female": ["Divya"]
+    }
     try:
         # Select random speaker based on gender
         speaker = random.choice(PARLER_GENDER_MAP.get(gender.lower(), PARLER_GENDER_MAP["male"]))

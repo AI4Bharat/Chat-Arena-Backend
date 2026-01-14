@@ -559,24 +559,22 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         def generate_tts_output():
             # For academic mode, get random prompt from database
-            # All academic prompts are pre-synthesized and work with all TTS models
             if session.mode == 'academic':
                 language = user_message.language
-                
+
                 # Get least used prompt for uniform distribution
                 prompts = AcademicPrompt.objects.filter(language=language, is_active=True)
                 if prompts.exists():
                     min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
                     least_used_prompts = prompts.filter(usage_count=min_usage_count)
                     selected_prompt = random.choice(list(least_used_prompts))
-                    selected_text = selected_prompt.text
-                    selected_prompt.increment_usage()
-                    
+
                     # Update user message with the selected prompt
-                    user_message.content = selected_text
+                    user_message.content = selected_prompt.text
                     user_message.save(update_fields=['content'])
-                    
-                    escaped_prompt = selected_text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+
+                    selected_prompt.increment_usage()
+                    escaped_prompt = selected_prompt.text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                     yield f'prompt:"{escaped_prompt}"\n'
 
             gender = random.choice(["male", "female"])
