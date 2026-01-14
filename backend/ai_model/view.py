@@ -84,7 +84,6 @@ class AIModelViewSet(viewsets.ModelViewSet):
         """
         model_type = request.query_params.get('model_type')
         mode = request.query_params.get('mode')
-        language = request.query_params.get('language')
         qs = self.get_queryset()
 
         if model_type:
