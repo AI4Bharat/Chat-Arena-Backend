@@ -82,6 +82,11 @@ class ChatSession(models.Model):
     @property
     def has_feedback(self):
         """
-        Checks if any feedback has been submitted for this session.
+        Checks if feedback has been submitted for this session.
+        For academic mode: requires detailed feedback to be submitted.
+        For random mode: any feedback is sufficient.
         """
-        return self.feedbacks.exists()
+        if self.mode == 'academic':
+            return self.messages.filter(has_detailed_feedback=True).exists()
+        else:
+            return self.feedbacks.exists()
