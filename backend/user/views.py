@@ -213,7 +213,8 @@ class UserStatsView(views.APIView):
             'activity_streak': self._calculate_activity_streak(user),
             'member_since': user.created_at,
             'feedback_given': user.feedbacks.count(),
-            'session_breakdown': self._get_session_breakdown(user)
+            'session_breakdown': self._get_session_breakdown(user),
+            'detailed_votes_count': self._get_detailed_votes_count(user)
         }
         
         return Response(stats)
@@ -266,3 +267,20 @@ class UserStatsView(views.APIView):
         ).order_by('mode')
         
         return {item['mode']: item['count'] for item in breakdown}
+    
+    def _get_detailed_votes_count(self, user):
+        """Get count of detailed votes submitted (TTS Academic mode with additional_feedback_json)"""
+        from feedback.models import Feedback
+        
+        # Count feedbacks that have additional_feedback_json (detailed TTS evaluation feedback)
+        # in academic mode sessions with TTS type
+        detailed_votes = Feedback.objects.filter(
+            user=user,
+            session__mode='academic',
+            session__session_type='TTS',
+            additional_feedback_json__isnull=False
+        ).exclude(
+            additional_feedback_json={}
+        ).count()
+        
+        return detailed_votes
