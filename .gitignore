@@ -17,11 +17,20 @@ static/
 
 # Env
 .env*
+!.env.example
 virtualenv/
 myvenv/
 venv/
 env/
 postgres_data/
+
+# SECURITY: Sensitive credential files
+**/serviceAccountKey.json
+**/serviceAccountKey*.json
+**/firebase-adminsdk*.json
+*.pem
+*.key
+secrets/
 
 # Database
 db.sqlite3

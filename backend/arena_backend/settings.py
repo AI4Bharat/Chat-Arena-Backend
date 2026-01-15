@@ -26,12 +26,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#"
+# CRITICAL: SECRET_KEY must be set via environment variable
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("CRITICAL: SECRET_KEY environment variable is not set!")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = ['http://127.0.0.1:3000','98.70.28.77', 'localhost', '127.0.0.1', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org', 'https://backend.arena.ai4bharat.co', 'backend.arena.ai4bharat.co']
+# ALLOWED_HOSTS - use environment variable for production, fallback for development
+_allowed_hosts_env = os.getenv('ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = [
+    host.strip() for host in _allowed_hosts_env.split(',') if host.strip()
+] if _allowed_hosts_env else [
+    'localhost',
+    '127.0.0.1',
+    'backend.dev.arena.ai4bharat.org',
+    'backend.arena.ai4bharat.org',
+    'backend.arena.ai4bharat.co',
+]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
@@ -48,24 +61,46 @@ CSRF_TRUSTED_ORIGINS = [
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
 
+# =============================================================================
+# SECURITY SETTINGS - Added during security audit remediation
+# =============================================================================
+
+# HTTPS Enforcement (enable in production)
+SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 year in production
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Security Headers
+X_FRAME_OPTIONS = 'DENY'
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+
+# Cookie Security Enhancements
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = 'Strict'
+SESSION_COOKIE_SAMESITE = 'Strict'
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # SECURITY FIX: Reduced token lifetimes for better security
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),  # Reduced from 60 minutes
+    'REFRESH_TOKEN_LIFETIME': timedelta(hours=24),   # Reduced from 7 days
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
-    
+
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
     'VERIFYING_KEY': None,
     'AUDIENCE': None,
     'ISSUER': None,
-    
+
     'AUTH_HEADER_TYPES': ('Bearer',),
     'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
-    
+
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
@@ -106,7 +141,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-CORS_ORIGIN_ALLOW_ALL = True
+# SECURITY FIX: Removed CORS_ORIGIN_ALLOW_ALL = True (was allowing any origin)
+# Use explicit whitelist via CORS_ALLOWED_ORIGINS instead
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -143,6 +179,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # SECURITY FIX: Add rate limiting to prevent abuse
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '20/minute',
+        'user': '100/minute',
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -240,19 +285,22 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Redis configuration - use environment variable for host to support both dev and prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 'redis' for Docker, '127.0.0.1' for local dev
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')  # SECURITY FIX: Added Redis password support
 
 # Session configuration - using Redis for load balancing support
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
-SESSION_COOKIE_AGE = 2592000  # 30 days
+SESSION_COOKIE_AGE = 86400  # SECURITY FIX: Reduced from 30 days to 1 day (86400 seconds)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = True
 
 # Cache configuration
+# SECURITY FIX: Added Redis password authentication support
+_redis_url = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1' if REDIS_PASSWORD else f'redis://{REDIS_HOST}:{REDIS_PORT}/1'
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1',
+        'LOCATION': _redis_url,
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'CONNECTION_POOL_KWARGS': {
@@ -313,15 +361,18 @@ AI_MODEL_CONFIG = {
 }
 
 # Channel Layers - Redis backend for distributed WebSocket support
+# SECURITY FIX: Use separate encryption key (not SECRET_KEY) and support Redis password
+_channel_encryption_key = os.getenv('CHANNEL_ENCRYPTION_KEY', SECRET_KEY)
+_channel_redis_host = {"address": f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"} if REDIS_PASSWORD else (REDIS_HOST, int(REDIS_PORT))
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [(REDIS_HOST, int(REDIS_PORT))],
+            "hosts": [_channel_redis_host] if isinstance(_channel_redis_host, dict) else [_channel_redis_host],
             "capacity": 1500,  # Number of messages to store
             "expiry": 10,  # Message expiry in seconds
             "group_expiry": 86400,  # Group membership expiry (24 hours)
-            "symmetric_encryption_keys": [SECRET_KEY],  # Encrypt messages
+            "symmetric_encryption_keys": [_channel_encryption_key],  # Encrypt messages
         },
     },
 }
@@ -369,3 +420,58 @@ ANONYMOUS_USER_SETTINGS = {
 }
 
 GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME")
+
+# =============================================================================
+# LOGGING CONFIGURATION - Added during security audit remediation
+# =============================================================================
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {asctime} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'security_file': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'security.log'),
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django.security': {
+            'handlers': ['console', 'security_file'] if not DEBUG else ['console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}
+
+# Create logs directory if it doesn't exist
+_logs_dir = os.path.join(BASE_DIR, 'logs')
+if not os.path.exists(_logs_dir):
+    os.makedirs(_logs_dir, exist_ok=True)

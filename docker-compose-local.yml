@@ -3,10 +3,12 @@ version: '3.8'
 services:
   db:
     restart: always
-    image: "postgres:11"
+    image: "postgres:15-alpine"
     environment:
-      - "POSTGRES_HOST_AUTH_METHOD=trust"
-      - "POSTGRES_DB=main"
+      # SECURITY FIX: Removed POSTGRES_HOST_AUTH_METHOD=trust - was allowing unauthenticated access
+      - POSTGRES_USER=${DB_USER:-arena}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+      - POSTGRES_DB=${DB_NAME:-main}
     volumes:
       - ./postgres_data:/var/lib/postgresql/data/
   web:
@@ -21,7 +23,9 @@ services:
       - redis
   redis:
     container_name: redis
-    image: "redis"
+    image: "redis:7-alpine"
+    # SECURITY FIX: Added password authentication
+    command: redis-server --requirepass ${REDIS_PASSWORD:-devpassword}
     ports:
       - 6379:6379
 
