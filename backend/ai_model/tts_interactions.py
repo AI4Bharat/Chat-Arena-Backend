@@ -50,7 +50,7 @@ def get_sarvam_tts_output(tts_input, lang, model, gender):
     client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY_BULBUL"))
     speakerV2Female = ["anushka", "vidya", "manisha", "arya"]
     speakerV2Male = ["abhilash", "karun", "hitesh"]
-    speakerV3Female = ["ritu", "priya", "neha", "pooja", "simran", "kavya", "ishita", "shreya", "roopa", "amelia", "sophia"]
+    speakerV3Female = ["ritu", "priya", "neha", "pooja", "simran", "kavya", "ishita", "shreya", "roopa"]
     speakerV3Male = ["aditya", "ashutosh", "rahul", "rohan", "amit", "dev", "ratan", "varun", "manan", "sumit", "kabir", "aayan", "shubh", "advait"]
     if model == "bulbul:v2":
         speaker = random.choice(speakerV2Female) if gender == "female" else random.choice(speakerV2Male)
