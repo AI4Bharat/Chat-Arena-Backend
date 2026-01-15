@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 if not firebase_admin._apps:
     try:
         # Path to service account key
-        cred_path = os.path.join(settings.BASE_DIR, 'serviceAccountKey.json')
+        cred_path = os.path.join(settings.BASE_DIR, 'arena_backend/serviceAccountKey.json')
 
         # Log the path for debugging
         logger.info(f"Loading Firebase credentials from: {cred_path}")
