@@ -11,7 +11,7 @@ class Leaderboard(models.Model):
     ]
 
     ORGANIZATION_CHOICES = [
-        ('ai4bharat', 'AI4Bharat'),
+        ('ai4b', 'AI4B'),
         ('aquarium', 'Aquarium'),
         ('ai4x', 'AI4X'),
     ]
@@ -62,7 +62,7 @@ class Leaderboard(models.Model):
     organization = models.CharField(
         max_length=50, 
         choices=ORGANIZATION_CHOICES,
-        default='ai4bharat'
+        default='ai4b'
     )
     
     language = models.CharField(

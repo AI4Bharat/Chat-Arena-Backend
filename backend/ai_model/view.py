@@ -45,6 +45,16 @@ class AIModelViewSet(viewsets.ModelViewSet):
         # if not self.request.user.is_staff:
         queryset = queryset.filter(is_active=True)
         
+        # Exclude academic-only TTS models (ElevenLabs and IndicParlerTTS) unless:
+        # 1. Mode is academic
+        
+        mode = self.request.query_params.get('mode')
+        
+        if mode != 'academic':
+            queryset = queryset.exclude(
+                model_code__in=['elevenlabs', 'indicparlertts']
+            )
+        
         # Filter by provider
         provider = self.request.query_params.get('provider')
         if provider:
@@ -73,10 +83,14 @@ class AIModelViewSet(viewsets.ModelViewSet):
         Returns models filtered by model_type
         """
         model_type = request.query_params.get('model_type')
+        mode = request.query_params.get('mode')
         qs = self.get_queryset()
 
         if model_type:
             qs = qs.filter(model_type=model_type)
+        
+        if mode != 'academic':
+            qs = qs.exclude(model_code__in=['elevenlabs', 'indicparlertts'])
 
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
