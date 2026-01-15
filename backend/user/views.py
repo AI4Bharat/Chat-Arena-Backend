@@ -11,7 +11,7 @@ import logging
 from .models import User
 from .serializers import (
     UserSerializer, UserCreateSerializer, UserPreferencesSerializer,
-    AnonymousAuthSerializer, GoogleAuthSerializer
+    AnonymousAuthSerializer, GoogleAuthSerializer, PhoneAuthSerializer
 )
 from .services import UserService
 from .authentication import AnonymousTokenAuthentication, FirebaseAuthentication
@@ -81,6 +81,62 @@ class GoogleAuthView(views.APIView):
         with transaction.atomic():
             user = UserService.get_or_create_google_user(google_user_info)
             
+            # Check if there's an anonymous session to merge
+            anon_token = request.META.get('HTTP_X_ANONYMOUS_TOKEN')
+            if anon_token:
+                try:
+                    anon_user = User.objects.get(
+                        is_anonymous=True,
+                        preferences__anonymous_token=anon_token
+                    )
+                    user = UserService.merge_anonymous_to_authenticated(
+                        anon_user, user
+                    )
+                except User.DoesNotExist:
+                    pass
+        
+        # Generate JWT tokens
+        tokens = UserService.get_tokens_for_user(user)
+        
+        return Response({
+            'user': UserSerializer(user).data,
+            'tokens': tokens
+        })
+
+
+class PhoneAuthView(views.APIView):
+    """Handle Phone authentication"""
+    permission_classes = [AllowAny]
+    serializer_class = PhoneAuthSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Verify Phone token with Pyrebase
+        phone_user_info = UserService.verify_phone_token_with_pyrebase(
+            serializer.validated_data['id_token']
+        )
+
+        if not phone_user_info:
+            return Response(
+                {"error": "Invalid Phone token"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Get or create user
+        with transaction.atomic():
+            try:
+                user = UserService.get_or_create_phone_user(
+                    phone_user_info,
+                    serializer.validated_data['display_name']
+                )
+            except ValueError as e:
+                return Response(
+                    {"error": str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             # Check if there's an anonymous session to merge
             anon_token = request.META.get('HTTP_X_ANONYMOUS_TOKEN')
             if anon_token:
