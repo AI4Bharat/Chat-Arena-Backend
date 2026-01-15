@@ -116,8 +116,8 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None):
     # Handle multimodal input (text + image)
     if image_url:
         user_content = [
-            {"type": "text", "text": user_prompt},
-            {"type": "image_url", "image_url": {"url": image_url}}
+            {"type": "input_text", "text": user_prompt},
+            {"type": "input_image", "image_url": image_url}  # Direct string, not object!
         ]
         input_items.append({"role": "user", "content": user_content})
     else:
@@ -389,8 +389,9 @@ def get_ibm_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
         raise Exception(message)
     
-def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None):
+def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None, audio_url=None):
     # Assume that translation happens outside (and the prompt is already translated)
+    # audio_url parameter reserved for future native audio API integration
     out = ""
     if model == GPT35:
         out = get_gpt3_output(system_prompt, user_prompt, history)

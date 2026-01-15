@@ -2,7 +2,7 @@ import os
 import requests
 from rest_framework.response import Response
 from rest_framework import status
-from message.utlis import upload_audio
+from message.utlis import upload_tts_audio
 from sarvamai import SarvamAI
 import random
 from google.cloud import texttospeech
@@ -13,6 +13,8 @@ misc_tts_url = os.getenv("MISC_TTS_API_URL")
 indo_aryan_tts_url = os.getenv("INDO_ARYAN_TTS_API_URL")
 dravidian_tts_url = os.getenv("DRAVIDIAN_TTS_API_URL")
 dhruva_key = os.getenv("DHRUVA_KEY")
+elevenlabs_api_url = os.getenv("ELEVENLABS_API_URL")
+parler_api_url = os.getenv("PARLER_API_URL")
 
 def get_tts_url(language):
     if language in ["brx", "en", "mni"]:
@@ -39,7 +41,7 @@ def get_dhruva_output(tts_input, lang, gender):
             json=sentence_json_data,
         )
         audioBase64 = response.json()["audio"][0]["audioContent"]
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
@@ -63,7 +65,7 @@ def get_sarvam_tts_output(tts_input, lang, model, gender):
             speaker=speaker,
         )
         audioBase64 = response.audios[0]
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
@@ -92,10 +94,80 @@ def get_gemini_output(tts_input, lang, model, gender):
         response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
 
         audioBase64 = base64.b64encode(response.audio_content).decode("utf-8")
-        audio = upload_audio(audioBase64)
+        audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
         raise Exception(str(e))
+
+def get_elevenlabs_output(tts_input, lang, gender):
+    """
+    Generate TTS using ElevenLabs API
+    Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
+    API accepts either 'name' or 'gender' parameter
+    """
+    # ElevenLabs Speaker Mapping (Gender -> List of Speaker Names)
+    ELEVENLABS_GENDER_MAP = {
+        "male": ["Adam", "Bill"],
+        "female": ["Alice"]
+    }
+    try:
+        # Select random speaker based on gender
+        speaker = random.choice(ELEVENLABS_GENDER_MAP.get(gender.lower(), ELEVENLABS_GENDER_MAP["male"]))
+        
+        # API request - can use name or gender
+        params = {
+            "sentence": tts_input,
+            "name": speaker
+        }
+        
+        response = requests.get(elevenlabs_api_url, params=params)
+        response.raise_for_status()
+        
+        # Expected response: {model, filename, speaker_found, audio_base64}
+        response_data = response.json()
+        audio_base64 = response_data["audio_base64"]
+        
+        # Upload and return in standard format
+        audio = upload_tts_audio(audio_base64)
+        return audio
+        
+    except Exception as e:
+        raise Exception(f"ElevenLabs TTS error: {str(e)}")
+
+def get_parler_output(tts_input, lang, gender):
+    """
+    Generate TTS using IndicParlerTTS API
+    Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
+    API accepts either 'name' or 'gender' parameter
+    """
+    # Parler Speaker Mapping (Gender -> List of Speaker Names)
+    PARLER_GENDER_MAP = {
+        "male": ["Rohit"],
+        "female": ["Divya"]
+    }
+    try:
+        # Select random speaker based on gender
+        speaker = random.choice(PARLER_GENDER_MAP.get(gender.lower(), PARLER_GENDER_MAP["male"]))
+        
+        # API request - can use name or gender
+        params = {
+            "sentence": tts_input,
+            "name": speaker
+        }
+        
+        response = requests.get(parler_api_url, params=params)
+        response.raise_for_status()
+        
+        # Expected response: {model, filename, speaker_found, audio_base64}
+        response_data = response.json()
+        audio_base64 = response_data["audio_base64"]
+        
+        # Upload and return in standard format
+        audio = upload_tts_audio(audio_base64)
+        return audio
+        
+    except Exception as e:
+        raise Exception(f"IndicParlerTTS error: {str(e)}")
 
 def get_tts_output(tts_input, lang, model, gender="male"):
     out = ""
@@ -105,4 +177,8 @@ def get_tts_output(tts_input, lang, model, gender="male"):
         out = get_sarvam_tts_output(tts_input, lang, model, gender)
     elif model.startswith("gemini"):
         out = get_gemini_output(tts_input, lang, model, gender)
+    elif model == "elevenlabs":
+        out = get_elevenlabs_output(tts_input, lang, gender)
+    elif model == "indicparlertts":
+        out = get_parler_output(tts_input, lang, gender)
     return out

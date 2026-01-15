@@ -60,15 +60,20 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
     
     def to_representation(self, instance):
-        """Customize the output to only include session_update on first feedback."""
+        """Customize the output to include session_update when needed."""
         data = super().to_representation(instance)
         session = instance.session
+        should_include_session = False
 
         if (session.mode == 'random' or session.mode == 'academic') and session.feedbacks.count() == 1:
-            return data
-        else:
+            should_include_session = True
+        elif session.mode == 'academic' and instance.additional_feedback_json:
+            should_include_session = True
+
+        if not should_include_session:
             data.pop('session_update', None)
-            return data
+            
+        return data
     
     def validate_rating(self, value):
         if value is not None and self.initial_data.get('feedback_type') != 'rating':

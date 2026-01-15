@@ -14,6 +14,7 @@ class AIModel(models.Model):
         ('sarvam', 'Sarvam'),
         ('ibm', 'IBM'),
         ('ai4b', 'AI4Bharat'),
+        ('elevenlabs', 'ElevenLabs'),
     ]
 
     TYPE_CHOICES = [

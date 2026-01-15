@@ -140,18 +140,33 @@ class ModelCostCalculator:
         }
 
 
+
+# Models that support multimodal inputs (images, documents, audio)
+MULTIMODAL_MODELS_NAMES = [
+  'GPT 5', 'GPT 5.2', 'GPT 5 Pro', 'GPT 4o'
+]
+
 class ModelSelector:
     """Select models based on various criteria"""
+    
+    # Academic-only models that should only be used in academic mode
+    ACADEMIC_ONLY_MODELS = ['elevenlabs', 'indicparlertts']
     
     @staticmethod
     def get_random_models_for_comparison(
         exclude_ids: List[str] = None,
         category: Optional[str] = None,
         model_type: Optional[str] = None,
+        requires_multimodal: bool = False,
+        mode: Optional[str] = None,
     ) -> tuple:
         """Get two random models for comparison"""
-        
         queryset = AIModel.objects.filter(is_active=True)
+        
+        # Exclude academic-only models unless:
+        # 1. Mode is academic AND
+        if mode != 'academic':
+            queryset = queryset.exclude(model_code__in=ModelSelector.ACADEMIC_ONLY_MODELS)
         
         if category:
             queryset = queryset.filter(capabilities__contains=[category])
@@ -161,10 +176,17 @@ class ModelSelector:
 
         if model_type:
             queryset = queryset.filter(model_type=model_type)
+
+        if requires_multimodal:
+            queryset = queryset.filter(display_name__in=MULTIMODAL_MODELS_NAMES)
         
         models = list(queryset)
         
         if len(models) < 2:
+            if requires_multimodal:
+                 # If explicit multimodal required but not enough found, log a warning and fall back (soft fail) or raise error?
+                 # Raising error is safer to prevent sending image to a blind model
+                 raise ValueError("Not enough multimodal models available for comparison")
             raise ValueError("Not enough models available for comparison")
         
         return random.sample(models, 2)

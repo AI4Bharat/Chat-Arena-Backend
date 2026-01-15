@@ -54,6 +54,7 @@ google-auth==2.41.0
 google-cloud-core==2.4.3
 google-cloud-firestore==2.21.0
 google-cloud-storage==3.4.0
+google-cloud-resource-manager==1.15.0
 google-cloud-texttospeech==2.33.0
 google-crc32c==1.7.1
 google-resumable-media==2.7.2
@@ -164,3 +165,5 @@ yarl==1.20.1
 zipp==3.23.0
 zope.event==6.1
 zope.interface==8.0.1
+python-docx
+pypdf
