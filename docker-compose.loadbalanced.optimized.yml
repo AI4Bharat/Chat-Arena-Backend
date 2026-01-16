@@ -1,5 +1,3 @@
-version: '3.8'
-
 # =============================================================================
 # OPTIMIZED LOAD-BALANCED CONFIGURATION
 # Target: 16 vCPU, 64 GB RAM
@@ -228,13 +226,13 @@ services:
         reservations:
           cpus: '1.5'
           memory: 3072M
-    # Health check - longer timeout for busy workers
+    # Health check - longer timeout for Django startup
     healthcheck:
       test: ["CMD", "curl", "-f", "--max-time", "25", "http://localhost:8000/health/"]
       interval: 30s
       timeout: 30s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 180s
     # Prefer to kill this container over system processes if OOM
     oom_score_adj: 500
 
