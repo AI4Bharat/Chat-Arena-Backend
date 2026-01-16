@@ -242,6 +242,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Redis configuration - use environment variable for host to support both dev and prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 'redis' for Docker, '127.0.0.1' for local dev
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
 
 # Session configuration - using Redis for load balancing support
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
@@ -251,10 +252,13 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = True
 
 # Cache configuration
+# Redis URL format: redis://[:password]@host:port/db
+REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}' if REDIS_PASSWORD else f'redis://{REDIS_HOST}:{REDIS_PORT}'
+
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1',
+        'LOCATION': f'{REDIS_URL}/1',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'CONNECTION_POOL_KWARGS': {
@@ -319,7 +323,7 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [(REDIS_HOST, int(REDIS_PORT))],
+            "hosts": [f'{REDIS_URL}/0'],
             "capacity": 1500,  # Number of messages to store
             "expiry": 10,  # Message expiry in seconds
             "group_expiry": 86400,  # Group membership expiry (24 hours)
