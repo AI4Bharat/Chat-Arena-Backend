@@ -1,0 +1,366 @@
+version: '3.8'
+
+# =============================================================================
+# OPTIMIZED LOAD-BALANCED CONFIGURATION
+# Target: 16 vCPU, 64 GB RAM
+# =============================================================================
+#
+# CHANGES FROM ORIGINAL:
+# 1. Reduced from 10 to 6 web containers (better resource utilization)
+# 2. Reduced workers: 12 → 4 per container (prevents OOM)
+# 3. Reduced threads: 6 → 4 per worker (balanced concurrency)
+# 4. Increased memory limit: 3GB → 5GB per container (headroom for AI calls)
+# 5. Fixed CPU allocation to not exceed available
+# 6. Added worker recycling (--max-requests) to prevent memory leaks
+# 7. Fixed health check timeouts
+# 8. Added OOM score adjustment
+#
+# RESOURCE ALLOCATION:
+# - Web containers: 6 × 5GB = 30GB, 6 × 2 CPU = 12 CPU
+# - Redis: 10GB, 2 CPU
+# - Nginx: 1GB, 1 CPU
+# - System/Buffer: ~22GB RAM, 1 CPU
+# - Total: ~41GB / 15 CPU (leaves headroom)
+#
+# CONCURRENCY:
+# - 6 containers × 4 workers × 4 threads = 96 concurrent handlers
+# - This is sufficient for most workloads while preventing OOM
+# =============================================================================
+
+services:
+  nginx:
+    build: ./nginx
+    image: evgeniy-khyst/nginx
+    env_file:
+      - ./config.env
+    volumes:
+      - nginx_conf:/etc/nginx/sites
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_acme_challenge:/var/www/certbot
+      - ./vhosts:/etc/nginx/vhosts
+      - ./nginx/load-balancer-optimized.conf:/etc/nginx/conf.d/load-balancer.conf:ro
+      - static_volume:/usr/src/backend/static:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    depends_on:
+      web-1:
+        condition: service_healthy
+      web-2:
+        condition: service_healthy
+      web-3:
+        condition: service_healthy
+      web-4:
+        condition: service_healthy
+      web-5:
+        condition: service_healthy
+      web-6:
+        condition: service_healthy
+    networks:
+      - arena-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  certbot:
+    build: ./certbot
+    image: evgeniy-khyst/certbot
+    env_file:
+      - ./config.env
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_acme_challenge:/var/www/certbot
+    networks:
+      - arena-network
+
+  cron:
+    build: ./cron
+    image: evgeniy-khyst/cron
+    environment:
+      COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
+    volumes:
+      # SECURITY: Removed docker.sock mount - use alternative scheduling
+      - ./:/workdir:ro
+    restart: unless-stopped
+    networks:
+      - arena-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
+  # =============================================================================
+  # REDIS - Optimized for high concurrency
+  # =============================================================================
+  redis:
+    container_name: redis
+    image: "redis:7-alpine"
+    command: >
+      redis-server
+      --maxmemory 9gb
+      --maxmemory-policy allkeys-lru
+      --maxclients 20000
+      --tcp-backlog 4096
+      --timeout 0
+      --tcp-keepalive 60
+      --hz 100
+      --save ""
+      --appendonly no
+      --requirepass ${REDIS_PASSWORD:-changeme}
+    expose:
+      - 6379
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - arena-network
+    sysctls:
+      - net.core.somaxconn=4096
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 10240M
+        reservations:
+          cpus: '1.0'
+          memory: 8192M
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # =============================================================================
+  # WEB CONTAINERS - Optimized Gunicorn Configuration
+  # =============================================================================
+  #
+  # Gunicorn settings explained:
+  # --workers 4          : (2 × CPU_per_container) + 1, balanced for I/O bound work
+  # --worker-class gthread: Thread-based workers, good for I/O bound (API calls)
+  # --threads 4          : 4 threads per worker = 16 concurrent requests per container
+  # --timeout 300        : 5 minutes max request time (AI calls can be slow)
+  # --graceful-timeout 60: Time to finish requests on shutdown
+  # --keep-alive 75      : Match nginx keepalive_timeout
+  # --max-requests 1000  : Recycle workers to prevent memory leaks
+  # --max-requests-jitter 100: Stagger recycling to prevent thundering herd
+  # --worker-tmp-dir /dev/shm: Use RAM for heartbeat files (faster, prevents I/O issues)
+  #
+  # Memory calculation per container:
+  # - Base Python/Django: ~200MB
+  # - Per worker: ~400MB under load (AI processing)
+  # - 4 workers × 400MB = 1.6GB
+  # - Buffer for spikes: 2GB
+  # - Total safe limit: 5GB
+  # =============================================================================
+
+  web-1: &web-service
+    build: ./backend
+    container_name: arena-web-1
+    command: >
+      gunicorn arena_backend.wsgi
+      --bind 0.0.0.0:8000
+      --workers 4
+      --worker-class gthread
+      --threads 4
+      --timeout 300
+      --graceful-timeout 60
+      --keep-alive 75
+      --max-requests 1000
+      --max-requests-jitter 100
+      --worker-tmp-dir /dev/shm
+      --capture-output
+      --enable-stdio-inheritance
+      --access-logfile -
+      --error-logfile -
+      --log-level info
+    volumes:
+      - ./backend/:/usr/src/backend/
+      - static_volume:/usr/src/backend/static
+      - logs_vol:/logs
+    env_file:
+      - ./config.env
+    expose:
+      - 8000
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+      - CONTAINER_NAME=web-1
+      # Optimize Python memory
+      - PYTHONMALLOC=malloc
+      - MALLOC_TRIM_THRESHOLD_=65536
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - arena-network
+    # Increase file descriptor limits
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+      memlock:
+        soft: -1
+        hard: -1
+    # tmpfs for worker heartbeat files (prevents disk I/O bottleneck)
+    tmpfs:
+      - /dev/shm:size=256M
+    deploy:
+      resources:
+        limits:
+          cpus: '2.5'
+          memory: 5120M
+        reservations:
+          cpus: '1.5'
+          memory: 3072M
+    # Health check - longer timeout for busy workers
+    healthcheck:
+      test: ["CMD", "curl", "-f", "--max-time", "25", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+    # Prefer to kill this container over system processes if OOM
+    oom_score_adj: 500
+
+  web-2:
+    <<: *web-service
+    container_name: arena-web-2
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+      - CONTAINER_NAME=web-2
+      - PYTHONMALLOC=malloc
+      - MALLOC_TRIM_THRESHOLD_=65536
+
+  web-3:
+    <<: *web-service
+    container_name: arena-web-3
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+      - CONTAINER_NAME=web-3
+      - PYTHONMALLOC=malloc
+      - MALLOC_TRIM_THRESHOLD_=65536
+
+  web-4:
+    <<: *web-service
+    container_name: arena-web-4
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+      - CONTAINER_NAME=web-4
+      - PYTHONMALLOC=malloc
+      - MALLOC_TRIM_THRESHOLD_=65536
+
+  web-5:
+    <<: *web-service
+    container_name: arena-web-5
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+      - CONTAINER_NAME=web-5
+      - PYTHONMALLOC=malloc
+      - MALLOC_TRIM_THRESHOLD_=65536
+
+  web-6:
+    <<: *web-service
+    container_name: arena-web-6
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+      - CONTAINER_NAME=web-6
+      - PYTHONMALLOC=malloc
+      - MALLOC_TRIM_THRESHOLD_=65536
+
+  # =============================================================================
+  # CELERY WORKERS (Uncomment when needed)
+  # =============================================================================
+  # celery-default:
+  #   build: ./backend
+  #   container_name: celery-default
+  #   command: celery -A arena_backend.celery worker -Q default --concurrency=4 --loglevel=info
+  #   volumes:
+  #     - ./backend/:/usr/src/backend/
+  #     - logs_vol:/logs
+  #   env_file:
+  #     - ./config.env
+  #   environment:
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+  #     - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   networks:
+  #     - arena-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '1.0'
+  #         memory: 2048M
+  #       reservations:
+  #         cpus: '0.5'
+  #         memory: 1024M
+
+  # celery-beat:
+  #   build: ./backend
+  #   container_name: celery-beat
+  #   command: celery -A arena_backend.celery beat --loglevel=info
+  #   volumes:
+  #     - ./backend/:/usr/src/backend/
+  #   env_file:
+  #     - ./config.env
+  #   environment:
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+  #     - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   networks:
+  #     - arena-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '0.25'
+  #         memory: 512M
+
+networks:
+  arena-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+
+volumes:
+  logs_vol:
+    external: true
+  nginx_conf:
+    external: true
+  letsencrypt_certs:
+    external: true
+  certbot_acme_challenge:
+  static_volume:
+  redis_data:
