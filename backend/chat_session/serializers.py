@@ -184,6 +184,26 @@ class ChatSessionExportSerializer(serializers.Serializer):
     include_timestamps = serializers.BooleanField(default=True)
 
 
+class BranchFromMessageSerializer(serializers.Serializer):
+    """
+    Serializer for creating a new session branched from an assistant message.
+    
+    This allows users to continue a conversation from a specific assistant response
+    in a new independent session, enabling exploration of different conversation paths.
+    """
+    assistant_message_id = serializers.UUIDField(
+        required=True,
+        help_text="The ID of the assistant message to branch from"
+    )
+    new_title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255,
+        help_text="Optional title for the new branched session"
+    )
+
+
 class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
     model_a = AIModelListSerializer(read_only=True)
     model_b = AIModelListSerializer(read_only=True)

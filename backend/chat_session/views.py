@@ -12,7 +12,7 @@ from chat_session.serializers import (
     ChatSessionSerializer, ChatSessionCreateSerializer,
     ChatSessionListSerializer, ChatSessionShareSerializer,
     ChatSessionDuplicateSerializer, ChatSessionExportSerializer,
-    ChatSessionRetrieveSerializer
+    ChatSessionRetrieveSerializer, BranchFromMessageSerializer
 )
 from chat_session.services import ChatSessionService
 from chat_session.permissions import IsSessionOwner, CanAccessSharedSession
@@ -86,6 +86,8 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             return ChatSessionExportSerializer
         elif self.action == 'filtered_by_type':
             return ChatSessionListSerializer
+        elif self.action == 'branch_from_message':
+            return BranchFromMessageSerializer
         return ChatSessionSerializer
     
     def create(self, request, *args, **kwargs):
@@ -168,6 +170,71 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             ChatSessionSerializer(new_session, context={'request': request}).data,
             status=status.HTTP_201_CREATED
         )
+    
+    @action(detail=True, methods=['post'])
+    def branch_from_message(self, request, pk=None):
+        """
+        Create a new independent session branched from an assistant message.
+        
+        This allows users to continue a conversation from a specific assistant 
+        response in a new session, enabling exploration of different conversation paths.
+        
+        The new session will contain all messages up to and including the specified
+        assistant message, and the user can continue the conversation from there.
+        
+        Request body:
+            assistant_message_id (uuid): The ID of the assistant message to branch from
+            new_title (str, optional): Title for the new branched session
+            
+        Returns:
+            The newly created session with copied messages
+        """
+        session = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Get the assistant message
+        assistant_message_id = serializer.validated_data['assistant_message_id']
+        try:
+            assistant_message = Message.objects.get(id=assistant_message_id)
+        except Message.DoesNotExist:
+            return Response(
+                {'error': 'Assistant message not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate the message belongs to this session
+        if assistant_message.session_id != session.id:
+            return Response(
+                {'error': 'The specified message does not belong to this session'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate it's an assistant message
+        if assistant_message.role != 'assistant':
+            return Response(
+                {'error': 'Can only branch from assistant messages. '
+                         'To explore different questions, edit your message instead.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            new_session = ChatSessionService.create_branched_session(
+                session=session,
+                assistant_message=assistant_message,
+                user=request.user,
+                new_title=serializer.validated_data.get('new_title')
+            )
+            
+            return Response(
+                ChatSessionSerializer(new_session, context={'request': request}).data,
+                status=status.HTTP_201_CREATED
+            )
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     @action(detail=True, methods=['get'])
     def export(self, request, pk=None):
@@ -281,6 +348,8 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                     'audio_path': msg.audio_path,
                     'language': msg.language,
                     'has_detailed_feedback': msg.has_detailed_feedback,
+                    'parent_message_ids': [str(pid) for pid in msg.parent_message_ids] if msg.parent_message_ids else [],
+                    'child_ids': [str(cid) for cid in msg.child_ids] if msg.child_ids else [],
                     **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {})
                 }
                 for msg in reversed(messages)
