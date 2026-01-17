@@ -26,7 +26,7 @@ def get_tts_url(language):
     else:
         return None
 
-def get_dhruva_output(tts_input, lang, gender, context):
+def get_dhruva_output(tts_input, lang, gender, context=None):
     tts_url = get_tts_url(lang)
     sentence_json_data = {
         "input": [{'source': tts_input}],
@@ -47,7 +47,7 @@ def get_dhruva_output(tts_input, lang, gender, context):
         from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='dhruva_tts', provider='dhruva', context=context)
 
-def get_sarvam_tts_output(tts_input, lang, model, gender, context):
+def get_sarvam_tts_output(tts_input, lang, model, gender, context=None):
     client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY_BULBUL"))
     speakerV2Female = ["anushka", "vidya", "manisha", "arya"]
     speakerV2Male = ["abhilash", "karun", "hitesh"]
@@ -72,7 +72,7 @@ def get_sarvam_tts_output(tts_input, lang, model, gender, context):
         from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code=model, provider='sarvam', context=context)
 
-def get_gemini_output(tts_input, lang, model, gender, context):
+def get_gemini_output(tts_input, lang, model, gender, context=None):
     PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
     speakerMale = ["Achird", "Algenib", "Algieba", "Alnilam", "Charon", "Enceladus", "Fenrir", "Iapetus", "Orus", "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Umbriel", "Zubenelgenubi"]
     speakerFemale = ["Achernar", "Aoede", "Autonoe", "Callirrhoe", "Despina", "Erinome", "Gacrux", "Kore", "Laomedeia", "Leda", "Pulcherrima", "Sulafat", "Vindemiatrix", "Zephyr"]
@@ -102,7 +102,7 @@ def get_gemini_output(tts_input, lang, model, gender, context):
         from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code=model, provider='google', context=context)
 
-def get_elevenlabs_output(tts_input, lang, gender, context):
+def get_elevenlabs_output(tts_input, lang, gender, context=None):
     """
     Generate TTS using ElevenLabs API
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
@@ -138,7 +138,7 @@ def get_elevenlabs_output(tts_input, lang, gender, context):
         from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='elevenlabs', provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {str(e)}", context=context)
 
-def get_parler_output(tts_input, lang, gender, context):
+def get_parler_output(tts_input, lang, gender, context=None):
     """
     Generate TTS using IndicParlerTTS API
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.

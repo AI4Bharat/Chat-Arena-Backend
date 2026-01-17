@@ -3,7 +3,7 @@ from datetime import datetime
 import json
 
 
-def extract_error_details(exception, model_code, provider, context):
+def extract_error_details(exception, model_code, provider, context=None):
     """
     Extract structured error details from an exception.
     
@@ -11,7 +11,7 @@ def extract_error_details(exception, model_code, provider, context):
         exception: The caught exception
         model_code: Model identifier (e.g., 'gpt-4o', 'gemini-1.5-pro')
         provider: Provider name (e.g., 'openai', 'google', 'dhruva')
-        context: Dict with session_id, message_id, user_email
+        context: Optional dict with session_id, message_id, user_email
     
     Returns:
         dict: Structured error log entry
@@ -79,7 +79,7 @@ def log_model_error_to_gcs(error_entry):
         print(f"Failed to log model error to GCS: {e}")
 
 
-def log_and_raise(exception, model_code, provider, context, custom_message=None):
+def log_and_raise(exception, model_code, provider, context=None, custom_message=None):
     """
     Log error to GCS and re-raise with custom message.
     
@@ -87,7 +87,7 @@ def log_and_raise(exception, model_code, provider, context, custom_message=None)
         exception: The caught exception
         model_code: Model identifier
         provider: Provider name
-        context: Dict with session_id, message_id, user_email
+        context: Optional context dict
         custom_message: Optional custom error message to raise
     
     Raises:

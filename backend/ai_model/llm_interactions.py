@@ -64,7 +64,7 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
-def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None, context):
+def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None, context=None):
     client = OpenAI(
         api_key=os.getenv("GOOGLE_API_KEY"),
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -109,7 +109,7 @@ def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='google', custom_message=message, context=context)
 
-def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, context):
+def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, context=None):
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY_GPT_5")
     )
@@ -168,7 +168,7 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, 
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='openai', custom_message=message, context=context)
 
-def get_gpt4_output(system_prompt, user_prompt, history, model, context):
+def get_gpt4_output(system_prompt, user_prompt, history, model, context=None):
     if model == "GPT4":
         deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4")
     elif model == "GPT4O":
@@ -221,7 +221,7 @@ def get_gpt4_output(system_prompt, user_prompt, history, model, context):
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='openai', custom_message=message, context=context)
 
-def get_gpt3_output(system_prompt, user_prompt, history, context):
+def get_gpt3_output(system_prompt, user_prompt, history, context=None):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
 
     client = OpenAI(
@@ -268,7 +268,7 @@ def get_gpt3_output(system_prompt, user_prompt, history, context):
         # Log to GCS before raising
         log_and_raise(e, model_code='gpt-3.5-turbo', provider='openai', custom_message=message, context=context)
 
-def get_llama2_output(system_prompt, conv_history, user_prompt, context):
+def get_llama2_output(system_prompt, conv_history, user_prompt, context=None):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
     token = os.getenv("LLM_INTERACTION_LLAMA2_API_TOKEN")
     url = f"{api_base}/chat/completions"
@@ -293,7 +293,7 @@ def get_llama2_output(system_prompt, conv_history, user_prompt, context):
         from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='llama-2-70b', provider='meta', context=context)
 
-def get_sarvam_m_output(system_prompt, conv_history, user_prompt, context):
+def get_sarvam_m_output(system_prompt, conv_history, user_prompt, context=None):
     api_base = os.getenv("SARVAM_M_API_BASE")
     api_key = os.getenv("SARVAM_M_API_KEY") 
     url = f"{api_base}/chat/completions"
@@ -336,7 +336,7 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt, context):
         print(f"Full response data: {response_data}")
         log_and_raise(e, model_code='sarvam-m', provider='sarvam', custom_message=f"Sarvam API response parsing error: {e}", context=context)
 
-def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None, context):
+def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None, context=None):
     try:
         client = OpenAI(
             api_key=os.getenv("DEEPINFRA_API_KEY"),
@@ -384,7 +384,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=N
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='deepinfra', custom_message=message, context=context)
     
-def get_ibm_output(system_prompt, user_prompt, history, model, context):
+def get_ibm_output(system_prompt, user_prompt, history, model, context=None):
     history_messages = history
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
@@ -440,7 +440,7 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
         out = get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=image_url, context=context)
     return out
 
-def get_all_model_output(system_prompt, user_prompt, history, models_to_run, context):
+def get_all_model_output(system_prompt, user_prompt, history, models_to_run, context=None):
     results = {}
 
     for model in models_to_run:
