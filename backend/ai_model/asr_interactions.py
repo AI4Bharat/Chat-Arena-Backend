@@ -3,7 +3,7 @@ import requests
 from rest_framework.response import Response
 from rest_framework import status
 
-def get_dhruva_output(audio_url, lang):
+def get_dhruva_output(audio_url, lang, context=None):
     chunk_data = {
         "config": {
             "serviceId": os.getenv("DHRUVA_SERVICE_ID") if lang != "en" else os.getenv("DHRUVA_SERVICE_ID_EN"),
@@ -22,11 +22,12 @@ def get_dhruva_output(audio_url, lang):
         transcript = response.json()["output"][0]["source"]
         return transcript
     except Exception as e:
-        raise Exception(str(e))
+        from ai_model.error_logging import log_and_raise
+        log_and_raise(e, model_code='dhruva_asr', provider='dhruva', context=context)
 
 
-def get_asr_output(audio_url, lang, model="DHRUVA_ASR"):
+def get_asr_output(audio_url, lang, model="DHRUVA_ASR", context=None):
     out = ""
     # if model == "DHRUVA_ASR":
-    out = get_dhruva_output(audio_url, lang)
+    out = get_dhruva_output(audio_url, lang, context=context)
     return out

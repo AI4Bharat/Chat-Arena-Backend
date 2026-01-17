@@ -64,7 +64,7 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
-def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None):
+def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None, context=None):
     client = OpenAI(
         api_key=os.getenv("GOOGLE_API_KEY"),
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -96,6 +96,8 @@ def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None
                 yield delta.content
 
     except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -103,9 +105,11 @@ def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None
             message = "Invalid response from the LLM."
         else:
             message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
-        raise Exception(message)
+        
+        # Log to GCS before raising
+        log_and_raise(e, model_code=model, provider='google', custom_message=message, context=context)
 
-def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None):
+def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, context=None):
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY_GPT_5")
     )
@@ -151,6 +155,8 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None):
                 break
 
     except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -158,9 +164,11 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None):
             message = "Invalid response from the LLM."
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        raise Exception(message)
+        
+        # Log to GCS before raising
+        log_and_raise(e, model_code=model, provider='openai', custom_message=message, context=context)
 
-def get_gpt4_output(system_prompt, user_prompt, history, model):
+def get_gpt4_output(system_prompt, user_prompt, history, model, context=None):
     if model == "GPT4":
         deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4")
     elif model == "GPT4O":
@@ -200,6 +208,8 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
                     if content is not None:
                         yield content
     except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -207,9 +217,11 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        raise Exception(message)
+        
+        # Log to GCS before raising
+        log_and_raise(e, model_code=model, provider='openai', custom_message=message, context=context)
 
-def get_gpt3_output(system_prompt, user_prompt, history):
+def get_gpt3_output(system_prompt, user_prompt, history, context=None):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
 
     client = OpenAI(
@@ -243,6 +255,8 @@ def get_gpt3_output(system_prompt, user_prompt, history):
                         yield content
 
     except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -250,9 +264,11 @@ def get_gpt3_output(system_prompt, user_prompt, history):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        raise Exception(message)
+        
+        # Log to GCS before raising
+        log_and_raise(e, model_code='gpt-3.5-turbo', provider='openai', custom_message=message, context=context)
 
-def get_llama2_output(system_prompt, conv_history, user_prompt):
+def get_llama2_output(system_prompt, conv_history, user_prompt, context=None):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
     token = os.getenv("LLM_INTERACTION_LLAMA2_API_TOKEN")
     url = f"{api_base}/chat/completions"
@@ -270,10 +286,14 @@ def get_llama2_output(system_prompt, conv_history, user_prompt):
         "top_p": 1,
     }
     s = requests.Session()
-    result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
-    return result.json()["choices"][0]["message"]["content"].strip()
+    try:
+        result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
+        return result.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        log_and_raise(e, model_code='llama-2-70b', provider='meta', context=context)
 
-def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
+def get_sarvam_m_output(system_prompt, conv_history, user_prompt, context=None):
     api_base = os.getenv("SARVAM_M_API_BASE")
     api_key = os.getenv("SARVAM_M_API_KEY") 
     url = f"{api_base}/chat/completions"
@@ -307,14 +327,16 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         response_data = response.json()
         return response_data["choices"][0]["message"]["content"].strip()
     except requests.exceptions.RequestException as e:
+        from ai_model.error_logging import log_and_raise
         print(f"An error occurred during the API request: {e}")
-        raise
+        log_and_raise(e, model_code='sarvam-m', provider='sarvam', custom_message=f"Sarvam API request failed: {e}", context=context)
     except (KeyError, IndexError) as e:
+        from ai_model.error_logging import log_and_raise
         print(f"Error parsing the API response: {e}")
         print(f"Full response data: {response_data}")
-        raise
+        log_and_raise(e, model_code='sarvam-m', provider='sarvam', custom_message=f"Sarvam API response parsing error: {e}", context=context)
 
-def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None):
+def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None, context=None):
     try:
         client = OpenAI(
             api_key=os.getenv("DEEPINFRA_API_KEY"),
@@ -349,6 +371,8 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=N
                 yield content
 
     except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -356,9 +380,11 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=N
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        raise Exception(message)
+        
+        # Log to GCS before raising
+        log_and_raise(e, model_code=model, provider='deepinfra', custom_message=message, context=context)
     
-def get_ibm_output(system_prompt, user_prompt, history, model):
+def get_ibm_output(system_prompt, user_prompt, history, model, context=None):
     history_messages = history
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
@@ -380,6 +406,8 @@ def get_ibm_output(system_prompt, user_prompt, history, model):
                         yield content
 
     except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -387,29 +415,32 @@ def get_ibm_output(system_prompt, user_prompt, history, model):
             message = "Invalid response from the LLM"
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
-        raise Exception(message)
+        
+        # Log to GCS before raising
+        log_and_raise(e, model_code=model, provider='ibm', custom_message=message, context=context)
     
-def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None, audio_url=None):
+def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None, audio_url=None, **kwargs):
     # Assume that translation happens outside (and the prompt is already translated)
     # audio_url parameter reserved for future native audio API integration
+    context = kwargs.get('context')
     out = ""
     if model == GPT35:
-        out = get_gpt3_output(system_prompt, user_prompt, history)
+        out = get_gpt3_output(system_prompt, user_prompt, history, context=context)
     elif model.startswith("gpt"):
-        out = get_gpt5_output(system_prompt, user_prompt, history, model, image_url=image_url)
+        out = get_gpt5_output(system_prompt, user_prompt, history, model, image_url=image_url, context=context)
     elif model == LLAMA2:
-        out = get_llama2_output(system_prompt, history, user_prompt)
+        out = get_llama2_output(system_prompt, history, user_prompt, context=context)
     elif model == SARVAM_M:
-        out = get_sarvam_m_output(system_prompt, history, user_prompt)
+        out = get_sarvam_m_output(system_prompt, history, user_prompt, context=context)
     elif model.startswith("gemini"):
-        out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url)
+        out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, context=context)
     elif model.startswith("ibm"):
-        out = get_ibm_output(system_prompt, user_prompt, history, model)
+        out = get_ibm_output(system_prompt, user_prompt, history, model, context=context)
     else:
-        out = get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=image_url)
+        out = get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=image_url, context=context)
     return out
 
-def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
+def get_all_model_output(system_prompt, user_prompt, history, models_to_run, context=None):
     results = {}
 
     for model in models_to_run:
@@ -418,16 +449,16 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
             []
         )
         if model == GPT35:
-            results[model] = get_gpt3_output(system_prompt, user_prompt, model_history)
+            results[model] = get_gpt3_output(system_prompt, user_prompt, model_history, context=context)
         elif model in [GPT4, GPT4O, GPT4OMini]:
-            results[model] = get_gpt4_output(system_prompt, user_prompt, model_history, model)
+            results[model] = get_gpt4_output(system_prompt, user_prompt, model_history, model, context=context)
         elif model == "GPT5":
-            results[model] = get_gpt5_output(system_prompt, user_prompt, model_history)
+            results[model] = get_gpt5_output(system_prompt, user_prompt, model_history, context=context)
         elif model == LLAMA2:
-            results[model] = get_llama2_output(system_prompt, model_history, user_prompt)
+            results[model] = get_llama2_output(system_prompt, model_history, user_prompt, context=context)
         elif model == SARVAM_M:
-            results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt)
+            results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt, context=context)
         else:
-            results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model)
+            results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model, context=context)
 
     return results

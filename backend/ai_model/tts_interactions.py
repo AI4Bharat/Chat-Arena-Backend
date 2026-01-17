@@ -26,7 +26,7 @@ def get_tts_url(language):
     else:
         return None
 
-def get_dhruva_output(tts_input, lang, gender):
+def get_dhruva_output(tts_input, lang, gender, context=None):
     tts_url = get_tts_url(lang)
     sentence_json_data = {
         "input": [{'source': tts_input}],
@@ -44,9 +44,10 @@ def get_dhruva_output(tts_input, lang, gender):
         audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
-        raise Exception(str(e))
+        from ai_model.error_logging import log_and_raise
+        log_and_raise(e, model_code='dhruva_tts', provider='dhruva', context=context)
 
-def get_sarvam_tts_output(tts_input, lang, model, gender):
+def get_sarvam_tts_output(tts_input, lang, model, gender, context=None):
     client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY_BULBUL"))
     speakerV2Female = ["anushka", "vidya", "manisha", "arya"]
     speakerV2Male = ["abhilash", "karun", "hitesh"]
@@ -68,9 +69,10 @@ def get_sarvam_tts_output(tts_input, lang, model, gender):
         audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
-        raise Exception(str(e))
+        from ai_model.error_logging import log_and_raise
+        log_and_raise(e, model_code=model, provider='sarvam', context=context)
 
-def get_gemini_output(tts_input, lang, model, gender):
+def get_gemini_output(tts_input, lang, model, gender, context=None):
     PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
     speakerMale = ["Achird", "Algenib", "Algieba", "Alnilam", "Charon", "Enceladus", "Fenrir", "Iapetus", "Orus", "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Umbriel", "Zubenelgenubi"]
     speakerFemale = ["Achernar", "Aoede", "Autonoe", "Callirrhoe", "Despina", "Erinome", "Gacrux", "Kore", "Laomedeia", "Leda", "Pulcherrima", "Sulafat", "Vindemiatrix", "Zephyr"]
@@ -97,9 +99,10 @@ def get_gemini_output(tts_input, lang, model, gender):
         audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
-        raise Exception(str(e))
+        from ai_model.error_logging import log_and_raise
+        log_and_raise(e, model_code=model, provider='google', context=context)
 
-def get_elevenlabs_output(tts_input, lang, gender):
+def get_elevenlabs_output(tts_input, lang, gender, context=None):
     """
     Generate TTS using ElevenLabs API
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
@@ -132,9 +135,10 @@ def get_elevenlabs_output(tts_input, lang, gender):
         return audio
         
     except Exception as e:
-        raise Exception(f"ElevenLabs TTS error: {str(e)}")
+        from ai_model.error_logging import log_and_raise
+        log_and_raise(e, model_code='elevenlabs', provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {str(e)}", context=context)
 
-def get_parler_output(tts_input, lang, gender):
+def get_parler_output(tts_input, lang, gender, context=None):
     """
     Generate TTS using IndicParlerTTS API
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
@@ -167,18 +171,20 @@ def get_parler_output(tts_input, lang, gender):
         return audio
         
     except Exception as e:
-        raise Exception(f"IndicParlerTTS error: {str(e)}")
+        from ai_model.error_logging import log_and_raise
+        log_and_raise(e, model_code='indicparlertts', provider='ai4bharat', custom_message=f"IndicParlerTTS error: {str(e)}", context=context)
 
-def get_tts_output(tts_input, lang, model, gender="male"):
+def get_tts_output(tts_input, lang, model, gender="male", **kwargs):
+    context = kwargs.get('context')
     out = ""
     if model == "ai4bharat_tts":
-        out = get_dhruva_output(tts_input, lang, gender)
+        out = get_dhruva_output(tts_input, lang, gender, context=context)
     elif model.startswith("bulbul"):
-        out = get_sarvam_tts_output(tts_input, lang, model, gender)
+        out = get_sarvam_tts_output(tts_input, lang, model, gender, context=context)
     elif model.startswith("gemini"):
-        out = get_gemini_output(tts_input, lang, model, gender)
+        out = get_gemini_output(tts_input, lang, model, gender, context=context)
     elif model == "elevenlabs":
-        out = get_elevenlabs_output(tts_input, lang, gender)
+        out = get_elevenlabs_output(tts_input, lang, gender, context=context)
     elif model == "indicparlertts":
-        out = get_parler_output(tts_input, lang, gender)
+        out = get_parler_output(tts_input, lang, gender, context=context)
     return out
