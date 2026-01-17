@@ -3,7 +3,7 @@ from datetime import datetime
 import json
 
 
-def extract_error_details(exception, model_code, provider, context=None):
+def extract_error_details(exception, model_code, provider, log_context=None):
     """
     Extract structured error details from an exception.
     
@@ -11,12 +11,12 @@ def extract_error_details(exception, model_code, provider, context=None):
         exception: The caught exception
         model_code: Model identifier (e.g., 'gpt-4o', 'gemini-1.5-pro')
         provider: Provider name (e.g., 'openai', 'google', 'dhruva')
-        context: Optional dict with session_id, message_id, user_email
+        log_context: Optional dict with session_id, message_id, user_email
     
     Returns:
         dict: Structured error log entry
     """
-    context = context or {}
+    log_context = log_context or {}
     
     error_entry = {
         'error_type': 'model_error',
@@ -24,9 +24,9 @@ def extract_error_details(exception, model_code, provider, context=None):
         'provider': provider,
         'timestamp': datetime.utcnow().isoformat() + 'Z',
         'error_message': str(exception),
-        'session_id': context.get('session_id'),
-        'message_id': context.get('message_id'),
-        'user_email': context.get('user_email'),
+        'session_id': log_context.get('session_id'),
+        'message_id': log_context.get('message_id'),
+        'user_email': log_context.get('user_email'),
     }
     
     # Extract HTTP response details if available
@@ -79,7 +79,7 @@ def log_model_error_to_gcs(error_entry):
         print(f"Failed to log model error to GCS: {e}")
 
 
-def log_and_raise(exception, model_code, provider, context=None, custom_message=None):
+def log_and_raise(exception, model_code, provider, log_context=None, custom_message=None):
     """
     Log error to GCS and re-raise with custom message.
     
@@ -87,14 +87,14 @@ def log_and_raise(exception, model_code, provider, context=None, custom_message=
         exception: The caught exception
         model_code: Model identifier
         provider: Provider name
-        context: Optional context dict
+        log_context: Optional context dict
         custom_message: Optional custom error message to raise
     
     Raises:
         Exception: Re-raises with custom or original message
     """
     # Extract and log error details
-    error_details = extract_error_details(exception, model_code, provider, context)
+    error_details = extract_error_details(exception, model_code, provider, log_context)
     
     try:
         log_model_error_to_gcs(error_details)
