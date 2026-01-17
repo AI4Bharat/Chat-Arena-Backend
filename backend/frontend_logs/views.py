@@ -41,6 +41,7 @@ class FrontendErrorLogView(views.APIView):
             'request_body': data.get('request_body'),
             'response_body': data.get('response_body'),
             'tenant': data.get('tenant'),
+            'domain': data.get('domain') or request.get_host(),
             'client': data.get('client'),
             'received_at': datetime.utcnow().isoformat() + 'Z',
         }
