@@ -222,7 +222,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                             if 'audio_transcription' not in user_message.metadata:
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
-                                transcription = get_asr_output(audio_url, language)
+                                context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                transcription = get_asr_output(audio_url, language, context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -239,6 +240,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         history=history,
                         model=session.model_a.model_code,
                         image_url=image_url,
+                        context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -308,7 +310,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 if 'audio_transcription' not in user_message.metadata:
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
-                                    transcription = get_asr_output(audio_url, language)
+                                    context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                    transcription = get_asr_output(audio_url, language, context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -325,6 +328,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             history=history,
                             model=session.model_a.model_code,
                             image_url=image_url,
+                            context={'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
                                 chunks_a.append(chunk)
@@ -395,7 +399,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 if 'audio_transcription' not in user_message.metadata:
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
-                                    transcription = get_asr_output(audio_url, language)
+                                    context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                    transcription = get_asr_output(audio_url, language, context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -415,6 +420,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             history=history,
                             model=session.model_b.model_code,
                             image_url=image_url,
+                            context={'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
                                 chunks_b.append(chunk)
@@ -468,7 +474,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
 
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code)
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output}"\n'
                     
@@ -492,7 +499,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
-                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
                         chunk_queue.put(('a', f'a0:"{output_a}"\n'))
                         
                         assistant_message_a.content = output_a
@@ -516,7 +524,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
-                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code, context=context)
                         chunk_queue.put(('b', f'b0:"{output_b}"\n'))
                         
                         assistant_message_b.content = output_b
@@ -583,7 +592,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
 
-                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender)
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, context=context)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output["url"]}"\n'
                     
@@ -607,7 +617,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
-                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, context=context)
                         chunk_queue.put(('a', f'a0:"{output_a["url"]}"\n'))
                         
                         assistant_message_a.audio_path = output_a["path"]
@@ -631,7 +642,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
-                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code, gender=gender)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code, gender=gender, context=context)
                         chunk_queue.put(('b', f'b0:"{output_b["url"]}"\n'))
                         
                         assistant_message_b.audio_path = output_b["path"]
@@ -762,7 +774,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                             if 'audio_transcription' not in user_message.metadata:
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
-                                transcription = get_asr_output(audio_url, language)
+                                context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                transcription = get_asr_output(audio_url, language, context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -779,6 +792,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         history=history,
                         model=model.model_code,
                         image_url=image_url,
+                        context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -807,7 +821,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     participant = 'a'
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code)
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code, context=context)
                     yield f'{participant}0:"{output}"\n'
                     
                     assistant_message.content = output
@@ -829,7 +844,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                     participant = 'a'
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
-                    output = get_tts_output(user_message.content, user_message.language, model=model.model_code)
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_tts_output(user_message.content, user_message.language, model=model.model_code, context=context)
                     yield f'{participant}0:"{output["url"]}"\n'
                     
                     assistant_message.audio_path = output["path"]
