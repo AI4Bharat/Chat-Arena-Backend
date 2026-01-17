@@ -214,7 +214,8 @@ class UserStatsView(views.APIView):
             'member_since': user.created_at,
             'feedback_given': user.feedbacks.count(),
             'session_breakdown': self._get_session_breakdown(user),
-            'detailed_votes_count': self._get_detailed_votes_count(user)
+            'detailed_votes_count': self._get_detailed_votes_count(user),
+            'llm_random_votes_count': self._get_llm_random_votes_count(user)
         }
         
         return Response(stats)
@@ -284,3 +285,16 @@ class UserStatsView(views.APIView):
         ).count()
         
         return detailed_votes
+    
+    def _get_llm_random_votes_count(self, user):
+        """Get count of votes submitted in LLM Random mode"""
+        from feedback.models import Feedback
+        
+        # Count all feedbacks in random mode LLM sessions
+        llm_random_votes = Feedback.objects.filter(
+            user=user,
+            session__mode='random',
+            session__session_type='LLM'
+        ).count()
+        
+        return llm_random_votes
