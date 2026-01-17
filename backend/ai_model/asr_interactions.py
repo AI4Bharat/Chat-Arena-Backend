@@ -3,7 +3,7 @@ import requests
 from rest_framework.response import Response
 from rest_framework import status
 
-def get_dhruva_output(audio_url, lang, context=None):
+def get_dhruva_output(audio_url, lang, context):
     chunk_data = {
         "config": {
             "serviceId": os.getenv("DHRUVA_SERVICE_ID") if lang != "en" else os.getenv("DHRUVA_SERVICE_ID_EN"),
@@ -26,7 +26,7 @@ def get_dhruva_output(audio_url, lang, context=None):
         log_and_raise(e, model_code='dhruva_asr', provider='dhruva', context=context)
 
 
-def get_asr_output(audio_url, lang, model="DHRUVA_ASR", context=None):
+def get_asr_output(audio_url, lang, model="DHRUVA_ASR", context):
     out = ""
     # if model == "DHRUVA_ASR":
     out = get_dhruva_output(audio_url, lang, context=context)
