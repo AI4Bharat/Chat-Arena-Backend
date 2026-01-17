@@ -32,7 +32,8 @@ services:
     environment:
       COMPOSE_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      # SECURITY FIX: Removed /var/run/docker.sock mount - was a container escape risk
+      # Use alternative scheduling mechanism or restricted Docker API proxy
       - ./:/workdir:ro
     restart: unless-stopped
     
@@ -49,9 +50,15 @@ services:
       - redis
   redis:
     container_name: redis
-    image: "redis"
-    ports:
-      - 6379:6379
+    image: "redis:7-alpine"
+    # SECURITY FIX: Added password authentication and internal-only exposure
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme}
+    expose:
+      - 6379
+    # Removed external port mapping for security - use 'expose' for internal access only
+    # If external access needed, uncomment below (not recommended for production):
+    # ports:
+    #   - 6379:6379
   
   # celery:
   #   container_name: celery-default
