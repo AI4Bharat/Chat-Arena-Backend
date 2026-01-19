@@ -10,7 +10,7 @@ import asyncio
 from message.models import Message
 from message.serializers import (
     MessageSerializer, MessageCreateSerializer, MessageStreamSerializer,
-    MessageTreeSerializer, MessageBranchSerializer, MessageRegenerateSerializer
+    MessageTreeSerializer, MessageRegenerateSerializer
 )
 from message.services import MessageService, MessageComparisonService
 from message.streaming import StreamingManager
@@ -53,8 +53,6 @@ class MessageViewSet(viewsets.ModelViewSet):
             return MessageStreamSerializer
         elif self.action == 'tree':
             return MessageTreeSerializer
-        elif self.action == 'branch':
-            return MessageBranchSerializer
         elif self.action == 'regenerate':
             return MessageRegenerateSerializer
         return MessageSerializer
@@ -899,22 +897,162 @@ class MessageViewSet(viewsets.ModelViewSet):
         return Response(tree)
     
     @action(detail=True, methods=['post'])
-    def branch(self, request, pk=None):
-        """Create a branch from this message"""
-        parent_message = self.get_object()
-        serializer = MessageBranchSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def generate_response(self, request, pk=None):
+        """Generate AI response for an existing user message (e.g., after branch creation)
         
-        branch_message = MessageService.create_branch(
-            parent_message=parent_message,
-            content=serializer.validated_data['content'],
-            branch_type=serializer.validated_data.get('branch_type', 'alternative')
-        )
+        This endpoint creates an assistant message and streams the AI response for
+        a user message that already exists in the database.
+        """
+        user_message = self.get_object()
         
-        return Response(
-            MessageSerializer(branch_message).data,
-            status=status.HTTP_201_CREATED
+        # Validate this is a user message
+        if user_message.role != 'user':
+            return Response(
+                {'error': 'Can only generate response for user messages'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if this message already has an AI response
+        if user_message.child_ids and len(user_message.child_ids) > 0:
+            existing_response = Message.objects.filter(
+                id__in=user_message.child_ids,
+                role='assistant'
+            ).first()
+            if existing_response:
+                return Response(
+                    {'error': 'This message already has an AI response', 'existing_response_id': str(existing_response.id)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        session = user_message.session
+        
+        # Only support direct mode for now
+        if session.mode != 'direct':
+            return Response(
+                {'error': 'Generate response is only supported in direct chat mode'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create assistant message placeholder
+        with transaction.atomic():
+            last_message = Message.objects.filter(
+                session=session
+            ).order_by('-position').first()
+            position = (last_message.position + 1) if last_message else 0
+            
+            assistant_message = Message.objects.create(
+                id=uuid.uuid4(),
+                session=session,
+                role='assistant',
+                content='',
+                parent_message_ids=[user_message.id],
+                position=position,
+                model=session.model_a,
+                status='streaming',
+            )
+            
+            # Update user message's child_ids
+            if user_message.child_ids is None:
+                user_message.child_ids = []
+            user_message.child_ids.append(assistant_message.id)
+            user_message.save(update_fields=['child_ids'])
+        
+        def generate():
+            db_alias = session._state.db
+            
+            # First, send the message ID so the frontend knows the real ID
+            message_info = {
+                "messageId": str(assistant_message.id),
+                "parentMessageIds": [str(user_message.id)]
+            }
+            yield f'am:{json.dumps(message_info)}\n'
+            
+            try:
+                history = MessageService._get_conversation_history(session)
+                # Remove the current user message from history to avoid duplication
+                if history and len(history) > 0:
+                    history = [h for h in history if h.get('content') != user_message.content]
+                
+                chunks = []
+                
+                # Generate signed URL for image if present
+                image_url = None
+                if hasattr(user_message, 'image_path') and user_message.image_path:
+                    image_url = generate_signed_url(user_message.image_path, 900)
+                
+                prompt_content = user_message.content
+                
+                # Document logic
+                if hasattr(user_message, 'doc_path') and user_message.doc_path:
+                    try:
+                        if not user_message.metadata:
+                            user_message.metadata = {}
+                        
+                        if 'extracted_text' not in user_message.metadata:
+                            from message.document_utils import extract_text_from_document
+                            doc_text = extract_text_from_document(user_message.doc_path)
+                            if doc_text:
+                                user_message.metadata['extracted_text'] = doc_text
+                                user_message.save(update_fields=['metadata'])
+                        
+                        doc_text = user_message.metadata.get('extracted_text')
+                        if doc_text:
+                            prompt_content += f"\n\n[Attached Document Content]:\n{doc_text}"
+                    except Exception as e:
+                        print(f"Error processing document: {e}")
+                
+                # Audio transcription logic
+                if hasattr(user_message, 'audio_path') and user_message.audio_path:
+                    try:
+                        if not user_message.metadata:
+                            user_message.metadata = {}
+                        
+                        if 'audio_transcription' not in user_message.metadata:
+                            language = getattr(user_message, 'language', None) or 'en'
+                            audio_url = generate_signed_url(user_message.audio_path, 120)
+                            transcription = get_asr_output(audio_url, language)
+                            user_message.metadata['audio_transcription'] = transcription
+                            user_message.save(update_fields=['metadata'])
+                        
+                        audio_transcription = user_message.metadata.get('audio_transcription')
+                        if audio_transcription:
+                            prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
+                    except Exception as e:
+                        print(f"Error processing audio: {e}")
+                
+                for chunk in get_model_output(
+                    system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
+                    user_prompt=prompt_content,
+                    history=history,
+                    model=session.model_a.model_code,
+                    image_url=image_url,
+                ):
+                    if chunk:
+                        chunks.append(chunk)
+                        escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
+                        yield f'a0:"{escaped_chunk}"\n'
+                
+                assistant_message.content = "".join(chunks)
+                assistant_message.status = 'success'
+                assistant_message.save(using=db_alias)
+                
+                yield 'ad:{"finishReason":"stop"}\n'
+            except Exception as e:
+                assistant_message.status = 'error'
+                assistant_message.save(using=db_alias)
+                error_payload = {
+                    "finishReason": "error",
+                    "error": str(e),
+                }
+                yield f"ad:{json.dumps(error_payload)}\n"
+        
+        response = StreamingHttpResponse(
+            generate(),
+            content_type='text/event-stream'
         )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
     
     # @action(detail=True, methods=['post'])
     # def regenerate(self, request, pk=None):
