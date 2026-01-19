@@ -40,8 +40,17 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def me(self, request):
         """Get current user profile"""
-        serializer = self.get_serializer(request.user)
-        return Response(serializer.data)
+        try:
+            serializer = self.get_serializer(request.user)
+            return Response(serializer.data)
+        except Exception as e:
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request)
+            return log_and_respond(
+                e,
+                endpoint='/users/me/',
+                log_context=log_context
+            )
     
     @action(detail=False, methods=['patch'])
     def update_preferences(self, request):
@@ -200,25 +209,34 @@ class UserStatsView(views.APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        user = request.user
-        
-        # Get user stats
-        stats = {
-            'total_sessions': user.chat_sessions.count(),
-            'total_messages': Message.objects.filter(
-                session__user=user,
-                role='user'
-            ).count(),
-            'favorite_models': self._get_favorite_models(user),
-            'activity_streak': self._calculate_activity_streak(user),
-            'member_since': user.created_at,
-            'feedback_given': user.feedbacks.count(),
-            'session_breakdown': self._get_session_breakdown(user),
-            'detailed_votes_count': self._get_detailed_votes_count(user),
-            'llm_random_votes_count': self._get_llm_random_votes_count(user)
-        }
-        
-        return Response(stats)
+        try:
+            user = request.user
+            
+            # Get user stats
+            stats = {
+                'total_sessions': user.chat_sessions.count(),
+                'total_messages': Message.objects.filter(
+                    session__user=user,
+                    role='user'
+                ).count(),
+                'favorite_models': self._get_favorite_models(user),
+                'activity_streak': self._calculate_activity_streak(user),
+                'member_since': user.created_at,
+                'feedback_given': user.feedbacks.count(),
+                'session_breakdown': self._get_session_breakdown(user),
+                'detailed_votes_count': self._get_detailed_votes_count(user),
+                'llm_random_votes_count': self._get_llm_random_votes_count(user)
+            }
+            
+            return Response(stats)
+        except Exception as e:
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request)
+            return log_and_respond(
+                e,
+                endpoint='/users/stats/',
+                log_context=log_context
+            )
     
     def _get_favorite_models(self, user):
         """Get user's most used models"""
