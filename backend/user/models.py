@@ -6,11 +6,13 @@ from datetime import timedelta
 class User(models.Model):
     AUTH_PROVIDER_CHOICES = [
         ('google', 'Google'),
+        ('phone', 'Phone'),
         ('anonymous', 'Anonymous')
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True, null=True, blank=True)
+    phone_number = models.CharField(max_length=20, unique=True, null=True, blank=True)
     display_name = models.CharField(max_length=255)
     auth_provider = models.CharField(max_length=50, choices=AUTH_PROVIDER_CHOICES)
     firebase_uid = models.CharField(max_length=255, unique=True, null=True, blank=True)
@@ -26,6 +28,7 @@ class User(models.Model):
         db_table = 'users'
         indexes = [
             models.Index(fields=['email']),
+            models.Index(fields=['phone_number']),
             models.Index(fields=['firebase_uid']),
             models.Index(fields=['is_anonymous', 'anonymous_expires_at']),
         ]

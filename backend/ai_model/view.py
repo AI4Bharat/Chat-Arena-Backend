@@ -82,18 +82,29 @@ class AIModelViewSet(viewsets.ModelViewSet):
         """
         Returns models filtered by model_type
         """
-        model_type = request.query_params.get('model_type')
-        mode = request.query_params.get('mode')
-        qs = self.get_queryset()
+        try:
+            model_type = request.query_params.get('model_type')
+            mode = request.query_params.get('mode')
+            qs = self.get_queryset()
 
-        if model_type:
-            qs = qs.filter(model_type=model_type)
-        
-        if mode != 'academic':
-            qs = qs.exclude(model_code__in=['elevenlabs', 'indicparlertts'])
+            if model_type:
+                qs = qs.filter(model_type=model_type)
+            
+            if mode != 'academic':
+                qs = qs.exclude(model_code__in=['elevenlabs', 'indicparlertts'])
 
-        serializer = self.get_serializer(qs, many=True)
-        return Response(serializer.data)
+            serializer = self.get_serializer(qs, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request)
+            log_context['model_type'] = model_type if 'model_type' in locals() else None
+            log_context['mode'] = mode if 'mode' in locals() else None
+            return log_and_respond(
+                e,
+                endpoint='/models/type/',
+                log_context=log_context
+            )
 
     @action(detail=False, methods=['get'])
     def providers(self, request):
