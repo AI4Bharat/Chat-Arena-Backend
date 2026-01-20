@@ -1,5 +1,6 @@
 from django.db import models
 import uuid
+from ai_model.models import AIModel
 
 
 class AcademicPrompt(models.Model):
@@ -13,6 +14,8 @@ class AcademicPrompt(models.Model):
         max_length=10,
         help_text="Language code (e.g., 'en', 'hi', 'mr')"
     )
+    model_a = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='academic_prompts_model_a', null=True, blank=True)
+    model_b = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='academic_prompts_model_b', null=True, blank=True)
     usage_count = models.IntegerField(
         default=0,
         help_text="Number of times this prompt has been used"
