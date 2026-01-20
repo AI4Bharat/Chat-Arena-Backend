@@ -31,7 +31,7 @@ SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['http://127.0.0.1:3000','34.131.31.84', '98.70.28.77', '35.200.149.142', 'localhost', '127.0.0.1', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.co', 'https://backend.dev.arena.ai4bharat.co', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org', 'https://backend.arena.ai4bharat.co', 'backend.arena.ai4bharat.co']
+ALLOWED_HOSTS = ['34.131.31.84','localhost', '98.70.28.77', '35.200.149.142', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.co', 'https://backend.dev.arena.ai4bharat.co', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org', 'https://backend.arena.ai4bharat.co', 'backend.arena.ai4bharat.co']
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
@@ -147,8 +147,6 @@ REST_FRAMEWORK = {
 }
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React dev server
-    "http://127.0.0.1:3000",
     "https://ai4bharat.github.io",
     "https://dev.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
