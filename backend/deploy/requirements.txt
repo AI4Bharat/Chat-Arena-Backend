@@ -3,6 +3,7 @@ aiohttp==3.12.15
 aiosignal==1.4.0
 amqp==5.3.1
 annotated-types==0.7.0
+anthropic==0.76.0
 anyio==4.11.0
 asgiref==3.9.2
 attrs==25.3.0
@@ -35,6 +36,7 @@ django-filter==25.1
 django-redis==6.0.0
 djangorestframework==3.16.1
 djangorestframework-simplejwt==5.2.2
+docstring_parser==0.17.0
 dotenv==0.9.9
 drf-yasg==1.21.11
 fastuuid==0.14.0
