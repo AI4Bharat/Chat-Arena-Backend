@@ -424,6 +424,8 @@ def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=N
     client = anthropic.Anthropic(
         api_key=os.getenv("ANTHROPIC_API_KEY")
     )
+    enable_thinking = model.endswith("-thinking")
+    api_model = model.replace("-thinking", "") if enable_thinking else model
 
     messages = []
     messages.extend(history)
@@ -444,14 +446,37 @@ def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=N
         messages.append({"role": "user", "content": user_prompt})
 
     try:
-        with client.messages.stream(
-            model=model,
-            max_tokens=2048,
-            system=system_prompt,
-            messages=messages,
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
+        stream_params = {
+            "model": api_model,
+            "system": system_prompt,
+            "messages": messages,
+        }
+
+        if enable_thinking:
+            stream_params["max_tokens"] = 16384
+            stream_params["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": 8192
+            }
+        else:
+            stream_params["max_tokens"] = 8192
+
+        with client.messages.stream(**stream_params) as stream:
+            in_thinking_block = False
+            for event in stream:
+                if event.type == "content_block_start":
+                    if hasattr(event.content_block, 'type') and event.content_block.type == "thinking":
+                        in_thinking_block = True
+                        yield "<think>"
+                elif event.type == "content_block_stop":
+                    if in_thinking_block:
+                        yield "</think>"
+                        in_thinking_block = False
+                elif event.type == "content_block_delta":
+                    if hasattr(event.delta, 'thinking'):
+                        yield event.delta.thinking
+                    elif hasattr(event.delta, 'text'):
+                        yield event.delta.text
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
