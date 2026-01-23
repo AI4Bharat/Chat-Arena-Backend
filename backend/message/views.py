@@ -586,22 +586,33 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_b.join()
 
         def generate_tts_output():
-            # For academic mode, get random prompt from database
+            # For academic mode, get prompt from database with pre-defined model pairs
             if session.mode == 'academic':
                 language = user_message.language
 
                 # Get least used prompt for uniform distribution
-                prompts = AcademicPrompt.objects.filter(language=language, is_active=True)
+                prompts = AcademicPrompt.objects.filter(
+                    language=language,
+                    is_active=True,
+                    model_a__isnull=False,
+                    model_b__isnull=False
+                )
                 if prompts.exists():
                     min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
                     least_used_prompts = prompts.filter(usage_count=min_usage_count)
                     selected_prompt = random.choice(list(least_used_prompts))
 
-                    # Update user message with the selected prompt
-                    user_message.content = selected_prompt.text
-                    user_message.save(update_fields=['content'])
+                    # Update session's model_a and model_b from the selected prompt
+                    session.model_a = selected_prompt.model_a
+                    session.model_b = selected_prompt.model_b
+                    session.save(update_fields=['model_a', 'model_b'])
 
-                    selected_prompt.increment_usage()
+                    # Update user message with the selected prompt and store prompt ID in metadata
+                    user_message.content = selected_prompt.text
+                    if not user_message.metadata:
+                        user_message.metadata = {}
+                    user_message.metadata['academic_prompt_id'] = str(selected_prompt.id)
+                    user_message.save(update_fields=['content', 'metadata'])
                     escaped_prompt = selected_prompt.text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                     yield f'prompt:"{escaped_prompt}"\n'
 
