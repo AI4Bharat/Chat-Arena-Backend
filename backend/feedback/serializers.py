@@ -7,6 +7,7 @@ from message.models import Message
 from ai_model.serializers import AIModelListSerializer
 from feedback.services import FeedbackAnalyticsService
 from chat_session.serializers import ChatSessionSerializer
+from academic_prompts.models import AcademicPrompt
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
@@ -193,6 +194,16 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
             if validated_data.get('additional_feedback_json'):
                 userMessage.has_detailed_feedback = True
                 userMessage.save()
+                
+                # For academic mode, increment the academic prompt's usage count on detailed feedback
+                if session.mode == 'academic' and userMessage.metadata:
+                    academic_prompt_id = userMessage.metadata.get('academic_prompt_id')
+                    if academic_prompt_id:
+                        try:
+                            academic_prompt = AcademicPrompt.objects.get(id=academic_prompt_id)
+                            academic_prompt.increment_usage()
+                        except AcademicPrompt.DoesNotExist:
+                            pass
 
         # Trigger analytics update
         # FeedbackAnalyticsService.process_new_feedback(feedback)
