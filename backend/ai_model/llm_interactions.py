@@ -42,6 +42,7 @@ import os
 
 import re
 from openai import OpenAI
+import anthropic
 import requests
 from rest_framework import status
 from rest_framework.response import Response
@@ -418,6 +419,78 @@ def get_ibm_output(system_prompt, user_prompt, history, model, log_context=None)
         
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='ibm', custom_message=message, log_context=log_context)
+
+def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
+    client = anthropic.Anthropic(
+        api_key=os.getenv("ANTHROPIC_API_KEY")
+    )
+    enable_thinking = model.endswith("-thinking")
+    api_model = model.replace("-thinking", "") if enable_thinking else model
+
+    messages = []
+    messages.extend(history)
+
+    if image_url:
+        user_content = [
+            {"type": "text", "text": user_prompt},
+            {
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "url": image_url
+                }
+            }
+        ]
+        messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        stream_params = {
+            "model": api_model,
+            "system": system_prompt,
+            "messages": messages,
+        }
+
+        if enable_thinking:
+            stream_params["max_tokens"] = 16384
+            stream_params["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": 8192
+            }
+        else:
+            stream_params["max_tokens"] = 8192
+
+        with client.messages.stream(**stream_params) as stream:
+            in_thinking_block = False
+            for event in stream:
+                if event.type == "content_block_start":
+                    if hasattr(event.content_block, 'type') and event.content_block.type == "thinking":
+                        in_thinking_block = True
+                        yield "<think>"
+                elif event.type == "content_block_stop":
+                    if in_thinking_block:
+                        yield "</think>"
+                        in_thinking_block = False
+                elif event.type == "content_block_delta":
+                    if hasattr(event.delta, 'thinking'):
+                        yield event.delta.thinking
+                    elif hasattr(event.delta, 'text'):
+                        yield event.delta.text
+
+    except Exception as e:
+        from ai_model.error_logging import log_and_raise
+
+        err_msg = str(e)
+        if "invalid_request_error" in err_msg.lower():
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+        else:
+            message = f"An error occurred while interacting with Anthropic LLM: {err_msg}"
+
+        # Log to GCS before raising
+        log_and_raise(e, model_code=model, provider='anthropic', custom_message=message, log_context=log_context)
     
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None, audio_url=None, **kwargs):
     # Assume that translation happens outside (and the prompt is already translated)
@@ -436,6 +509,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
         out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     elif model.startswith("ibm"):
         out = get_ibm_output(system_prompt, user_prompt, history, model, log_context=log_context)
+    elif model.startswith("claude"):
+        out = get_anthropic_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     return out

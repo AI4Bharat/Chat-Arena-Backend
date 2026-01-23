@@ -17,6 +17,7 @@ class Leaderboard(models.Model):
     ]
 
     LANGUAGE_CHOICES = [
+        ("Overall", "Overall"),
         ("English", "English"),
         ("Assamese", "Assamese"),
         ("Bengali", "Bengali"),
