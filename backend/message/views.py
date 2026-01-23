@@ -1,3 +1,4 @@
+import time
 from ai_model.llm_interactions import get_model_output
 from ai_model.asr_interactions import get_asr_output
 from ai_model.tts_interactions import get_tts_output
@@ -233,7 +234,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
                         except Exception as e:
                             print(f"Error processing audio: {e}")
-                    
+
+                    start_time = time.time()
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                         user_prompt=prompt_content,
@@ -249,11 +251,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2) if 'start_time' in locals() else None
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -265,6 +269,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         
                 def stream_model_a():
                     chunks_a = []
+                    start_time_a = time.time()
                     try:
                         history = MessageService._get_conversation_history(session, 'a')
                         # Remove the last message from history to avoid duplication
@@ -337,12 +342,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_a.content = "".join(chunks_a)
                         assistant_message_a.status = 'success'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -354,6 +361,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
                 def stream_model_b():
                     chunks_b = []
+                    start_time_b = time.time()
                     try:
                         history = MessageService._get_conversation_history(session, 'b')
                         # Remove the last message from history to avoid duplication
@@ -429,12 +437,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_b.content = "".join(chunks_b)
                         assistant_message_b.status = 'success'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -470,6 +480,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             db_alias = session._state.db
             
             if session.mode == 'direct':
+                start_time = time.time()
                 try:
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
@@ -481,11 +492,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = output
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -496,6 +509,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 chunk_queue = queue.Queue()
         
                 def stream_model_a():
+                    start_time_a = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
@@ -505,12 +519,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_a.content = output_a
                         assistant_message_a.status = 'success'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -521,6 +537,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
+                    start_time_b = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
@@ -530,12 +547,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_b.content = output_b
                         assistant_message_b.status = 'success'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -588,6 +607,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
             gender = random.choice(["male", "female"])
             if session.mode == 'direct':
+                start_time = time.time()
                 try:
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
@@ -599,11 +619,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.audio_path = output["path"]
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",
@@ -614,6 +636,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 chunk_queue = queue.Queue()
         
                 def stream_model_a():
+                    start_time_a = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
@@ -623,12 +646,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_a.audio_path = output_a["path"]
                         assistant_message_a.status = 'success'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save()
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save()
                         error_payload = {
                             "finishReason": "error",
@@ -639,6 +664,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
+                    start_time_b = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
@@ -648,12 +674,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_b.audio_path = output_b["path"]
                         assistant_message_b.status = 'success'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save()
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save()
                         error_payload = {
                             "finishReason": "error",
@@ -726,8 +754,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                 history = MessageService._get_conversation_history(session, participant)
                 if participant == None:
                     participant = 'a'
-                
-                try:                
+
+                start_time = time.time()
+                try:
                     if history and history[-1]['role'] == 'assistant':
                         history.pop()
                     if history and history[-1]['role'] == 'user':
@@ -801,10 +830,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -819,6 +850,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 participant = assistant_message.participant
                 if participant == None:
                     participant = 'a'
+                start_time = time.time()
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
@@ -827,10 +859,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = output
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -842,6 +876,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 participant = assistant_message.participant
                 if participant == None:
                     participant = 'a'
+                start_time = time.time()
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
@@ -850,10 +885,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.audio_path = output["path"]
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",

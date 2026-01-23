@@ -73,7 +73,8 @@ class Message(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
     language = models.CharField(max_length=100, null=True, blank=True)
-    
+    latency_ms = models.FloatField(null=True, blank=True, help_text="Model response latency in milliseconds for Assistant messages")
+
     class Meta:
         db_table = 'messages'
         ordering = ['session', 'position']
