@@ -8,6 +8,10 @@ from django.http import HttpResponse, Http404
 from django.db.models import Count, Prefetch, Q
 from message.models import Message
 from chat_session.models import ChatSession
+from feedback.models import Feedback
+
+# Maximum number of detailed votes allowed in TTS Academic mode
+MAX_ACADEMIC_TTS_VOTES = 140
 from chat_session.serializers import (
     ChatSessionSerializer, ChatSessionCreateSerializer,
     ChatSessionListSerializer, ChatSessionShareSerializer,
@@ -88,10 +92,38 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             return ChatSessionListSerializer
         return ChatSessionSerializer
     
+    def _get_academic_tts_votes_count(self, user):
+        """Get count of detailed votes submitted in TTS Academic mode"""
+        return Feedback.objects.filter(
+            user=user,
+            session__mode='academic',
+            session__session_type='TTS',
+            additional_feedback_json__isnull=False
+        ).exclude(
+            additional_feedback_json={}
+        ).count()
+
     def create(self, request, *args, **kwargs):
         try:
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
+
+            mode = serializer.validated_data['mode']
+            session_type = serializer.validated_data.get('session_type')
+
+            if mode == 'academic' and session_type == 'TTS':
+                if not request.user.is_anonymous:
+                    votes_count = self._get_academic_tts_votes_count(request.user)
+                    if votes_count >= MAX_ACADEMIC_TTS_VOTES:
+                        return Response(
+                            {
+                                'error': 'academic_vote_limit_reached',
+                                'message': 'Thanks for your contributions! You have submitted the maximum limit of votes in this Academic Benchmark.',
+                                'votes_count': votes_count,
+                                'max_votes': MAX_ACADEMIC_TTS_VOTES
+                            },
+                            status=status.HTTP_403_FORBIDDEN
+                        )
 
             # Handle random and academic modes (both use random model selection)
             if serializer.validated_data['mode'] in ['random', 'academic']:
