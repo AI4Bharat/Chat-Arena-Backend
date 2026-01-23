@@ -40,6 +40,7 @@ class AIModel(models.Model):
     config = models.JSONField(default=dict, blank=True)  # API endpoints, model-specific settings
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
+    url = models.URLField(max_length=500, blank=True, null=True)
     
     class Meta:
         db_table = 'ai_models'
