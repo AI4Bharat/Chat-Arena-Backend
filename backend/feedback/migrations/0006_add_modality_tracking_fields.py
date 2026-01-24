@@ -9,7 +9,6 @@ class Migration(migrations.Migration):
         ('chat_session', '0005_alter_chatsession_mode'),
         ('feedback', '0005_feedback_additional_feedback_json'),
         ('message', '0009_message_latency_ms'),
-        ('user', '0003_add_modality_tracking_fields'),
     ]
 
     operations = [
