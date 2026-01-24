@@ -8,6 +8,7 @@ import random
 from google.cloud import texttospeech
 from google.api_core.client_options import ClientOptions
 import base64
+from ai_model.error_logging import log_and_raise
 
 misc_tts_url = os.getenv("MISC_TTS_API_URL")
 indo_aryan_tts_url = os.getenv("INDO_ARYAN_TTS_API_URL")
@@ -15,6 +16,7 @@ dravidian_tts_url = os.getenv("DRAVIDIAN_TTS_API_URL")
 dhruva_key = os.getenv("DHRUVA_KEY")
 elevenlabs_api_url = os.getenv("ELEVENLABS_API_URL")
 parler_api_url = os.getenv("PARLER_API_URL")
+openai_api_key = os.getenv("OPENAI_API_KEY_GPT_5")
 
 def get_tts_url(language):
     if language in ["brx", "en", "mni"]:
@@ -44,7 +46,6 @@ def get_dhruva_output(tts_input, lang, gender, log_context=None):
         audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
-        from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='dhruva_tts', provider='dhruva', log_context=log_context)
 
 def get_sarvam_tts_output(tts_input, lang, model, gender, log_context=None):
@@ -69,7 +70,6 @@ def get_sarvam_tts_output(tts_input, lang, model, gender, log_context=None):
         audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
-        from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code=model, provider='sarvam', log_context=log_context)
 
 def get_gemini_output(tts_input, lang, model, gender, log_context=None):
@@ -99,7 +99,6 @@ def get_gemini_output(tts_input, lang, model, gender, log_context=None):
         audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
-        from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code=model, provider='google', log_context=log_context)
 
 def get_elevenlabs_output(tts_input, lang, gender, log_context=None):
@@ -135,7 +134,6 @@ def get_elevenlabs_output(tts_input, lang, gender, log_context=None):
         return audio
         
     except Exception as e:
-        from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='elevenlabs', provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {str(e)}", log_context=log_context)
 
 def get_parler_output(tts_input, lang, gender, log_context=None):
@@ -171,8 +169,47 @@ def get_parler_output(tts_input, lang, gender, log_context=None):
         return audio
         
     except Exception as e:
-        from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='indicparlertts', provider='ai4bharat', custom_message=f"IndicParlerTTS error: {str(e)}", log_context=log_context)
+
+def get_openai_tts_output(tts_input, model, gender, log_context=None):
+    OPENAI_VOICE_MAP = {
+        "male": ["onyx", "echo", "ash", "fable", "verse"],
+        "female": ["nova", "shimmer", "coral", "alloy", "sage", "ballad"]
+    }
+
+    INSTRUCTIONS = (
+        "Speak clearly and naturally with a warm, conversational tone. "
+        "Pronounce Indian names, places, and words accurately with proper emphasis. "
+        "Maintain a steady, moderate pace suitable for easy comprehension."
+    )
+
+    try:
+        voice = random.choice(OPENAI_VOICE_MAP.get(gender.lower(), OPENAI_VOICE_MAP["male"]))
+
+        payload = {
+            "model": model,
+            "input": tts_input,
+            "voice": voice,
+            "response_format": "wav",
+            "instructions": INSTRUCTIONS
+        }
+
+        response = requests.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={
+                "Authorization": f"Bearer {openai_api_key}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+        response.raise_for_status()
+
+        audio_base64 = base64.b64encode(response.content).decode("utf-8")
+        audio = upload_tts_audio(audio_base64)
+        return audio
+
+    except Exception as e:
+        log_and_raise(e, model_code=model, provider='openai', custom_message=f"OpenAI TTS error: {str(e)}", log_context=log_context)
 
 def get_tts_output(tts_input, lang, model, gender="male", **kwargs):
     log_context = kwargs.get('context')
@@ -187,4 +224,6 @@ def get_tts_output(tts_input, lang, model, gender="male", **kwargs):
         out = get_elevenlabs_output(tts_input, lang, gender, log_context=log_context)
     elif model == "indicparlertts":
         out = get_parler_output(tts_input, lang, gender, log_context=log_context)
+    elif model.startswith("gpt"):
+        out = get_openai_tts_output(tts_input, model, gender, log_context=log_context)
     return out
