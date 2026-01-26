@@ -322,10 +322,12 @@ def get_minimax_tts_output(tts_input, model, gender, log_context=None):
 def get_cartesia_tts_output(tts_input, model, gender, log_context=None):
     CARTESIA_VOICE_MAP = {
         "male": [
-            "638efaaa-4d0c-442e-b701-3fae16aad012",  # Indian Man
+            "c961b81c-a935-4c17-bfb3-ba2239de8c2f",  # Kyle
+            "a0e99841-438c-4a64-b679-ae501e7d6091",  # Barbershop Man
         ],
         "female": [
-            "2b568345-1d48-4c7e-9d4a-10f11f6d77cf",  # Indian Woman
+            "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",  # Tessa
+            "f9836c6e-a0bd-460e-9d3c-f7299fa60f94",  # Default Female
         ]
     }
 
