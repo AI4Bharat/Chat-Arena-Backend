@@ -21,7 +21,9 @@ class FeedbackSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'session', 'message', 'feedback_type',
             'preferred_model', 'rating', 'categories', 'comment',
-            'additional_feedback_json', 'created_at', 'session_info', 'message_info'
+            'additional_feedback_json', 
+            'has_image_input', 'has_audio_input', 'has_document_input', 'input_modality', 
+            'created_at', 'session_info', 'message_info'
         ]
         read_only_fields = ['id', 'user', 'created_at']
     
@@ -174,6 +176,28 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
                 preferred_model_ids = []
 
             validated_data['preferred_model_ids'] = preferred_model_ids
+
+        # Automatically detect and set modality fields based on user message
+        has_image = bool(userMessage.image_path)
+        has_audio = bool(userMessage.audio_path)
+        has_document = bool(userMessage.doc_path)
+        
+        validated_data['has_image_input'] = has_image
+        validated_data['has_audio_input'] = has_audio
+        validated_data['has_document_input'] = has_document
+        
+        # Determine primary modality
+        modality_count = sum([has_image, has_audio, has_document])
+        if modality_count > 1:
+            validated_data['input_modality'] = 'multimodal'
+        elif has_image:
+            validated_data['input_modality'] = 'image'
+        elif has_audio:
+            validated_data['input_modality'] = 'audio'
+        elif has_document:
+            validated_data['input_modality'] = 'document'
+        else:
+            validated_data['input_modality'] = 'text'
 
         # Use update_or_create to handle both initial feedback and detailed feedback updates
         with transaction.atomic():
