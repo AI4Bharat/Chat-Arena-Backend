@@ -15,6 +15,9 @@ class AIModel(models.Model):
         ('ibm', 'IBM'),
         ('ai4b', 'AI4Bharat'),
         ('elevenlabs', 'ElevenLabs'),
+        ('minimax', 'MiniMax'),
+        ('cartesia', 'Cartesia'),
+        ('murf', 'MurfAI'),
     ]
 
     TYPE_CHOICES = [
