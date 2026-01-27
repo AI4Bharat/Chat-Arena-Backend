@@ -595,7 +595,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                     language=language,
                     is_active=True,
                     model_a__isnull=False,
-                    model_b__isnull=False
+                    model_b__isnull=False,
+                    model_a__is_active=True,
+                    model_b__is_active=True
                 )
                 if prompts.exists():
                     min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
