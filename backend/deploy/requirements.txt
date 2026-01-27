@@ -175,7 +175,6 @@ typing_extensions==4.15.0
 tzdata==2025.2
 uritemplate==4.2.0
 urllib3==2.6.3
-urllib3==1.26.20
 uuid==1.30
 uvicorn==0.37.0
 uvloop==0.21.0
@@ -192,3 +191,4 @@ zope.event==6.1
 zope.interface==8.0.1
 python-docx
 pypdf
+
