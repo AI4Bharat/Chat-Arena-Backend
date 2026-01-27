@@ -231,8 +231,8 @@ def get_parler_output(tts_input, lang, gender, voice=None, log_context=None):
 
 def get_openai_tts_output(tts_input, model, gender, voice=None, log_context=None):
     OPENAI_VOICE_MAP = {
-        "male": ["onyx", "echo", "ash", "fable", "verse"],
-        "female": ["nova", "shimmer", "coral", "alloy", "sage", "ballad"]
+        "male": ["onyx", "echo", "ash", "fable", "verse", "ballad", "cedar"],
+        "female": ["nova", "shimmer", "coral", "alloy", "sage", "marin", "breeze", "cove", "ember", "juniper", "maple"]
     }
 
     INSTRUCTIONS = (
