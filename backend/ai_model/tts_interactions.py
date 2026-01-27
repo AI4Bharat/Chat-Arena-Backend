@@ -60,13 +60,15 @@ def get_dhruva_output(tts_input, lang, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code='dhruva_tts', provider='dhruva', log_context=log_context)
 
-def get_sarvam_tts_output(tts_input, lang, model, gender, log_context=None):
+def get_sarvam_tts_output(tts_input, lang, model, gender, voice=None, log_context=None):
     client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY_BULBUL"))
     speakerV2Female = ["anushka", "vidya", "manisha", "arya"]
     speakerV2Male = ["abhilash", "karun", "hitesh"]
     speakerV3Female = ["ritu", "priya", "neha", "pooja", "simran", "kavya", "ishita", "shreya", "roopa"]
     speakerV3Male = ["aditya", "ashutosh", "rahul", "rohan", "amit", "dev", "ratan", "varun", "manan", "sumit", "kabir", "aayan", "shubh", "advait"]
-    if model == "bulbul:v2":
+    if voice:
+        speaker = voice
+    elif model == "bulbul:v2":
         speaker = random.choice(speakerV2Female) if gender == "female" else random.choice(speakerV2Male)
     elif model == "bulbul:v3-beta":
         speaker = random.choice(speakerV3Female) if gender == "female" else random.choice(speakerV3Male)
@@ -84,7 +86,7 @@ def get_sarvam_tts_output(tts_input, lang, model, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code=model, provider='sarvam', log_context=log_context)
 
-def get_gemini_output(tts_input, lang, model, gender, log_context=None):
+def get_gemini_output(tts_input, lang, model, gender, voice=None, log_context=None):
     PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
     speakerMale = ["Achird", "Algenib", "Algieba", "Alnilam", "Charon", "Enceladus", "Fenrir", "Iapetus", "Orus", "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Umbriel", "Zubenelgenubi"]
     speakerFemale = ["Achernar", "Aoede", "Autonoe", "Callirrhoe", "Despina", "Erinome", "Gacrux", "Kore", "Laomedeia", "Leda", "Pulcherrima", "Sulafat", "Vindemiatrix", "Zephyr"]
@@ -93,7 +95,9 @@ def get_gemini_output(tts_input, lang, model, gender, log_context=None):
         client = texttospeech.TextToSpeechClient(client_options=ClientOptions(api_endpoint="texttospeech.googleapis.com"))
         synthesis_input = texttospeech.SynthesisInput(text=tts_input, prompt="synthesize speech from input text")
 
-        if gender == "female":
+        if voice:
+            speaker = voice
+        elif gender == "female":
             speaker = random.choice(speakerFemale)
         else:
             speaker = random.choice(speakerMale)
@@ -113,7 +117,7 @@ def get_gemini_output(tts_input, lang, model, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code=model, provider='google', log_context=log_context)
 
-def get_elevenlabs_output(tts_input, lang, gender, log_context=None):
+def get_elevenlabs_output(tts_input, lang, gender, voice=None, log_context=None):
     """
     Generate TTS using ElevenLabs API
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
@@ -125,8 +129,10 @@ def get_elevenlabs_output(tts_input, lang, gender, log_context=None):
         "female": ["Alice"]
     }
     try:
-        # Select random speaker based on gender
-        speaker = random.choice(ELEVENLABS_GENDER_MAP.get(gender.lower(), ELEVENLABS_GENDER_MAP["male"]))
+        if voice:
+            speaker = voice
+        else:
+            speaker = random.choice(ELEVENLABS_GENDER_MAP.get(gender.lower(), ELEVENLABS_GENDER_MAP["male"]))
         
         # API request - can use name or gender
         params = {
@@ -148,7 +154,7 @@ def get_elevenlabs_output(tts_input, lang, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code='elevenlabs', provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {str(e)}", log_context=log_context)
 
-def get_elevenlabs_tts_output(tts_input, model, gender, log_context=None):
+def get_elevenlabs_tts_output(tts_input, model, gender, voice=None, log_context=None):
     ELEVENLABS_VOICE_MAP = {
         "male": [
             "JBFqnCBsd6RMkjVDRZzb",  # George
@@ -164,7 +170,10 @@ def get_elevenlabs_tts_output(tts_input, model, gender, log_context=None):
 
     try:
         client = ElevenLabs(api_key=elevenlabs_api_key)
-        voice_id = random.choice(ELEVENLABS_VOICE_MAP.get(gender.lower(), ELEVENLABS_VOICE_MAP["male"]))
+        if voice:
+            voice_id = voice
+        else:
+            voice_id = random.choice(ELEVENLABS_VOICE_MAP.get(gender.lower(), ELEVENLABS_VOICE_MAP["male"]))
 
         audio_generator = client.text_to_speech.convert(
             text=tts_input,
@@ -183,7 +192,7 @@ def get_elevenlabs_tts_output(tts_input, model, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code=model, provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {str(e)}", log_context=log_context)
 
-def get_parler_output(tts_input, lang, gender, log_context=None):
+def get_parler_output(tts_input, lang, gender, voice=None, log_context=None):
     """
     Generate TTS using IndicParlerTTS API
     Note: This model only supports pre-synthesized sentences and should be used in academic mode only.
@@ -195,8 +204,10 @@ def get_parler_output(tts_input, lang, gender, log_context=None):
         "female": ["Divya"]
     }
     try:
-        # Select random speaker based on gender
-        speaker = random.choice(PARLER_GENDER_MAP.get(gender.lower(), PARLER_GENDER_MAP["male"]))
+        if voice:
+            speaker = voice
+        else:
+            speaker = random.choice(PARLER_GENDER_MAP.get(gender.lower(), PARLER_GENDER_MAP["male"]))
         
         # API request - can use name or gender
         params = {
@@ -218,7 +229,7 @@ def get_parler_output(tts_input, lang, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code='indicparlertts', provider='ai4bharat', custom_message=f"IndicParlerTTS error: {str(e)}", log_context=log_context)
 
-def get_openai_tts_output(tts_input, model, gender, log_context=None):
+def get_openai_tts_output(tts_input, model, gender, voice=None, log_context=None):
     OPENAI_VOICE_MAP = {
         "male": ["onyx", "echo", "ash", "fable", "verse"],
         "female": ["nova", "shimmer", "coral", "alloy", "sage", "ballad"]
@@ -231,12 +242,15 @@ def get_openai_tts_output(tts_input, model, gender, log_context=None):
     )
 
     try:
-        voice = random.choice(OPENAI_VOICE_MAP.get(gender.lower(), OPENAI_VOICE_MAP["male"]))
+        if voice:
+            selected_voice = voice
+        else:
+            selected_voice = random.choice(OPENAI_VOICE_MAP.get(gender.lower(), OPENAI_VOICE_MAP["male"]))
 
         payload = {
             "model": model,
             "input": tts_input,
-            "voice": voice,
+            "voice": selected_voice,
             "response_format": "wav",
             "instructions": INSTRUCTIONS
         }
@@ -258,7 +272,7 @@ def get_openai_tts_output(tts_input, model, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code=model, provider='openai', custom_message=f"OpenAI TTS error: {str(e)}", log_context=log_context)
 
-def get_minimax_tts_output(tts_input, model, gender, log_context=None):
+def get_minimax_tts_output(tts_input, model, gender, voice=None, log_context=None):
     """
     Generate TTS using MiniMax HTTP API (speech-2.8-hd)
     Documentation: https://platform.minimax.io/docs/api-reference/speech-t2a-http
@@ -271,7 +285,10 @@ def get_minimax_tts_output(tts_input, model, gender, log_context=None):
     MINIMAX_API_URL = "https://api.minimax.io/v1/t2a_v2"
 
     try:
-        voice_id = random.choice(MINIMAX_VOICE_MAP.get(gender.lower(), MINIMAX_VOICE_MAP["male"]))
+        if voice:
+            voice_id = voice
+        else:
+            voice_id = random.choice(MINIMAX_VOICE_MAP.get(gender.lower(), MINIMAX_VOICE_MAP["male"]))
 
         headers = {
             "Authorization": f"Bearer {minimax_api_key}",
@@ -319,7 +336,7 @@ def get_minimax_tts_output(tts_input, model, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code=model, provider='minimax', custom_message=f"MiniMax TTS error: {str(e)}", log_context=log_context)
 
-def get_cartesia_tts_output(tts_input, model, gender, log_context=None):
+def get_cartesia_tts_output(tts_input, model, gender, voice=None, log_context=None):
     CARTESIA_VOICE_MAP = {
         "male": [
             "c961b81c-a935-4c17-bfb3-ba2239de8c2f",  # Kyle
@@ -333,7 +350,10 @@ def get_cartesia_tts_output(tts_input, model, gender, log_context=None):
 
     try:
         client = Cartesia(api_key=cartesia_api_key)
-        voice_id = random.choice(CARTESIA_VOICE_MAP.get(gender.lower(), CARTESIA_VOICE_MAP["male"]))
+        if voice:
+            voice_id = voice
+        else:
+            voice_id = random.choice(CARTESIA_VOICE_MAP.get(gender.lower(), CARTESIA_VOICE_MAP["male"]))
 
         output_format = {
             "container": "wav",
@@ -357,7 +377,7 @@ def get_cartesia_tts_output(tts_input, model, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code=model, provider='cartesia', custom_message=f"Cartesia TTS error: {str(e)}", log_context=log_context)
 
-def get_indicf5_tts_output(tts_input, model, gender, log_context=None):
+def get_indicf5_tts_output(tts_input, model, gender, voice=None, log_context=None):
     INDICF5_ENDPOINT = os.getenv("INDICF5_ENDPOINT")
     TARGET_SAMPLING_RATE = 24000
 
@@ -371,8 +391,12 @@ def get_indicf5_tts_output(tts_input, model, gender, log_context=None):
     }
 
     try:
-        ref_audio_path = REF_AUDIO.get(gender.lower())
-        ref_transcript = REF_TRANSCRIPT.get(gender.lower(), "")
+        if voice:
+            ref_audio_path = voice
+            ref_transcript = ""
+        else:
+            ref_audio_path = REF_AUDIO.get(gender.lower())
+            ref_transcript = REF_TRANSCRIPT.get(gender.lower(), "")
 
         if not ref_audio_path:
             raise Exception(f"No reference audio configured for gender: {gender}")
@@ -425,27 +449,27 @@ def get_indicf5_tts_output(tts_input, model, gender, log_context=None):
     except Exception as e:
         log_and_raise(e, model_code=model, provider='ai4bharat', custom_message=f"IndicF5 TTS error: {str(e)}", log_context=log_context)
 
-def get_tts_output(tts_input, lang, model, gender="male", **kwargs):
+def get_tts_output(tts_input, lang, model, gender=None, voice=None, **kwargs):
     log_context = kwargs.get('context')
     out = ""
     if model == "ai4bharat_tts":
         out = get_dhruva_output(tts_input, lang, gender, log_context=log_context)
     elif model.startswith("bulbul"):
-        out = get_sarvam_tts_output(tts_input, lang, model, gender, log_context=log_context)
+        out = get_sarvam_tts_output(tts_input, lang, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("gemini"):
-        out = get_gemini_output(tts_input, lang, model, gender, log_context=log_context)
+        out = get_gemini_output(tts_input, lang, model, gender, voice=voice, log_context=log_context)
     elif model == "elevenlabs":
-        out = get_elevenlabs_output(tts_input, lang, gender, log_context=log_context)
+        out = get_elevenlabs_output(tts_input, lang, gender, voice=voice, log_context=log_context)
     elif model == "indicparlertts":
-        out = get_parler_output(tts_input, lang, gender, log_context=log_context)
+        out = get_parler_output(tts_input, lang, gender, voice=voice, log_context=log_context)
     elif model.startswith("gpt"):
-        out = get_openai_tts_output(tts_input, model, gender, log_context=log_context)
+        out = get_openai_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("speech-"):
-        out = get_minimax_tts_output(tts_input, model, gender, log_context=log_context)
+        out = get_minimax_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("sonic"):
-        out = get_cartesia_tts_output(tts_input, model, gender, log_context=log_context)
+        out = get_cartesia_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("indicf5"):
-        out = get_indicf5_tts_output(tts_input, model, gender, log_context=log_context)
+        out = get_indicf5_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("eleven"):
-        out = get_elevenlabs_tts_output(tts_input, model, gender, log_context=log_context)
+        out = get_elevenlabs_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     return out

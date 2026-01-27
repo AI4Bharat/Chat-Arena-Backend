@@ -16,6 +16,9 @@ class AcademicPrompt(models.Model):
     )
     model_a = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='academic_prompts_model_a', null=True, blank=True)
     model_b = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='academic_prompts_model_b', null=True, blank=True)
+    gender = models.CharField(max_length=10, null=True, blank=True, help_text="Gender for voice selection")
+    voice_a = models.CharField(max_length=100, null=True, blank=True, help_text="Specific voice/speaker for model_a. If null, randomly selected based on gender.")
+    voice_b = models.CharField(max_length=100, null=True, blank=True, help_text="Specific voice/speaker for model_b. If null, randomly selected based on gender.")
     usage_count = models.IntegerField(
         default=0,
         help_text="Number of times this prompt has been used"

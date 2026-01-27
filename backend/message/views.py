@@ -616,7 +616,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                     escaped_prompt = selected_prompt.text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                     yield f'prompt:"{escaped_prompt}"\n'
 
-            gender = random.choice(["male", "female"])
+            if session.mode == 'academic' and 'selected_prompt' in dir() and selected_prompt:
+                gender = selected_prompt.gender if selected_prompt.gender else random.choice(["male", "female"])
+                voice_a = selected_prompt.voice_a
+                voice_b = selected_prompt.voice_b
+            else:
+                gender = random.choice(["male", "female"])
+                voice_a = None
+                voice_b = None
             if session.mode == 'direct':
                 start_time = time.time()
                 try:
@@ -624,7 +631,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # history.pop()
 
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
-                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, context=context)
+                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, voice=voice_a, context=context)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output["url"]}"\n'
                     
@@ -652,7 +659,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
-                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, context=context)
+                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, voice=voice_a, context=context)
                         chunk_queue.put(('a', f'a0:"{output_a["url"]}"\n'))
                         
                         assistant_message_a.audio_path = output_a["path"]
@@ -680,7 +687,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
-                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code, gender=gender, context=context)
+                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code, gender=gender, voice=voice_b, context=context)
                         chunk_queue.put(('b', f'b0:"{output_b["url"]}"\n'))
                         
                         assistant_message_b.audio_path = output_b["path"]
@@ -890,8 +897,18 @@ class MessageViewSet(viewsets.ModelViewSet):
                 start_time = time.time()
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
+                    gender = random.choice(["male", "female"])
+                    voice = None
+                    if session.mode == 'academic' and user_message.metadata and user_message.metadata.get('academic_prompt_id'):
+                        try:
+                            academic_prompt = AcademicPrompt.objects.get(id=user_message.metadata['academic_prompt_id'])
+                            gender = academic_prompt.gender if academic_prompt.gender else gender
+                            voice = academic_prompt.voice_a if participant == 'a' else academic_prompt.voice_b
+                        except AcademicPrompt.DoesNotExist:
+                            pass
+
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
-                    output = get_tts_output(user_message.content, user_message.language, model=model.model_code, context=context)
+                    output = get_tts_output(user_message.content, user_message.language, model=model.model_code, gender=gender, voice=voice, context=context)
                     yield f'{participant}0:"{output["url"]}"\n'
                     
                     assistant_message.audio_path = output["path"]
