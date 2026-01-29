@@ -92,6 +92,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "leaderboards",
+    "synthetic_asr",
 ]
 
 MIDDLEWARE = [
