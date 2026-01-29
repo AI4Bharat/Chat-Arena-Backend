@@ -11,7 +11,7 @@ from chat_session.models import ChatSession
 from feedback.models import Feedback
 
 # Maximum number of detailed votes allowed in TTS Academic mode
-MAX_ACADEMIC_TTS_VOTES = 140
+MAX_ACADEMIC_TTS_VOTES = 60
 from chat_session.serializers import (
     ChatSessionSerializer, ChatSessionCreateSerializer,
     ChatSessionListSerializer, ChatSessionShareSerializer,
