@@ -147,7 +147,6 @@ requests==2.32.5
 requests-toolbelt==0.10.1
 rpds-py==0.30.0
 rsa==4.9.1
-sarvamai==0.1.22
 scikit-learn==1.8.0
 scipy==1.16.2
 service-identity==24.2.0

@@ -3,7 +3,6 @@ import requests
 from rest_framework.response import Response
 from rest_framework import status
 from message.utlis import upload_tts_audio
-from sarvamai import SarvamAI
 import random
 from google.cloud import texttospeech
 from google.api_core.client_options import ClientOptions
@@ -29,6 +28,17 @@ minimax_api_key = os.getenv("MINIMAX_API_KEY")
 cartesia_api_key = os.getenv("CARTESIA_API_KEY")
 indicf5_api_key = os.getenv("INDICF5_API_KEY")
 elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+sarvam_api_url = os.getenv("SARVAM_API_URL")
+sarvam_api_key = os.getenv("SARVAM_API_KEY_BULBUL")
+
+LANG_CODE_TO_NAME = {
+    "hi": "Hindi", "mr": "Marathi", "ta": "Tamil", "te": "Telugu",
+    "kn": "Kannada", "gu": "Gujarati", "pa": "Punjabi", "bn": "Bengali",
+    "ml": "Malayalam", "as": "Assamese", "brx": "Bodo", "doi": "Dogri",
+    "ks": "Kashmiri", "mai": "Maithili", "mni": "Manipuri", "ne": "Nepali",
+    "or": "Odia", "sd": "Sindhi", "si": "Sinhala", "ur": "Urdu",
+    "sat": "Santali", "sa": "Sanskrit", "gom": "Konkani", "en": "English",
+}
 
 def get_tts_url(language):
     if language in ["brx", "en", "mni"]:
@@ -61,26 +71,48 @@ def get_dhruva_output(tts_input, lang, gender, log_context=None):
         log_and_raise(e, model_code='dhruva_tts', provider='dhruva', log_context=log_context)
 
 def get_sarvam_tts_output(tts_input, lang, model, gender, voice=None, log_context=None):
-    client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY_BULBUL"))
     speakerV2Female = ["anushka", "vidya", "manisha", "arya"]
     speakerV2Male = ["abhilash", "karun", "hitesh"]
-    speakerV3Female = ["ritu", "priya", "neha", "pooja", "simran", "kavya", "ishita", "shreya", "roopa"]
-    speakerV3Male = ["aditya", "ashutosh", "rahul", "rohan", "amit", "dev", "ratan", "varun", "manan", "sumit", "kabir", "aayan", "shubh", "advait"]
+    speakerV3Female = ["ritu", "roopa", "ishita", "suhani", "simran"]
+    speakerV3Male = ["sunny", "rohan", "anand", "aayan", "shubh"]
+
     if voice:
         speaker = voice
     elif model == "bulbul:v2":
         speaker = random.choice(speakerV2Female) if gender == "female" else random.choice(speakerV2Male)
     elif model == "bulbul:v3-beta":
         speaker = random.choice(speakerV3Female) if gender == "female" else random.choice(speakerV3Male)
+
     lang = "od" if lang == "or" else lang
+
+    headers = {
+        "API-Subscription-Key": sarvam_api_key,
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "text": tts_input,
+        "target_language_code": f"{lang}-IN",
+        "speaker": speaker.lower(),
+        "model": model,
+        "speech_sample_rate": 48000,
+        "enable_preprocessing": True,
+        "output_audio_codec": "wav",
+        "disable_postprocessing": False,
+        "temperature": 0.6,
+        "pace": 1.1,
+    }
+
     try:
-        response = client.text_to_speech.convert(
-            target_language_code=lang+"-IN",
-            text=tts_input,
-            model=model,
-            speaker=speaker,
-        )
-        audioBase64 = response.audios[0]
+        response = requests.post(sarvam_api_url, headers=headers, json=payload)
+        response.raise_for_status()
+
+        data = response.json()
+        audios = data.get("audios", [])
+        if not audios:
+            raise Exception("No audio returned from Sarvam API")
+
+        audioBase64 = audios[0]
         audio = upload_tts_audio(audioBase64)
         return audio
     except Exception as e:
@@ -273,14 +305,14 @@ def get_openai_tts_output(tts_input, model, gender, voice=None, log_context=None
     except Exception as e:
         log_and_raise(e, model_code=model, provider='openai', custom_message=f"OpenAI TTS error: {str(e)}", log_context=log_context)
 
-def get_minimax_tts_output(tts_input, model, gender, voice=None, log_context=None):
+def get_minimax_tts_output(tts_input, lang, model, gender, voice=None, log_context=None):
     """
     Generate TTS using MiniMax HTTP API (speech-2.8-hd)
     Documentation: https://platform.minimax.io/docs/api-reference/speech-t2a-http
     """
     MINIMAX_VOICE_MAP = {
-        "male": ["male-qn-qingse", "male-qn-jingying", "male-qn-badao", "male-qn-daxuesheng"],
-        "female": ["female-shaonv", "female-yujie", "female-chengshu", "female-tianmei"]
+        "male": ["hindi_male_1_v2"],
+        "female": ["hindi_female_1_v2", "hindi_female_2_v1"]
     }
 
     MINIMAX_API_URL = "https://api.minimax.io/v1/t2a_v2"
@@ -312,7 +344,8 @@ def get_minimax_tts_output(tts_input, model, gender, voice=None, log_context=Non
                 "bitrate": 128000,
                 "format": "wav",
                 "channel": 1
-            }
+            },
+            "language_boost": LANG_CODE_TO_NAME.get(lang, "auto"),
         }
 
         response = requests.post(MINIMAX_API_URL, headers=headers, json=payload)
@@ -466,7 +499,7 @@ def get_tts_output(tts_input, lang, model, gender=None, voice=None, **kwargs):
     elif model.startswith("gpt"):
         out = get_openai_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("speech-"):
-        out = get_minimax_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
+        out = get_minimax_tts_output(tts_input, lang, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("sonic"):
         out = get_cartesia_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("indicf5"):
