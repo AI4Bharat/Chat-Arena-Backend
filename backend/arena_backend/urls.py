@@ -51,6 +51,7 @@ urlpatterns = [
     path('', include('leaderboards.urls')),
     path('', include('academic_prompts.urls')),
     path('', include('synthetic_asr.urls')),
+    path('', include('frontend_logs.urls')),
 
 # Tenant-prefixed URLs (for multi-tenant support)
 # Using re_path to match tenant without passing it as a view argument
@@ -61,6 +62,7 @@ urlpatterns = [
     re_path(r'^[a-zA-Z0-9_-]+/', include('feedback.urls')),
     re_path(r'^[a-zA-Z0-9_-]+/', include('message.urls')),
     re_path(r'^[a-zA-Z0-9_-]+/', include('model_metrics.urls')),
+    re_path(r'^[a-zA-Z0-9_-]+/', include('frontend_logs.urls')),
 
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),

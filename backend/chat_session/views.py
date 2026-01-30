@@ -1,3 +1,4 @@
+from datetime import datetime
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -8,6 +9,10 @@ from django.http import HttpResponse, Http404
 from django.db.models import Count, Prefetch, Q
 from message.models import Message
 from chat_session.models import ChatSession
+from feedback.models import Feedback
+
+# Maximum number of detailed votes allowed in TTS Academic mode
+MAX_ACADEMIC_TTS_VOTES = 60
 from chat_session.serializers import (
     ChatSessionSerializer, ChatSessionCreateSerializer,
     ChatSessionListSerializer, ChatSessionShareSerializer,
@@ -88,26 +93,65 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             return ChatSessionListSerializer
         return ChatSessionSerializer
     
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def _get_academic_tts_votes_count(self, user):
+        """Get count of detailed votes submitted in TTS Academic mode"""
+        cutoff_date = timezone.make_aware(datetime(2026, 1, 28, 0, 0, 0))
+        return Feedback.objects.filter(
+            user=user,
+            session__mode='academic',
+            session__session_type='TTS',
+            additional_feedback_json__isnull=False,
+            created_at__gte=cutoff_date
+        ).exclude(
+            additional_feedback_json={}
+        ).count()
 
-        # Handle random and academic modes (both use random model selection)
-        if serializer.validated_data['mode'] in ['random', 'academic']:
-            session = ChatSessionService.create_session_with_random_models(
-                user=request.user,
-                mode=serializer.validated_data['mode'],
-                metadata=serializer.validated_data.get('metadata'),
-                session_type=serializer.validated_data.get('session_type'),
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            mode = serializer.validated_data['mode']
+            session_type = serializer.validated_data.get('session_type')
+
+            if mode == 'academic' and session_type == 'TTS':
+                if not request.user.is_anonymous:
+                    votes_count = self._get_academic_tts_votes_count(request.user)
+                    if votes_count >= MAX_ACADEMIC_TTS_VOTES:
+                        return Response(
+                            {
+                                'error': 'academic_vote_limit_reached',
+                                'message': 'Thanks for your contributions! You have submitted the maximum limit of votes in this Academic Benchmark.',
+                                'votes_count': votes_count,
+                                'max_votes': MAX_ACADEMIC_TTS_VOTES
+                            },
+                            status=status.HTTP_403_FORBIDDEN
+                        )
+
+            # Handle random and academic modes (both use random model selection)
+            if serializer.validated_data['mode'] in ['random', 'academic']:
+                session = ChatSessionService.create_session_with_random_models(
+                    user=request.user,
+                    mode=serializer.validated_data['mode'],
+                    metadata=serializer.validated_data.get('metadata'),
+                    session_type=serializer.validated_data.get('session_type'),
+                )
+            else:
+                session = serializer.save()
+            
+            # Return full serializer data
+            return Response(
+                ChatSessionSerializer(session, context={'request': request}).data,
+                status=status.HTTP_201_CREATED
             )
-        else:
-            session = serializer.save()
-        
-        # Return full serializer data
-        return Response(
-            ChatSessionSerializer(session, context={'request': request}).data,
-            status=status.HTTP_201_CREATED
-        )
+        except Exception as e:
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request)
+            return log_and_respond(
+                e,
+                endpoint='/sessions/',
+                log_context=log_context
+            )
     
     @action(detail=False, methods=['get'], url_path='type')
     def filtered_by_type(self, request):
@@ -258,36 +302,45 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
     
     def retrieve(self, request, *args, **kwargs):
         """Get session details with messages"""
-        session = self.get_object()
-        
-        messages = Message.objects.filter(
-            session=session
-        ).order_by('-position')[:50]
-        
-        session_data = ChatSessionRetrieveSerializer(session, context={'request': request}).data
-        
-        response_data = {
-            'session': session_data,
-            'messages': [
-                {
-                    'id': str(msg.id),
-                    'role': msg.role,
-                    'content': msg.content,
-                    'position': msg.position,
-                    'participant': msg.participant,
-                    'status': msg.status,
-                    'feedback': msg.feedback,
-                    'created_at': msg.created_at.isoformat(),
-                    'audio_path': msg.audio_path,
-                    'language': msg.language,
-                    'has_detailed_feedback': msg.has_detailed_feedback,
-                    **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {})
-                }
-                for msg in reversed(messages)
-            ]
-        }
-        
-        return Response(response_data)
+        try:
+            session = self.get_object()
+            
+            messages = Message.objects.filter(
+                session=session
+            ).order_by('-position')[:50]
+            
+            session_data = ChatSessionRetrieveSerializer(session, context={'request': request}).data
+            
+            response_data = {
+                'session': session_data,
+                'messages': [
+                    {
+                        'id': str(msg.id),
+                        'role': msg.role,
+                        'content': msg.content,
+                        'position': msg.position,
+                        'participant': msg.participant,
+                        'status': msg.status,
+                        'feedback': msg.feedback,
+                        'created_at': msg.created_at.isoformat(),
+                        'audio_path': msg.audio_path,
+                        'language': msg.language,
+                        'has_detailed_feedback': msg.has_detailed_feedback,
+                        **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {})
+                    }
+                    for msg in reversed(messages)
+                ]
+            }
+            
+            return Response(response_data)
+        except Exception as e:
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request, session_id=kwargs.get('pk'))
+            return log_and_respond(
+                e,
+                endpoint='/sessions/{id}/',
+                log_context=log_context
+            )
     
     @action(detail=True, methods=['post'])
     def generate_title(self, request, pk=None):
@@ -351,6 +404,13 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             return Response({'title': generated_title})
             
         except Exception as e:
+            # Log the error with detailed context
+            from common.error_logging import log_endpoint_error_to_gcs, extract_endpoint_error_details, create_log_context
+            log_context = create_log_context(request, session_id=session.id)
+            error_details = extract_endpoint_error_details(e, '/sessions/generate_title/', log_context)
+            log_endpoint_error_to_gcs(error_details)
+            
+            # Fallback to using message content as title (existing logic preserved)
             fallback_title = message.content[:50]
             if len(message.content) > 50:
                 fallback_title += "..."

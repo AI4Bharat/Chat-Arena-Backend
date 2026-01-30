@@ -47,12 +47,14 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             data['model_a'] = {
                 'id': None,
                 'display_name': 'Model A',
-                'provider': 'Random'
+                'provider': 'Random',
+                'is_thinking_model': instance.model_a.is_thinking_model if instance.model_a else False
             }
             data['model_b'] = {
                 'id': None,
                 'display_name': 'Model B',
-                'provider': 'Random'
+                'provider': 'Random',
+                'is_thinking_model': instance.model_b.is_thinking_model if instance.model_b else False
             }
         return data
 
@@ -201,9 +203,11 @@ class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
             data['model_a'] = {
                 'id': None,
                 'display_name': 'Model A',
+                'is_thinking_model': instance.model_a.is_thinking_model if instance.model_a else False
             }
             data['model_b'] = {
                 'id': None,
                 'display_name': 'Model B',
+                'is_thinking_model': instance.model_b.is_thinking_model if instance.model_b else False
             }
         return data

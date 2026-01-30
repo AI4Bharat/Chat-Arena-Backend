@@ -15,6 +15,9 @@ class AIModel(models.Model):
         ('ibm', 'IBM'),
         ('ai4b', 'AI4Bharat'),
         ('elevenlabs', 'ElevenLabs'),
+        ('minimax', 'MiniMax'),
+        ('cartesia', 'Cartesia'),
+        ('murf', 'MurfAI'),
     ]
 
     TYPE_CHOICES = [
@@ -34,11 +37,13 @@ class AIModel(models.Model):
     supported_languages = models.JSONField(default=list, blank=True) # For ASR/TTS models
     max_tokens = models.IntegerField(null=True, blank=True)
     supports_streaming = models.BooleanField(default=True)
+    is_thinking_model = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     release_date = models.DateField(default="2020-01-01")
     config = models.JSONField(default=dict, blank=True)  # API endpoints, model-specific settings
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
+    url = models.URLField(max_length=500, blank=True, null=True)
     
     class Meta:
         db_table = 'ai_models'

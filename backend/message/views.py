@@ -1,3 +1,4 @@
+import time
 from ai_model.llm_interactions import get_model_output
 from ai_model.asr_interactions import get_asr_output
 from ai_model.tts_interactions import get_tts_output
@@ -222,7 +223,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                             if 'audio_transcription' not in user_message.metadata:
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
-                                transcription = get_asr_output(audio_url, language)
+                                context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                transcription = get_asr_output(audio_url, language, context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -232,13 +234,15 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 prompt_content += f"\n\n[Audio Transcription]:\n{audio_transcription}"
                         except Exception as e:
                             print(f"Error processing audio: {e}")
-                    
+
+                    start_time = time.time()
                     for chunk in get_model_output(
                         system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                         user_prompt=prompt_content,
                         history=history,
                         model=session.model_a.model_code,
                         image_url=image_url,
+                        context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -247,11 +251,13 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2) if 'start_time' in locals() else None
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -263,6 +269,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         
                 def stream_model_a():
                     chunks_a = []
+                    start_time_a = time.time()
                     try:
                         history = MessageService._get_conversation_history(session, 'a')
                         # Remove the last message from history to avoid duplication
@@ -308,7 +315,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 if 'audio_transcription' not in user_message.metadata:
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
-                                    transcription = get_asr_output(audio_url, language)
+                                    context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                    transcription = get_asr_output(audio_url, language, context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -325,6 +333,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             history=history,
                             model=session.model_a.model_code,
                             image_url=image_url,
+                            context={'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
                                 chunks_a.append(chunk)
@@ -333,12 +342,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_a.content = "".join(chunks_a)
                         assistant_message_a.status = 'success'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -350,6 +361,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
                 def stream_model_b():
                     chunks_b = []
+                    start_time_b = time.time()
                     try:
                         history = MessageService._get_conversation_history(session, 'b')
                         # Remove the last message from history to avoid duplication
@@ -395,7 +407,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 if 'audio_transcription' not in user_message.metadata:
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
-                                    transcription = get_asr_output(audio_url, language)
+                                    context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                    transcription = get_asr_output(audio_url, language, context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -415,6 +428,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             history=history,
                             model=session.model_b.model_code,
                             image_url=image_url,
+                            context={'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
                                 chunks_b.append(chunk)
@@ -423,12 +437,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         
                         assistant_message_b.content = "".join(chunks_b)
                         assistant_message_b.status = 'success'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -464,21 +480,25 @@ class MessageViewSet(viewsets.ModelViewSet):
             db_alias = session._state.db
             
             if session.mode == 'direct':
+                start_time = time.time()
                 try:
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
 
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code)
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output}"\n'
                     
                     assistant_message.content = output
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -489,20 +509,24 @@ class MessageViewSet(viewsets.ModelViewSet):
                 chunk_queue = queue.Queue()
         
                 def stream_model_a():
+                    start_time_a = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
-                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
                         chunk_queue.put(('a', f'a0:"{output_a}"\n'))
                         
                         assistant_message_a.content = output_a
                         assistant_message_a.status = 'success'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -513,20 +537,24 @@ class MessageViewSet(viewsets.ModelViewSet):
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
+                    start_time_b = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
-                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code, context=context)
                         chunk_queue.put(('b', f'b0:"{output_b}"\n'))
                         
                         assistant_message_b.content = output_b
                         assistant_message_b.status = 'success'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
@@ -558,42 +586,66 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_b.join()
 
         def generate_tts_output():
-            # For academic mode, get random prompt from database
+            # For academic mode, get prompt from database with pre-defined model pairs
             if session.mode == 'academic':
                 language = user_message.language
 
                 # Get least used prompt for uniform distribution
-                prompts = AcademicPrompt.objects.filter(language=language, is_active=True)
+                prompts = AcademicPrompt.objects.filter(
+                    language=language,
+                    is_active=True,
+                    model_a__isnull=False,
+                    model_b__isnull=False,
+                    model_a__is_active=True,
+                    model_b__is_active=True
+                )
                 if prompts.exists():
                     min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
                     least_used_prompts = prompts.filter(usage_count=min_usage_count)
                     selected_prompt = random.choice(list(least_used_prompts))
 
-                    # Update user message with the selected prompt
-                    user_message.content = selected_prompt.text
-                    user_message.save(update_fields=['content'])
+                    # Update session's model_a and model_b from the selected prompt
+                    session.model_a = selected_prompt.model_a
+                    session.model_b = selected_prompt.model_b
+                    session.save(update_fields=['model_a', 'model_b'])
 
-                    selected_prompt.increment_usage()
+                    # Update user message with the selected prompt and store prompt ID in metadata
+                    user_message.content = selected_prompt.text
+                    if not user_message.metadata:
+                        user_message.metadata = {}
+                    user_message.metadata['academic_prompt_id'] = str(selected_prompt.id)
+                    user_message.save(update_fields=['content', 'metadata'])
                     escaped_prompt = selected_prompt.text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                     yield f'prompt:"{escaped_prompt}"\n'
 
-            gender = random.choice(["male", "female"])
+            if session.mode == 'academic' and 'selected_prompt' in dir() and selected_prompt:
+                gender = selected_prompt.gender if selected_prompt.gender else random.choice(["male", "female"])
+                voice_a = selected_prompt.voice_a
+                voice_b = selected_prompt.voice_b
+            else:
+                gender = random.choice(["male", "female"])
+                voice_a = None
+                voice_b = None
             if session.mode == 'direct':
+                start_time = time.time()
                 try:
                     # history = MessageService._get_conversation_history(session)
                     # history.pop()
 
-                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender)
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, voice=voice_a, context=context)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output["url"]}"\n'
                     
                     assistant_message.audio_path = output["path"]
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",
@@ -604,20 +656,24 @@ class MessageViewSet(viewsets.ModelViewSet):
                 chunk_queue = queue.Queue()
         
                 def stream_model_a():
+                    start_time_a = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
-                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_a = get_tts_output(user_message.content, user_message.language, model=session.model_a.model_code, gender=gender, voice=voice_a, context=context)
                         chunk_queue.put(('a', f'a0:"{output_a["url"]}"\n'))
                         
                         assistant_message_a.audio_path = output_a["path"]
                         assistant_message_a.status = 'success'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save()
                         
                         chunk_queue.put(('a', 'ad:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_a.status = 'error'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save()
                         error_payload = {
                             "finishReason": "error",
@@ -628,20 +684,24 @@ class MessageViewSet(viewsets.ModelViewSet):
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
+                    start_time_b = time.time()
                     try:
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
-                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code, gender=gender)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
+                        output_b = get_tts_output(user_message.content, user_message.language, model=session.model_b.model_code, gender=gender, voice=voice_b, context=context)
                         chunk_queue.put(('b', f'b0:"{output_b["url"]}"\n'))
                         
                         assistant_message_b.audio_path = output_b["path"]
                         assistant_message_b.status = 'success'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save()
                         
                         chunk_queue.put(('b', 'bd:{"finishReason":"stop"}\n'))
                         
                     except Exception as e:
                         assistant_message_b.status = 'error'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save()
                         error_payload = {
                             "finishReason": "error",
@@ -714,8 +774,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                 history = MessageService._get_conversation_history(session, participant)
                 if participant == None:
                     participant = 'a'
-                
-                try:                
+
+                start_time = time.time()
+                try:
                     if history and history[-1]['role'] == 'assistant':
                         history.pop()
                     if history and history[-1]['role'] == 'user':
@@ -762,7 +823,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                             if 'audio_transcription' not in user_message.metadata:
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
-                                transcription = get_asr_output(audio_url, language)
+                                context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
+                                transcription = get_asr_output(audio_url, language, context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -779,6 +841,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         history=history,
                         model=model.model_code,
                         image_url=image_url,
+                        context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
                     ):
                         if chunk:
                             chunks.append(chunk)
@@ -787,10 +850,12 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -805,17 +870,21 @@ class MessageViewSet(viewsets.ModelViewSet):
                 participant = assistant_message.participant
                 if participant == None:
                     participant = 'a'
+                start_time = time.time()
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code)
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code, context=context)
                     yield f'{participant}0:"{output}"\n'
                     
                     assistant_message.content = output
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
@@ -827,17 +896,31 @@ class MessageViewSet(viewsets.ModelViewSet):
                 participant = assistant_message.participant
                 if participant == None:
                     participant = 'a'
+                start_time = time.time()
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
-                    output = get_tts_output(user_message.content, user_message.language, model=model.model_code)
+                    gender = random.choice(["male", "female"])
+                    voice = None
+                    if session.mode == 'academic' and user_message.metadata and user_message.metadata.get('academic_prompt_id'):
+                        try:
+                            academic_prompt = AcademicPrompt.objects.get(id=user_message.metadata['academic_prompt_id'])
+                            gender = academic_prompt.gender if academic_prompt.gender else gender
+                            voice = academic_prompt.voice_a if participant == 'a' else academic_prompt.voice_b
+                        except AcademicPrompt.DoesNotExist:
+                            pass
+
+                    context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                    output = get_tts_output(user_message.content, user_message.language, model=model.model_code, gender=gender, voice=voice, context=context)
                     yield f'{participant}0:"{output["url"]}"\n'
                     
                     assistant_message.audio_path = output["path"]
                     assistant_message.status = 'success'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     yield f'{participant}d:{{"finishReason":"stop"}}\n'
                 except Exception as e:
                     assistant_message.status = 'error'
+                    assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",

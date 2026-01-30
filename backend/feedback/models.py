@@ -41,6 +41,33 @@ class Feedback(models.Model):
         blank=True,
         help_text="Additional structured feedback data (e.g., TTS evaluation parameters)"
     )
+    
+    # Modality tracking fields for separate leaderboards
+    has_image_input = models.BooleanField(
+        default=False,
+        help_text="Whether image was used in the message/session being evaluated"
+    )
+    has_audio_input = models.BooleanField(
+        default=False,
+        help_text="Whether audio was used in the message/session being evaluated"
+    )
+    has_document_input = models.BooleanField(
+        default=False,
+        help_text="Whether document was used in the message/session being evaluated"
+    )
+    input_modality = models.CharField(
+        max_length=20,
+        choices=[
+            ('text', 'Text Only'),
+            ('image', 'Image Understanding'),
+            ('audio', 'Audio Understanding'),
+            ('document', 'Document Understanding'),
+            ('multimodal', 'Multiple Modalities')
+        ],
+        default='text',
+        help_text="Primary modality used for this feedback (for leaderboard categorization)"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -49,6 +76,7 @@ class Feedback(models.Model):
             models.Index(fields=['session', 'created_at']),
             models.Index(fields=['user', 'created_at']),
             models.Index(fields=['feedback_type']),
+            models.Index(fields=['input_modality']),  # For leaderboard filtering by modality
         ]
         ordering = ['-created_at']
         unique_together = [
