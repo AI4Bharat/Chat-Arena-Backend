@@ -40,8 +40,8 @@ def sentence_generation_task(self, job_id: str):
         if config_issues or not config:
             raise ValueError(f"Invalid config: {config_issues}")
         
-        # Call sentence generation pipeline
-        sentences, err = generate_sentence_pipeline(config)
+        # Call sentence generation pipeline (pass payload for prompt_config access)
+        sentences, err = generate_sentence_pipeline(config, job.payload)
         if err:
             raise Exception(f"Sentence generation failed: {err}")
         

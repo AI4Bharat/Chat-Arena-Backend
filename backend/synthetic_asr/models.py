@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 
 class Job(models.Model):
@@ -42,6 +43,18 @@ class Job(models.Model):
     
     # Generation attempt counter (for retries)
     generation_attempts = models.IntegerField(default=0)
+
+    # Owner (who created the job) for privacy scoping
+    # Nullable for backward compatibility with existing rows
+    created_by = models.ForeignKey(
+        'user.User',  # reference to our custom user model
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='synthetic_asr_jobs',
+        db_index=True,
+        help_text="User who created this job"
+    )
 
     class Meta:
         db_table = 'synthetic_asr_jobs'

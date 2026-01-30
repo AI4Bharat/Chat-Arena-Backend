@@ -3,6 +3,39 @@ import json
 import http.client
 from typing import Dict, List, Tuple
 
+# External API configuration - dmubox-lite service
+DMUBOX_API_HOST = os.getenv('DMUBOX_API_HOST', 'dmubox-lite.centralindia.cloudapp.azure.com')
+DMUBOX_API_BASE_PATH = '/pai'
+
+
+def _call_dmubox_api(endpoint: str, payload: Dict) -> Tuple[Dict, str]:
+    """
+    Call dmubox-lite external API service.
+    """
+    try:
+        conn = http.client.HTTPSConnection(DMUBOX_API_HOST)
+        headers = {'Content-Type': 'application/json'}
+        
+        # Add auth headers if available (Firebase token)
+        # For now, dmubox-lite might not require auth
+        
+        body = json.dumps(payload)
+        path = f'{DMUBOX_API_BASE_PATH}{endpoint}'
+        
+        conn.request('POST', path, body=body, headers=headers)
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        
+        if resp.status != 200:
+            error_text = data.decode('utf-8')
+            return {}, f'dmubox-lite API error ({resp.status}): {error_text}'
+        
+        result = json.loads(data.decode('utf-8'))
+        return result, ''
+    except Exception as e:
+        return {}, f'Error calling dmubox-lite API: {str(e)}'
+
 
 def _gemini_request(prompt: str, seed: int) -> Tuple[List[str], str]:
     api_key = os.getenv('GEMINI_API_KEY')
@@ -64,6 +97,41 @@ def _build_description(desc: str) -> str:
 
 
 def generate_sub_domains(category: str, instruction: str, n: int = 10, description: str = '') -> Tuple[List[str], str]:
+    """
+    Generate sub-domains using Gemini when available.
+    If GEMINI_API_KEY is missing, fall back to a deterministic local generator to unblock demos.
+    """
+    # Fallback path when API key is not available
+    if not os.getenv('GEMINI_API_KEY'):
+        base = (category or 'General').strip().lower()
+        presets = {
+            'agriculture': [
+                'Crop Management', 'Soil Health', 'Irrigation Techniques', 'Pest Control', 'Post-Harvest Handling',
+                'Farm Machinery', 'Organic Farming', 'Supply Chain Logistics', 'Market Prices', 'Weather Advisory'
+            ],
+            'healthcare': [
+                'Primary Care', 'Diagnostics', 'Telemedicine', 'Pharmacy Services', 'Emergency Care',
+                'Maternal Health', 'Chronic Disease Management', 'Mental Health', 'Lab Services', 'Insurance Claims'
+            ],
+            'finance': [
+                'Retail Banking', 'Digital Payments', 'Loans & Credit', 'Insurance', 'Investments',
+                'Fraud Prevention', 'Customer Support', 'KYC & Compliance', 'Wealth Management', 'Microfinance'
+            ],
+            'education': [
+                'Admissions', 'Examinations', 'Online Classes', 'Homework Help', 'Scholarships',
+                'Parent Communication', 'Library Services', 'Career Guidance', 'Attendance', 'Transport Services'
+            ],
+            'technology': [
+                'Cloud Services', 'Cybersecurity', 'DevOps', 'AI & ML', 'IoT Platforms',
+                'Mobile Apps', 'Web Development', 'Data Analytics', 'Edge Computing', 'APIs & Integration'
+            ],
+        }
+        subs = presets.get(base, [
+            'Customer Support', 'Billing & Payments', 'Account Management', 'Technical Assistance', 'Product Information',
+            'Feedback & Complaints', 'Service Requests', 'Appointment Scheduling', 'Order Tracking', 'FAQ & Help'
+        ])
+        return subs[:n], ''
+
     prompt = f'''
 You are helping design a large-scale synthetic speech dataset for Automatic Speech Recognition (ASR). Your task is to generate subdomains related to {category}.
 
@@ -157,119 +225,65 @@ Return {n} personas, each on a new line.
 
 
 def sample_sub_domain_handler(config: Dict, body: Dict) -> Tuple[Dict, str]:
-    sentence = config.get('sentence', {})
-    category = sentence.get('category', '')
-    instruction = sentence.get('sub_domain_instruction', '')
-    description = sentence.get('description', '')
-    subs, err = generate_sub_domains(category, instruction, 10, description)
+    """
+    Stage 1: Generate sub-domains
+    Calls dmubox-lite external API with the exact payload structure it expects
+    """
+    # dmubox-lite expects: {"config": {...}}
+    payload = {"config": config}
+    result, err = _call_dmubox_api('/sample/sub_domain', payload)
     if err:
         return {}, err
-    return { 'sub_domains': { f'sub_domain_{i}': s for i, s in enumerate(subs) } }, ''
+    return result, ''
 
 
 def sample_topic_and_persona_handler(config: Dict, prompt_config: Dict) -> Tuple[Dict, str]:
-    sentence = config.get('sentence', {})
-    category = sentence.get('category', '')
-    tp_instruction = sentence.get('topic_persona_instruction', '')
-    description = sentence.get('description', '')
-    sub_domains = prompt_config.get('sub_domains', {})
-    topics: Dict[str, Dict] = {}
-    personas: Dict[str, Dict] = {}
-
-    t_idx = 0
-    p_idx = 0
-    for sd_key, sd_value in sub_domains.items():
-        topic_list, err = generate_topics(category, sd_value, tp_instruction, 2, description)
-        if err:
-            return {}, err
-        persona_list, err = generate_personas(category, sd_value, tp_instruction, 2, description)
-        if err:
-            return {}, err
-        for t in topic_list:
-            topics[f'topic_{t_idx}'] = {'topic': t, 'sub_domain': sd_key}
-            t_idx += 1
-        for p in persona_list:
-            personas[f'persona_{p_idx}'] = {'persona': p, 'sub_domain': sd_key}
-            p_idx += 1
-
-    out = { 'sub_domains': sub_domains, 'topics': topics, 'personas': personas }
-    return out, ''
+    """
+    Stage 2: Generate topics and personas
+    Calls dmubox-lite with config + prompt_config
+    """
+    # dmubox-lite expects: {"config": {...}, "prompt_config": {...}}
+    payload = {
+        "config": config,
+        "prompt_config": prompt_config
+    }
+    result, err = _call_dmubox_api('/sample/topic_and_persona', payload)
+    if err:
+        return {}, err
+    return result, ''
 
 
 def sample_scenario_handler(config: Dict, prompt_config: Dict) -> Tuple[Dict, str]:
-    sentence = config.get('sentence', {})
-    category = sentence.get('category', '')
-    sc_instruction = sentence.get('scenario_instruction', '')
-    description = sentence.get('description', '')
-
-    sub_domains = prompt_config.get('sub_domains', {})
-    topics = prompt_config.get('topics', {})
-    personas = prompt_config.get('personas', {})
-
-    scenarios: Dict[str, Dict] = {}
-    s_idx = 0
-    for t_key, p_key in zip(topics.keys(), personas.keys()):
-        t_val = topics[t_key]
-        p_val = personas[p_key]
-        sd_key = t_val.get('sub_domain')
-        sd_value = sub_domains.get(sd_key)
-        topic = t_val.get('topic')
-        persona = p_val.get('persona')
-        sc_list, err = generate_scenarios(category, sd_value, persona, topic, sc_instruction, 2, description)
-        if err:
-            return {}, err
-        for sc in sc_list:
-            scenarios[f'scenario_{s_idx}'] = {
-                'scenario': sc,
-                'topic': t_key,
-                'persona': p_key,
-                'sub_domain': sd_key,
-            }
-            s_idx += 1
-
-    out = {
-        'sub_domains': sub_domains,
-        'topics': topics,
-        'personas': personas,
-        'scenarios': scenarios,
+    """
+    Stage 3: Generate scenarios
+    Calls dmubox-lite with config + prompt_config
+    """
+    payload = {
+        "config": config,
+        "prompt_config": prompt_config
     }
-    return out, ''
+    result, err = _call_dmubox_api('/sample/scenario', payload)
+    if err:
+        return {}, err
+    return result, ''
 
 
 def sample_sentence_handler(config: Dict, prompt_config: Dict) -> Tuple[List[str], str]:
-    sentence = config.get('sentence', {})
-    language = config.get('language', '')
-    description = sentence.get('description', '')
-
-    sub_domains = prompt_config.get('sub_domains', {})
-    topics = prompt_config.get('topics', {})
-    personas = prompt_config.get('personas', {})
-    scenarios = prompt_config.get('scenarios', {})
-
-    all_sentences: List[str] = []
-    for sc in scenarios.values():
-        sc_text = sc.get('scenario', '')
-        t_key = sc.get('topic')
-        p_key = sc.get('persona')
-        sd_key = sc.get('sub_domain')
-
-        topic = topics.get(t_key, {}).get('topic', '')
-        persona = personas.get(p_key, {}).get('persona', '')
-        sub_domain = sub_domains.get(sd_key, '')
-
-        prompt = f'''
-You are an expert text generator for ASR training data. Generate sentences based on the following configurations.
-Language: {language}
-Persona: {persona}
-Sub-Domain: {sub_domain}
-Topic: {topic}
-Scenario: {sc_text}.
-
-Task: Generate 3 unique sentences in {language} that this persona would actually say in this specific situation. {_build_description(description)}
-'''
-        sents, err = _gemini_request(prompt, seed=500)
-        if err:
-            return [], err
-        all_sentences.extend(sents)
-
-    return all_sentences, ''
+    """
+    Stage 4: Generate sample sentences
+    Calls dmubox-lite with config + prompt_config
+    Returns list of sentences (not dict)
+    """
+    payload = {
+        "config": config,
+        "prompt_config": prompt_config
+    }
+    result, err = _call_dmubox_api('/sample/sentence', payload)
+    if err:
+        return [], err
+    
+    # dmubox-lite returns {"sentences": {...}}
+    # Extract to list format
+    sentences_dict = result.get('sentences', {})
+    sentences_list = list(sentences_dict.values())
+    return sentences_list, ''
