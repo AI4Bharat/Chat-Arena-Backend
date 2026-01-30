@@ -1,3 +1,4 @@
+from datetime import datetime
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -94,11 +95,13 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
     
     def _get_academic_tts_votes_count(self, user):
         """Get count of detailed votes submitted in TTS Academic mode"""
+        cutoff_date = timezone.make_aware(datetime(2026, 1, 28, 0, 0, 0))
         return Feedback.objects.filter(
             user=user,
             session__mode='academic',
             session__session_type='TTS',
-            additional_feedback_json__isnull=False
+            additional_feedback_json__isnull=False,
+            created_at__gte=cutoff_date
         ).exclude(
             additional_feedback_json={}
         ).count()
