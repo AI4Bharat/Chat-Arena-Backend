@@ -101,7 +101,8 @@ def generate_sentence_pipeline(config: Config, payload: Dict = None) -> Tuple[Li
 
 def _generate_sentences_with_gemini(config: Config) -> Tuple[List[str], str]:
     """
-    Call Gemini API to generate sentences
+    Call remote PAI server to generate sentences
+    (Previously called Gemini API directly, now delegates to dmubox server)
     
     Args:
         config: Dataset configuration
@@ -110,67 +111,56 @@ def _generate_sentences_with_gemini(config: Config) -> Tuple[List[str], str]:
         Tuple of (sentences list, error message)
     """
     try:
-        api_key = os.getenv('GEMINI_API_KEY')
-        if not api_key:
-            return [], "GEMINI_API_KEY environment variable not set"
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL')
+        if not pai_server_url:
+            return [], "SYNTHETIC_ASR_PAI_SERVER_URL environment variable not set"
         
-        prompt = _build_sentence_prompt(config)
+        # Build request payload for PAI server
+        # The PAI server will handle calling Gemini on its end
+        payload = {
+            'language': config.language,
+            'category': config.sentence_config.category,
+            'style': config.sentence_config.style,
+            'description': config.sentence_config.description,
+            'entities': config.sentence_config.entities,
+            'size': config.size,
+            'topic_persona_instruction': config.sentence_config.topic_persona_instruction,
+            'sub_domain_instruction': config.sentence_config.sub_domain_instruction,
+            'scenario_instruction': config.sentence_config.scenario_instruction
+        }
         
+        # Call the remote PAI server's sentence generation endpoint
         headers = {
-            'x-goog-api-key': api_key,
             'Content-Type': 'application/json'
         }
         
-        body = {
-            'contents': [{
-                'parts': [{'text': prompt}]
-            }],
-            'generationConfig': {
-                'seed': 500,  # Fixed seed for reproducibility
-                'responseMimeType': 'application/json',
-                'responseJsonSchema': {
-                    'type': 'object',
-                    'properties': {
-                        'sentences': {
-                            'type': 'array',
-                            'items': {'type': 'string'}
-                        }
-                    },
-                    'required': ['sentences']
-                }
-            }
-        }
+        # Parse URL to separate host and path
+        from urllib.parse import urlparse
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
         
         result, err = http_utils.make_post_request(
-            'generativelanguage.googleapis.com',
-            '/v1beta/models/gemini-2.5-flash:generateContent',
+            host,
+            '/pai/generate-sentences',  # Adjust endpoint path as needed
             headers,
-            body
+            payload
         )
         
         if err:
-            return [], f"Gemini API error: {err}"
+            return [], f"PAI server error: {err}"
         
         # Parse response
         sentences = []
         if isinstance(result, dict):
-            candidates = result.get('candidates', [])
-            for candidate in candidates:
-                content = candidate.get('content', {})
-                parts = content.get('parts', [])
-                for part in parts:
-                    text = part.get('text', '')
-                    if text:
-                        try:
-                            data = json.loads(text)
-                            sentences.extend(data.get('sentences', []))
-                        except json.JSONDecodeError:
-                            pass
+            sentences = result.get('sentences', [])
+        
+        if not sentences:
+            return [], "PAI server returned no sentences"
         
         return sentences, ""
         
     except Exception as e:
-        return [], f"Exception calling Gemini API: {str(e)}"
+        return [], f"Exception calling PAI server: {str(e)}"
 
 
 def _build_sentence_prompt(config: Config) -> str:

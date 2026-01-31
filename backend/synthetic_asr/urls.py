@@ -9,4 +9,6 @@ urlpatterns = [
     path('pai/create', views.create_dataset_job, name='pai-create'),
     path('pai/jobs', views.list_jobs, name='pai-jobs'),
     path('pai/status/<str:job_id>', views.job_status, name='pai-status'),
+    path('pai/job/<str:job_id>', views.get_job_dataset, name='pai-job-dataset'),
+    path('pai/audio/<str:audio_id>', views.get_audio_file, name='pai-audio-file'),
 ]

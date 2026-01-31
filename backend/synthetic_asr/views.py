@@ -8,6 +8,9 @@ from rest_framework.permissions import IsAuthenticated
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
 
 import json
+import os
+import http.client
+from urllib.parse import urlparse
 
 from .models import Job
 from .engine import (
@@ -302,3 +305,92 @@ def list_jobs(request):
     except Exception as e:
         return _error(f'Failed to fetch jobs: {str(e)}', 400)
 
+
+@api_view(["GET"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def get_job_dataset(request, job_id: str):
+    """
+    Proxy endpoint to fetch the generated audio dataset from PAI server (ngrok).
+    This bypasses CORS issues by doing server-to-server communication.
+    """
+    try:
+        # Get PAI server URL from environment
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+        if not pai_server_url:
+            return _error('PAI server URL not configured', 500)
+        
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
+        scheme = parsed_url.scheme
+        
+        # Make request to PAI server
+        if scheme == 'https':
+            conn = http.client.HTTPSConnection(host)
+        else:
+            conn = http.client.HTTPConnection(host)
+        
+        headers = {
+            'ngrok-skip-browser-warning': 'true'
+        }
+        
+        path = f'/pai/job/{job_id}'
+        conn.request('GET', path, headers=headers)
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        
+        if resp.status != 200:
+            error_text = data.decode('utf-8')
+            return _error(f'PAI server error: {error_text}', resp.status)
+        
+        # Return the JSON data from PAI server
+        return HttpResponse(data, status=200, content_type='application/json')
+    
+    except Exception as e:
+        return _error(f'Error fetching dataset: {str(e)}', 500)
+
+
+@api_view(["GET"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def get_audio_file(request, audio_id: str):
+    """
+    Proxy endpoint to fetch individual audio file from PAI server (ngrok).
+    Returns the audio file as a response.
+    """
+    try:
+        # Get PAI server URL from environment
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+        if not pai_server_url:
+            return _error('PAI server URL not configured', 500)
+        
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
+        scheme = parsed_url.scheme
+        
+        # Make request to PAI server
+        if scheme == 'https':
+            conn = http.client.HTTPSConnection(host)
+        else:
+            conn = http.client.HTTPConnection(host)
+        
+        headers = {
+            'ngrok-skip-browser-warning': 'true'
+        }
+        
+        path = f'/pai/audio/{audio_id}'
+        conn.request('GET', path, headers=headers)
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        
+        if resp.status != 200:
+            error_text = data.decode('utf-8') if data else 'Audio not found'
+            return _error(f'PAI server error: {error_text}', resp.status)
+        
+        # Return the audio file
+        return HttpResponse(data, status=200, content_type='audio/wav')
+    
+    except Exception as e:
+        return _error(f'Error fetching audio: {str(e)}', 500)

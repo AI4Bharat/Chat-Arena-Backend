@@ -2,25 +2,37 @@ import os
 import json
 import http.client
 from typing import Dict, List, Tuple
+from urllib.parse import urlparse
 
-# External API configuration - dmubox-lite service
-DMUBOX_API_HOST = os.getenv('DMUBOX_API_HOST', 'dmubox-lite.centralindia.cloudapp.azure.com')
-DMUBOX_API_BASE_PATH = '/pai'
+# External API configuration - PAI server (ngrok tunnel)
+PAI_SERVER_URL = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+if not PAI_SERVER_URL:
+    raise ValueError("SYNTHETIC_ASR_PAI_SERVER_URL environment variable not set")
+
+parsed_url = urlparse(PAI_SERVER_URL)
+PAI_HOST = parsed_url.netloc
+PAI_SCHEME = parsed_url.scheme  # 'http' or 'https'
+PAI_BASE_PATH = '/pai'
 
 
-def _call_dmubox_api(endpoint: str, payload: Dict) -> Tuple[Dict, str]:
+def _call_pai_server(endpoint: str, payload: Dict) -> Tuple[Dict, str]:
     """
-    Call dmubox-lite external API service.
+    Call PAI server (ngrok tunnel to synthetic-benchmarks).
     """
     try:
-        conn = http.client.HTTPSConnection(DMUBOX_API_HOST)
-        headers = {'Content-Type': 'application/json'}
+        # Use HTTP or HTTPS based on URL scheme
+        if PAI_SCHEME == 'https':
+            conn = http.client.HTTPSConnection(PAI_HOST)
+        else:
+            conn = http.client.HTTPConnection(PAI_HOST)
         
-        # Add auth headers if available (Firebase token)
-        # For now, dmubox-lite might not require auth
+        headers = {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true'  # CRITICAL for ngrok tunnels
+        }
         
         body = json.dumps(payload)
-        path = f'{DMUBOX_API_BASE_PATH}{endpoint}'
+        path = f'{PAI_BASE_PATH}{endpoint}'
         
         conn.request('POST', path, body=body, headers=headers)
         resp = conn.getresponse()
@@ -29,12 +41,12 @@ def _call_dmubox_api(endpoint: str, payload: Dict) -> Tuple[Dict, str]:
         
         if resp.status != 200:
             error_text = data.decode('utf-8')
-            return {}, f'dmubox-lite API error ({resp.status}): {error_text}'
+            return {}, f'PAI server error ({resp.status}): {error_text}'
         
         result = json.loads(data.decode('utf-8'))
         return result, ''
     except Exception as e:
-        return {}, f'Error calling dmubox-lite API: {str(e)}'
+        return {}, f'Error calling PAI server: {str(e)}'
 
 
 def _gemini_request(prompt: str, seed: int) -> Tuple[List[str], str]:
@@ -227,11 +239,11 @@ Return {n} personas, each on a new line.
 def sample_sub_domain_handler(config: Dict, body: Dict) -> Tuple[Dict, str]:
     """
     Stage 1: Generate sub-domains
-    Calls dmubox-lite external API with the exact payload structure it expects
+    Calls PAI server with the exact payload structure it expects
     """
-    # dmubox-lite expects: {"config": {...}}
+    # PAI server expects: {"config": {...}}
     payload = {"config": config}
-    result, err = _call_dmubox_api('/sample/sub_domain', payload)
+    result, err = _call_pai_server('/sample/sub_domain', payload)
     if err:
         return {}, err
     return result, ''
@@ -240,14 +252,14 @@ def sample_sub_domain_handler(config: Dict, body: Dict) -> Tuple[Dict, str]:
 def sample_topic_and_persona_handler(config: Dict, prompt_config: Dict) -> Tuple[Dict, str]:
     """
     Stage 2: Generate topics and personas
-    Calls dmubox-lite with config + prompt_config
+    Calls PAI server with config + prompt_config
     """
-    # dmubox-lite expects: {"config": {...}, "prompt_config": {...}}
+    # PAI server expects: {"config": {...}, "prompt_config": {...}}
     payload = {
         "config": config,
         "prompt_config": prompt_config
     }
-    result, err = _call_dmubox_api('/sample/topic_and_persona', payload)
+    result, err = _call_pai_server('/sample/topic_and_persona', payload)
     if err:
         return {}, err
     return result, ''
@@ -256,13 +268,13 @@ def sample_topic_and_persona_handler(config: Dict, prompt_config: Dict) -> Tuple
 def sample_scenario_handler(config: Dict, prompt_config: Dict) -> Tuple[Dict, str]:
     """
     Stage 3: Generate scenarios
-    Calls dmubox-lite with config + prompt_config
+    Calls PAI server with config + prompt_config
     """
     payload = {
         "config": config,
         "prompt_config": prompt_config
     }
-    result, err = _call_dmubox_api('/sample/scenario', payload)
+    result, err = _call_pai_server('/sample/scenario', payload)
     if err:
         return {}, err
     return result, ''
@@ -271,18 +283,18 @@ def sample_scenario_handler(config: Dict, prompt_config: Dict) -> Tuple[Dict, st
 def sample_sentence_handler(config: Dict, prompt_config: Dict) -> Tuple[List[str], str]:
     """
     Stage 4: Generate sample sentences
-    Calls dmubox-lite with config + prompt_config
+    Calls PAI server with config + prompt_config
     Returns list of sentences (not dict)
     """
     payload = {
         "config": config,
         "prompt_config": prompt_config
     }
-    result, err = _call_dmubox_api('/sample/sentence', payload)
+    result, err = _call_pai_server('/sample/sentence', payload)
     if err:
         return [], err
     
-    # dmubox-lite returns {"sentences": {...}}
+    # PAI server returns {"sentences": {...}}
     # Extract to list format
     sentences_dict = result.get('sentences', {})
     sentences_list = list(sentences_dict.values())
