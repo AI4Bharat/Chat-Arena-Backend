@@ -93,6 +93,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "leaderboards",
+    "synthetic_asr",
 ]
 
 MIDDLEWARE = [
@@ -169,6 +170,19 @@ CORS_ALLOW_HEADERS = [
     'x-anonymous-token',
 ]
 
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'x-csrftoken',
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
