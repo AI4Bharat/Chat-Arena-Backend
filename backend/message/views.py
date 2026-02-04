@@ -128,7 +128,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     else:
                         assistant_message_b = message
         
-        if session.mode == 'random' or session.mode == 'academic':
+        if session.mode == 'random':
             if 'assistant_message_a' in locals() and session.model_a_id:
                 assistant_message_a['modelId'] = session.model_a_id
             if 'assistant_message_b' in locals() and session.model_b_id:
@@ -720,6 +720,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                     session.model_a = selected_prompt.model_a
                     session.model_b = selected_prompt.model_b
                     session.save(update_fields=['model_a', 'model_b'])
+
+                    assistant_message_a.model_id = selected_prompt.model_a
+                    assistant_message_b.model_id = selected_prompt.model_b
 
                     # Update user message with the selected prompt and store prompt ID in metadata
                     user_message.content = selected_prompt.text
