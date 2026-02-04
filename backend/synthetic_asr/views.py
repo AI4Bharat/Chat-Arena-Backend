@@ -157,6 +157,8 @@ def create_dataset_job(request):
         return _error('Config was not send', 422)
 
     job_id = _ensure_numeric_job_id(config_dict)
+    # Ensure is_sample is always False for final jobs
+    config_dict['is_sample'] = False
 
     # Store job in Django DB
     try:
