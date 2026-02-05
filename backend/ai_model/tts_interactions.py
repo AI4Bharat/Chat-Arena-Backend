@@ -16,6 +16,7 @@ import numpy as np
 import librosa
 from scipy.io.wavfile import write as scipy_wav_write
 import io
+import json
 
 misc_tts_url = os.getenv("MISC_TTS_API_URL")
 indo_aryan_tts_url = os.getenv("INDO_ARYAN_TTS_API_URL")
@@ -411,29 +412,38 @@ def get_cartesia_tts_output(tts_input, model, gender, voice=None, log_context=No
     except Exception as e:
         log_and_raise(e, model_code=model, provider='cartesia', custom_message=f"Cartesia TTS error: {str(e)}", log_context=log_context)
 
-def get_indicf5_tts_output(tts_input, model, gender, voice=None, log_context=None):
+def get_indicf5_tts_output(tts_input, lang, model, gender, voice=None, log_context=None):
+    import json
     INDICF5_ENDPOINT = os.getenv("INDICF5_ENDPOINT")
-    TARGET_SAMPLING_RATE = 24000
-
-    REF_AUDIO = {
-        "male": os.getenv("INDICF5_REF_AUDIO_MALE"),
-        "female": os.getenv("INDICF5_REF_AUDIO_FEMALE")
-    }
-    REF_TRANSCRIPT = {
-        "male": os.getenv("INDICF5_REF_TRANSCRIPT_MALE", ""),
-        "female": os.getenv("INDICF5_REF_TRANSCRIPT_FEMALE", "")
-    }
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    INDICF5_AUDIO_BASE = os.path.join(backend_dir, "academic_prompts", "indicF5Audios")
 
     try:
         if voice:
             ref_audio_path = voice
             ref_transcript = ""
+            sampling_rate = 24000
         else:
-            ref_audio_path = REF_AUDIO.get(gender.lower())
-            ref_transcript = REF_TRANSCRIPT.get(gender.lower(), "")
+            lang_name = LANG_CODE_TO_NAME.get(lang, lang)
+            jsonl_path = os.path.join(INDICF5_AUDIO_BASE, lang_name, "train.jsonl")
 
-        if not ref_audio_path:
-            raise Exception(f"No reference audio configured for gender: {gender}")
+            if not os.path.exists(jsonl_path):
+                raise Exception(f"Reference audio data not found for language: {lang} ({lang_name}) at {jsonl_path}")
+
+            matching_entries = []
+            with open(jsonl_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    entry = json.loads(line.strip())
+                    if entry.get('gender', '').lower() == gender.lower():
+                        matching_entries.append(entry)
+
+            if not matching_entries:
+                raise Exception(f"No reference audio found for language: {lang} ({lang_name}), gender: {gender}")
+
+            selected_entry = random.choice(matching_entries)
+            ref_audio_path = os.path.join(INDICF5_AUDIO_BASE, lang_name, selected_entry['audio_filepath'])
+            ref_transcript = selected_entry['text']
+            sampling_rate = 24000
 
         import gevent.ssl
         triton_client = http_client.InferenceServerClient(
@@ -450,7 +460,7 @@ def get_indicf5_tts_output(tts_input, model, gender, voice=None, log_context=Non
             return inp
 
         def make_audio_input(path, name):
-            audio, _ = librosa.load(path, sr=TARGET_SAMPLING_RATE)
+            audio, _ = librosa.load(path, sr=sampling_rate)
             audio = audio.astype(np.float32)
             inp = http_client.InferInput(name, audio.shape, "FP32")
             inp.set_data_from_numpy(audio)
@@ -475,7 +485,7 @@ def get_indicf5_tts_output(tts_input, model, gender, voice=None, log_context=Non
             generated_audio = generated_audio.squeeze()
 
         wav_buffer = io.BytesIO()
-        scipy_wav_write(wav_buffer, TARGET_SAMPLING_RATE, generated_audio)
+        scipy_wav_write(wav_buffer, sampling_rate, generated_audio)
 
         audio_base64 = base64.b64encode(wav_buffer.getvalue()).decode("utf-8")
         return upload_tts_audio(audio_base64)
@@ -503,7 +513,7 @@ def get_tts_output(tts_input, lang, model, gender=None, voice=None, **kwargs):
     elif model.startswith("sonic"):
         out = get_cartesia_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("indicf5"):
-        out = get_indicf5_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
+        out = get_indicf5_tts_output(tts_input, lang, model, gender, voice=voice, log_context=log_context)
     elif model.startswith("eleven"):
         out = get_elevenlabs_tts_output(tts_input, model, gender, voice=voice, log_context=log_context)
     return out
