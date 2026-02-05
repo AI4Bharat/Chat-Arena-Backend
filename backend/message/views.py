@@ -116,6 +116,10 @@ class MessageViewSet(viewsets.ModelViewSet):
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
 
+        RESTRICTED_MODELS = ['claude-opus-4-5', 'claude-opus-4-5-thinking']
+        model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.model_code in RESTRICTED_MODELS
+        model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.model_code in RESTRICTED_MODELS
+
         for message in serializer.validated_data:
             if message['role'] == 'user':
                 user_message = message
@@ -177,6 +181,16 @@ class MessageViewSet(viewsets.ModelViewSet):
             db_alias = session._state.db
             
             if session.mode == 'direct':
+                if model_a_restricted:
+                    assistant_message.status = 'error'
+                    assistant_message.save(using=db_alias)
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": "This model is no longer available in this mode.",
+                    }
+                    yield f"ad:{json.dumps(error_payload)}\n"
+                    return
+
                 try:
                     history = MessageService._get_conversation_history(session)
                     # Remove the last message (current user message) from history to avoid duplication
@@ -268,6 +282,17 @@ class MessageViewSet(viewsets.ModelViewSet):
                 chunk_queue = queue.Queue()
         
                 def stream_model_a():
+                    if model_a_restricted:
+                        assistant_message_a.status = 'error'
+                        assistant_message_a.save(using=db_alias)
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": "This model is no longer available in this mode.",
+                        }
+                        chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
+                        chunk_queue.put(('a', None))
+                        return
+
                     chunks_a = []
                     start_time_a = time.time()
                     try:
@@ -360,6 +385,17 @@ class MessageViewSet(viewsets.ModelViewSet):
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
+                    if model_b_restricted:
+                        assistant_message_b.status = 'error'
+                        assistant_message_b.save(using=db_alias)
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": "This model is no longer available in this mode.",
+                        }
+                        chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
+                        chunk_queue.put(('b', None))
+                        return
+
                     chunks_b = []
                     start_time_b = time.time()
                     try:
