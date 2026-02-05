@@ -224,7 +224,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
                                 context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                transcription = get_asr_output(audio_url, language, context=context)
+                                transcription = get_asr_output(audio_url, language, log_context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -316,7 +316,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
                                     context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                    transcription = get_asr_output(audio_url, language, context=context)
+                                    transcription = get_asr_output(audio_url, language, log_context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -408,7 +408,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
                                     context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                    transcription = get_asr_output(audio_url, language, context=context)
+                                    transcription = get_asr_output(audio_url, language, log_context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -486,7 +486,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # history.pop()
 
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, log_context=context)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output}"\n'
                     
@@ -514,7 +514,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
-                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
+                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, log_context=context)
                         chunk_queue.put(('a', f'a0:"{output_a}"\n'))
                         
                         assistant_message_a.content = output_a
@@ -542,7 +542,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
-                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code, context=context)
+                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code, log_context=context)
                         chunk_queue.put(('b', f'b0:"{output_b}"\n'))
                         
                         assistant_message_b.content = output_b
@@ -827,7 +827,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
                                 context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                transcription = get_asr_output(audio_url, language, context=context)
+                                transcription = get_asr_output(audio_url, language, log_context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -877,7 +877,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code, context=context)
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code, log_context=context)
                     yield f'{participant}0:"{output}"\n'
                     
                     assistant_message.content = output
@@ -1253,6 +1253,7 @@ class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, target_language, data, *args, **kwargs):
+        target_language = "hi" if target_language == 'bhi' else target_language
         response_transliteration = requests.get(
             os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
             headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
@@ -1298,6 +1299,7 @@ class TranscribeAPIView(APIView):
         data = request.data
         audio_base64 = data.get("audioBase64")
         lang = data.get("lang", "hi")
+        lang = "hi" if lang == 'bhi' else lang
         mp3_base64 = convert_audio_base64_to_mp3(audio_base64)
 
         chunk_data = {
