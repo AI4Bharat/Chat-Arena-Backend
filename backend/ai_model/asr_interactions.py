@@ -77,7 +77,7 @@ def get_openai_asr_output(audio_url, lang, model, log_context=None):
 
 
 def get_sarvam_asr_output(audio_url, lang, model, log_context=None):
-    api_key = os.getenv("SARVAM_API_KEY", "")
+    api_key = os.getenv("SARVAM_M_API_KEY", "")
     try:
         audio_response = requests.get(audio_url, timeout=60)
         audio_response.raise_for_status()
