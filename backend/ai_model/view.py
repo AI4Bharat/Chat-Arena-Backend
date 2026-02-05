@@ -55,6 +55,9 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 model_code__in=['elevenlabs', 'indicparlertts']
             )
         
+        if mode != 'random':
+            queryset = queryset.exclude(model_code__in=['claude-opus-4-5', 'claude-opus-4-5-thinking'])
+        
         # Filter by provider
         provider = self.request.query_params.get('provider')
         if provider:
