@@ -89,3 +89,26 @@ class Leaderboard(models.Model):
 
     def __str__(self):
         return f"{self.benchmark_name} ({self.language}) - {self.get_arena_type_display()}"
+    
+
+class LeaderboardDrilldown(models.Model):
+    leaderboard = models.ForeignKey(
+        Leaderboard, 
+        on_delete=models.CASCADE, 
+        related_name='drilldowns'
+    )
+    model_name = models.CharField(
+        max_length=255, 
+        help_text="Matches the model key in the leaderboard_json"
+    )
+    
+    domain_summary = models.JSONField(default=list, blank=True)
+    benchmark_breakdown = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        unique_together = ('leaderboard', 'model_name')
+        verbose_name = "Leaderboard Drilldown"
+        verbose_name_plural = "Leaderboard Drilldowns"
+
+    def __str__(self):
+        return f"{self.model_name} - {self.leaderboard.benchmark_name}"
