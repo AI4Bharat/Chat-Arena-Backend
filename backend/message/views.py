@@ -116,7 +116,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
 
-        RESTRICTED_MODELS = ['claude-opus-4-5', 'claude-opus-4-5-thinking']
+        RESTRICTED_MODELS = ['claude-opus-4-5', 'claude-opus-4-5-thinking', 'claude-opus-4-6', 'claude-opus-4-6-thinking']
         model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.model_code in RESTRICTED_MODELS
         model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.model_code in RESTRICTED_MODELS
 
