@@ -336,7 +336,9 @@ def get_job_dataset(request, job_id: str):
             'ngrok-skip-browser-warning': 'true'
         }
         
-        path = f'/pai/job/{job_id}'
+        # Get limit from query params, default to 50
+        limit = request.GET.get('limit', '50')
+        path = f'/pai/job/{job_id}?limit={limit}'
         conn.request('GET', path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
