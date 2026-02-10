@@ -292,59 +292,59 @@ services:
       - MALLOC_TRIM_THRESHOLD_=65536
 
   # =============================================================================
-  # CELERY WORKERS (Uncomment when needed)
+  # CELERY WORKERS
   # =============================================================================
-  # celery-default:
-  #   build: ./backend
-  #   container_name: celery-default
-  #   command: celery -A arena_backend.celery worker -Q default --concurrency=4 --loglevel=info
-  #   volumes:
-  #     - ./backend/:/usr/src/backend/
-  #     - logs_vol:/logs
-  #   env_file:
-  #     - ./config.env
-  #   environment:
-  #     - REDIS_HOST=redis
-  #     - REDIS_PORT=6379
-  #     - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #   restart: unless-stopped
-  #   networks:
-  #     - arena-network
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: '1.0'
-  #         memory: 2048M
-  #       reservations:
-  #         cpus: '0.5'
-  #         memory: 1024M
+  celery-default:
+    build: ./backend
+    container_name: celery-default
+    command: celery -A arena_backend.celery worker -Q default --concurrency=4 --loglevel=info
+    volumes:
+      - ./backend/:/usr/src/backend/
+      - logs_vol:/logs
+    env_file:
+      - ./config.env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - arena-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2048M
+        reservations:
+          cpus: '0.5'
+          memory: 1024M
 
-  # celery-beat:
-  #   build: ./backend
-  #   container_name: celery-beat
-  #   command: celery -A arena_backend.celery beat --loglevel=info
-  #   volumes:
-  #     - ./backend/:/usr/src/backend/
-  #   env_file:
-  #     - ./config.env
-  #   environment:
-  #     - REDIS_HOST=redis
-  #     - REDIS_PORT=6379
-  #     - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #   restart: unless-stopped
-  #   networks:
-  #     - arena-network
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: '0.25'
-  #         memory: 512M
+  celery-beat:
+    build: ./backend
+    container_name: celery-beat
+    command: celery -A arena_backend.celery beat --loglevel=info
+    volumes:
+      - ./backend/:/usr/src/backend/
+    env_file:
+      - ./config.env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - arena-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
 
 networks:
   arena-network:
