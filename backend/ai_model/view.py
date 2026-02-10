@@ -6,6 +6,7 @@ from django.http import StreamingHttpResponse
 from django.db.models import Q, Count, Avg
 import json
 import asyncio
+import os
 
 from model_metrics.models import AIModel, ModelMetric
 from ai_model.serializers import (
@@ -56,7 +57,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
             )
         
         if mode != 'random':
-            queryset = queryset.exclude(model_code__in=['claude-opus-4-5', 'claude-opus-4-5-thinking', 'claude-opus-4-6', 'claude-opus-4-6-thinking'])
+            queryset = queryset.exclude(model_code__in=os.environ.get('RESTRICTED_MODELS', '').split(','))
         
         # Filter by provider
         provider = self.request.query_params.get('provider')
