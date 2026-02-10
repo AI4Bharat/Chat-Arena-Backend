@@ -116,6 +116,10 @@ class MessageViewSet(viewsets.ModelViewSet):
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
 
+        RESTRICTED_MODELS = os.environ.get('RESTRICTED_MODELS', '').split(',')
+        model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.model_code in RESTRICTED_MODELS
+        model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.model_code in RESTRICTED_MODELS
+
         for message in serializer.validated_data:
             if message['role'] == 'user':
                 user_message = message
@@ -128,7 +132,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     else:
                         assistant_message_b = message
         
-        if session.mode == 'random' or session.mode == 'academic':
+        if session.mode == 'random':
             if 'assistant_message_a' in locals() and session.model_a_id:
                 assistant_message_a['modelId'] = session.model_a_id
             if 'assistant_message_b' in locals() and session.model_b_id:
@@ -177,6 +181,16 @@ class MessageViewSet(viewsets.ModelViewSet):
             db_alias = session._state.db
             
             if session.mode == 'direct':
+                if model_a_restricted:
+                    assistant_message.status = 'error'
+                    assistant_message.save(using=db_alias)
+                    error_payload = {
+                        "finishReason": "error",
+                        "error": "This model is no longer available in this mode.",
+                    }
+                    yield f"ad:{json.dumps(error_payload)}\n"
+                    return
+
                 try:
                     history = MessageService._get_conversation_history(session)
                     # Remove the last message (current user message) from history to avoid duplication
@@ -224,7 +238,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
                                 context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                transcription = get_asr_output(audio_url, language, context=context)
+                                transcription = get_asr_output(audio_url, language, log_context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -268,6 +282,17 @@ class MessageViewSet(viewsets.ModelViewSet):
                 chunk_queue = queue.Queue()
         
                 def stream_model_a():
+                    if model_a_restricted:
+                        assistant_message_a.status = 'error'
+                        assistant_message_a.save(using=db_alias)
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": "This model is no longer available in this mode.",
+                        }
+                        chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
+                        chunk_queue.put(('a', None))
+                        return
+
                     chunks_a = []
                     start_time_a = time.time()
                     try:
@@ -316,7 +341,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
                                     context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                    transcription = get_asr_output(audio_url, language, context=context)
+                                    transcription = get_asr_output(audio_url, language, log_context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -360,6 +385,17 @@ class MessageViewSet(viewsets.ModelViewSet):
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
+                    if model_b_restricted:
+                        assistant_message_b.status = 'error'
+                        assistant_message_b.save(using=db_alias)
+                        error_payload = {
+                            "finishReason": "error",
+                            "error": "This model is no longer available in this mode.",
+                        }
+                        chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
+                        chunk_queue.put(('b', None))
+                        return
+
                     chunks_b = []
                     start_time_b = time.time()
                     try:
@@ -408,7 +444,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                     language = getattr(user_message, 'language', None) or 'en'
                                     audio_url = generate_signed_url(user_message.audio_path, 120)
                                     context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                    transcription = get_asr_output(audio_url, language, context=context)
+                                    transcription = get_asr_output(audio_url, language, log_context=context)
                                     user_message.metadata['audio_transcription'] = transcription
                                     user_message.save(update_fields=['metadata'])
                                 
@@ -486,7 +522,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # history.pop()
 
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, log_context=context)
                     # escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
                     yield f'a0:"{output}"\n'
                     
@@ -514,7 +550,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # history = MessageService._get_conversation_history(session, 'a')
                         # history.pop()
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
-                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, context=context)
+                        output_a = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_a.model_code, log_context=context)
                         chunk_queue.put(('a', f'a0:"{output_a}"\n'))
                         
                         assistant_message_a.content = output_a
@@ -542,7 +578,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # history = MessageService._get_conversation_history(session, 'b')
                         # history.pop()
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
-                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code, context=context)
+                        output_b = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=session.model_b.model_code, log_context=context)
                         chunk_queue.put(('b', f'b0:"{output_b}"\n'))
                         
                         assistant_message_b.content = output_b
@@ -608,6 +644,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                     session.model_a = selected_prompt.model_a
                     session.model_b = selected_prompt.model_b
                     session.save(update_fields=['model_a', 'model_b'])
+
+                    assistant_message_a.model_id = selected_prompt.model_a
+                    assistant_message_b.model_id = selected_prompt.model_b
 
                     # Update user message with the selected prompt and store prompt ID in metadata
                     user_message.content = selected_prompt.text
@@ -824,7 +863,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                                 language = getattr(user_message, 'language', None) or 'en'
                                 audio_url = generate_signed_url(user_message.audio_path, 120)
                                 context = {'session_id': str(session.id), 'message_id': str(user_message.id), 'user_email': getattr(request.user, 'email', None)}
-                                transcription = get_asr_output(audio_url, language, context=context)
+                                transcription = get_asr_output(audio_url, language, log_context=context)
                                 user_message.metadata['audio_transcription'] = transcription
                                 user_message.save(update_fields=['metadata'])
                             
@@ -874,7 +913,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 try:
                     model = session.model_a if participant == 'a' else session.model_b
                     context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
-                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code, context=context)
+                    output = get_asr_output(generate_signed_url(user_message.audio_path, 120), user_message.language, model=model.model_code, log_context=context)
                     yield f'{participant}0:"{output}"\n'
                     
                     assistant_message.content = output
@@ -1250,6 +1289,7 @@ class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, target_language, data, *args, **kwargs):
+        target_language = "hi" if target_language == 'bhi' else target_language
         response_transliteration = requests.get(
             os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
             headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
@@ -1295,6 +1335,7 @@ class TranscribeAPIView(APIView):
         data = request.data
         audio_base64 = data.get("audioBase64")
         lang = data.get("lang", "hi")
+        lang = "hi" if lang == 'bhi' else lang
         mp3_base64 = convert_audio_base64_to_mp3(audio_base64)
 
         chunk_data = {

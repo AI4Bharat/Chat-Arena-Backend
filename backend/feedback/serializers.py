@@ -157,8 +157,9 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
         except Message.DoesNotExist:
             raise serializers.ValidationError("User Message not found")
 
-        # Handle preference-based feedback (compare modes)
-        if feedback_type == 'preference':
+        is_detailed_feedback = bool(validated_data.get('additional_feedback_json'))
+
+        if feedback_type == 'preference' and not is_detailed_feedback:
             for modelMessage in userMessage.child_ids:
                 modelMessageObj = Message.objects.get(id=modelMessage)
                 if modelMessageObj.participant == 'a':
@@ -209,25 +210,29 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
                 defaults=validated_data
             )
 
-            # Only update message feedback field on initial creation
-            if created and preference:
-                userMessage.feedback = preference
-                userMessage.save()
+            message_update_fields = []
 
-            # If additional_feedback_json is provided, mark that detailed feedback has been submitted
-            if validated_data.get('additional_feedback_json'):
+            # Update message feedback field when preference is provided
+            if preference and not is_detailed_feedback:
+                userMessage.feedback = preference
+                message_update_fields.append('feedback')
+
+            if is_detailed_feedback:
                 userMessage.has_detailed_feedback = True
-                userMessage.save()
-                
+                message_update_fields.append('has_detailed_feedback')
+
                 # For academic mode, increment the academic prompt's usage count on detailed feedback
                 if session.mode == 'academic' and userMessage.metadata:
                     academic_prompt_id = userMessage.metadata.get('academic_prompt_id')
                     if academic_prompt_id:
                         try:
-                            academic_prompt = AcademicPrompt.objects.get(id=academic_prompt_id)
+                            academic_prompt = AcademicPrompt.objects.select_for_update().get(id=academic_prompt_id)
                             academic_prompt.increment_usage()
                         except AcademicPrompt.DoesNotExist:
                             pass
+
+            if message_update_fields:
+                userMessage.save(update_fields=message_update_fields)
 
         # Trigger analytics update
         # FeedbackAnalyticsService.process_new_feedback(feedback)

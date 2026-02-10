@@ -28,7 +28,7 @@ class AcademicPromptBulkCreateSerializer(serializers.Serializer):
     prompts = serializers.ListField(
         child=serializers.DictField(),
         min_length=1,
-        max_length=100,
+        max_length=10000,
         help_text="List of prompts to create"
     )
 
