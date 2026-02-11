@@ -1,32 +1,70 @@
-FROM python:3.13.7
+﻿# Multi-stage Dockerfile for Chat-Arena-Backend
+# Supports both WSGI and ASGI deployments
 
-WORKDIR /usr/src/backend
+# ============================================================================
+# STAGE 1: BASE IMAGE
+# ============================================================================
+FROM python:3.11-slim as base
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
 
-RUN pip install --upgrade pip
-
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    pkg-config \
-    python3-dev \
-    libcairo2-dev \
-    libgirepository1.0-dev \
-    gir1.2-glib-2.0 \
-    build-essential \
-    meson \
-    cmake \
-    ffmpeg \
+    gcc \
+    g++ \
+    postgresql-client \
+    libpq-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./deploy/requirements.txt /usr/src/backend/requirements.txt
-RUN pip install --default-timeout=200 -r requirements.txt
+# Create app user
+RUN useradd -m -u 1000 arena && \
+    mkdir -p /app && \
+    chown -R arena:arena /app
 
-COPY ./entrypoint.sh /usr/src/backend/entrypoint.sh
+WORKDIR /app
 
-COPY . /usr/src/backend/
+# ============================================================================
+# STAGE 2: DEPENDENCIES
+# ============================================================================
+FROM base as dependencies
 
-RUN ["chmod", "+x", "/usr/src/backend/entrypoint.sh"]
+# Copy requirements
+COPY --chown=arena:arena requirements.txt .
 
-ENTRYPOINT ["sh", "/usr/src/backend/entrypoint.sh"]
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt && \
+    pip install gunicorn uvicorn[standard] uvloop httptools
+
+# ============================================================================
+# STAGE 3: APPLICATION
+# ============================================================================
+FROM dependencies as application
+
+# Switch to app user
+USER arena
+
+# Copy application code
+COPY --chown=arena:arena ./backend /app
+
+# Collect static files (run at build time)
+RUN python manage.py collectstatic --noinput --clear || true
+
+# Create necessary directories
+RUN mkdir -p /app/media /app/staticfiles /app/logs
+
+# Expose ports
+EXPOSE 8000 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health/ || curl -f http://localhost:8001/health/ || exit 1
+
+# Default command (can be overridden in docker-compose)
+CMD ["gunicorn", "arena_backend.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4"]
