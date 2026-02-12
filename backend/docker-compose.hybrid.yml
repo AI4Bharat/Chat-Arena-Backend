@@ -1,0 +1,171 @@
+﻿# Docker Compose Hybrid Configuration
+version: '3.8'
+
+services:
+  # ============================================================================
+  # NGINX REVERSE PROXY
+  # ============================================================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: arena-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/hybrid-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./staticfiles:/app/staticfiles:ro
+      - ./media:/app/media:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - backend-wsgi
+      - backend-asgi
+    networks:
+      - arena-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # WSGI BACKEND POOL
+  # ============================================================================
+  backend-wsgi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arena-backend-wsgi-1
+    command: >
+      gunicorn arena_backend.wsgi:application
+      --workers 4
+      --worker-class sync
+      --bind 0.0.0.0:8000
+      --timeout 30
+      --max-requests 1000
+      --max-requests-jitter 100
+      --access-logfile -
+      --error-logfile -
+      --log-level info
+    environment:
+      - CONTAINER_TYPE=wsgi
+      - USE_ASYNC_VIEWS=False
+      - DJANGO_SETTINGS_MODULE=arena_backend.settings
+    env_file:
+      - .env
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - arena-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1536M
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+  # ============================================================================
+  # ASGI BACKEND POOL
+  # ============================================================================
+  backend-asgi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arena-backend-asgi-1
+    command: >
+      uvicorn arena_backend.asgi:application
+      --host 0.0.0.0
+      --port 8001
+      --workers 2
+      --loop uvloop
+      --log-level info
+      --access-log
+      --timeout-keep-alive 5
+    environment:
+      - CONTAINER_TYPE=asgi
+      - USE_ASYNC_VIEWS=True
+      - DJANGO_SETTINGS_MODULE=arena_backend.settings
+    env_file:
+      - .env
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - arena-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2048M
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+  # ============================================================================
+  # POSTGRESQL DATABASE
+  # ============================================================================
+  postgres:
+    image: postgres:17-alpine
+    container_name: arena-postgres
+    environment:
+      - POSTGRES_DB=\
+      - POSTGRES_USER=\
+      - POSTGRES_PASSWORD=\
+      - POSTGRES_HOST_AUTH_METHOD=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - arena-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4096M
+
+  # ============================================================================
+  # REDIS CACHE & CHANNELS
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: arena-redis
+    command: >
+      redis-server
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - redis_data:/data
+    networks:
+      - arena-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2048M
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+networks:
+  arena-network:
+    driver: bridge
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
