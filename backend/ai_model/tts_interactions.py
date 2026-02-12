@@ -443,7 +443,7 @@ def get_indicf5_tts_output(tts_input, lang, model, gender, voice=None, log_conte
             selected_entry = random.choice(matching_entries)
             ref_audio_path = os.path.join(INDICF5_AUDIO_BASE, lang_name, selected_entry['audio_filepath'])
             ref_transcript = selected_entry['text']
-            sampling_rate = selected_entry.get('sampling_rate', 24000)
+            sampling_rate = 24000
 
         import gevent.ssl
         triton_client = http_client.InferenceServerClient(
