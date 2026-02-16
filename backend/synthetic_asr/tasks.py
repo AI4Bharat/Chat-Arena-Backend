@@ -72,6 +72,8 @@ def main_orchestrator_task(self, job_id: str):
         
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
+        scheme = parsed_url.scheme or 'https'
+        is_https = scheme == 'https'
         
         # Step 1: Send job to dmubox server (ONLY if not already submitted)
         dmubox_job_id = None
@@ -99,12 +101,22 @@ def main_orchestrator_task(self, job_id: str):
             
             payload = {'config': job.payload}
             
-            result, err = http_utils.make_post_request(
-                host,
-                '/pai/create',
-                headers,
-                payload
-            )
+            # Use appropriate connection method based on scheme
+            if is_https:
+                result, err = http_utils.make_post_request(
+                    host,
+                    '/pai/create',
+                    headers,
+                    payload
+                )
+            else:
+                result, err = http_utils.make_local_post_request(
+                    host,
+                    '/pai/create',
+                    headers,
+                    payload,
+                    port=80
+                )
             
             if err:
                 raise Exception(f"Failed to submit to PAI server: {err}")
@@ -118,65 +130,8 @@ def main_orchestrator_task(self, job_id: str):
             job.current_step = 'Processing on PAI server'
             job.step_details = {'pai_job_id': dmubox_job_id}
             job.save()
-        
-        # Step 2: Poll for status until complete
-        max_polls = 720  # 2 hours max (10 sec intervals)
-        poll_count = 0
-        
-        while poll_count < max_polls:
-            time.sleep(10)  # Poll every 10 seconds
-            poll_count += 1
             
-            # Get status from dmubox
-            status_result, status_err = http_utils.make_get_request(
-                host,
-                f'/pai/status/{dmubox_job_id}',
-                headers
-            )
-            
-            if status_err:
-                print(f"Error polling status: {status_err}")
-                continue
-            
-            pai_status = str(status_result).strip()
-            
-            # Update our job based on PAI status
-            if pai_status == 'ACCEPTED':
-                job.status = 'PROCESSING'
-                job.current_step = 'Job accepted by worker'
-                job.progress_percentage = 10
-            elif pai_status == 'SENTENCE_GENERATED':
-                job.status = 'SENTENCE_GENERATED'
-                job.current_step = 'Sentences generated'
-                job.progress_percentage = 25
-            elif pai_status == 'AUDIO_GENERATED':
-                job.status = 'AUDIO_GENERATED'
-                job.current_step = 'Audio generated'
-                job.progress_percentage = 50
-            elif pai_status == 'AUDIO_VERIFIED':
-                job.status = 'AUDIO_VERIFIED'
-                job.current_step = 'Audio verified'
-                job.progress_percentage = 75
-            elif pai_status == 'DATASET_GENERATED':
-                job.status = 'COMPLETED'
-                job.current_step = 'Dataset ready'
-                job.progress_percentage = 100
-                job.result = {'pai_job_id': dmubox_job_id, 'status': 'completed'}
-                job.save()
-                return f"Job {job_id} completed successfully"
-            elif pai_status == 'FAILED':
-                job.status = 'FAILED'
-                job.error = {'message': 'PAI server reported failure'}
-                job.save()
-                raise Exception("PAI server reported job failure")
-            
-            job.save()
-        
-        # Timeout
-        job.status = 'FAILED'
-        job.error = {'message': 'Timeout waiting for PAI server'}
-        job.save()
-        raise Exception("Timeout waiting for PAI server to complete job")
+            return f"Job {job_id} submitted successfully. PAI Job ID: {dmubox_job_id}"
         
     except Job.DoesNotExist:
         return f"Job {job_id} not found"

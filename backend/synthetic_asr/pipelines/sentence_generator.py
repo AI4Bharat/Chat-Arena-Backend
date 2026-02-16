@@ -138,13 +138,25 @@ def _generate_sentences_with_gemini(config: Config) -> Tuple[List[str], str]:
         from urllib.parse import urlparse
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
+        scheme = parsed_url.scheme or 'https'
+        is_https = scheme == 'https'
         
-        result, err = http_utils.make_post_request(
-            host,
-            '/pai/generate-sentences',  # Adjust endpoint path as needed
-            headers,
-            payload
-        )
+        # Use appropriate connection method based on scheme
+        if is_https:
+            result, err = http_utils.make_post_request(
+                host,
+                '/pai/generate-sentences',
+                headers,
+                payload
+            )
+        else:
+            result, err = http_utils.make_local_post_request(
+                host,
+                '/pai/generate-sentences',
+                headers,
+                payload,
+                port=80
+            )
         
         if err:
             return [], f"PAI server error: {err}"

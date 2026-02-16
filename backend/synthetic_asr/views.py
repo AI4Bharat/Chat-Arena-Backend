@@ -194,7 +194,13 @@ def create_dataset_job(request):
 @api_view(["GET"])
 @authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@api_view(["GET"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
 def job_status(request, job_id: str):
+    """
+    Get job status. Fetches latest status from PAI server on-demand and updates DB.
+    """
     if not job_id:
         return _error('job_id cannot be empty', 405)
     try:
@@ -205,6 +211,67 @@ def job_status(request, job_id: str):
                 return _error('Forbidden', 403)
         except Exception:
             pass
+        
+        # If job is still processing, fetch latest status from PAI server
+        if job.status in ['SUBMITTING', 'PROCESSING', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED']:
+            pai_job_id = job.step_details.get('pai_job_id') if job.step_details else None
+            
+            if pai_job_id:
+                try:
+                    # Get PAI server URL
+                    pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL')
+                    if pai_server_url:
+                        parsed_url = urlparse(pai_server_url)
+                        host = parsed_url.netloc
+                        scheme = parsed_url.scheme or 'https'
+                        is_https = scheme == 'https'
+                        
+                        # Fetch status from PAI server
+                        if is_https:
+                            conn = http.client.HTTPSConnection(host)
+                        else:
+                            conn = http.client.HTTPConnection(host)
+                        
+                        headers = {'ngrok-skip-browser-warning': 'true'}
+                        conn.request('GET', f'/pai/status/{pai_job_id}', headers=headers)
+                        resp = conn.getresponse()
+                        data = resp.read()
+                        conn.close()
+                        
+                        if resp.status == 200:
+                            pai_status = data.decode('utf-8').strip().strip('"')
+                            
+                            # Update job based on PAI status
+                            if pai_status == 'ACCEPTED':
+                                job.status = 'PROCESSING'
+                                job.current_step = 'Job accepted by worker'
+                                job.progress_percentage = 10
+                            elif pai_status == 'SENTENCE_GENERATED':
+                                job.status = 'SENTENCE_GENERATED'
+                                job.current_step = 'Sentences generated'
+                                job.progress_percentage = 25
+                            elif pai_status == 'AUDIO_GENERATED':
+                                job.status = 'AUDIO_GENERATED'
+                                job.current_step = 'Audio generated'
+                                job.progress_percentage = 50
+                            elif pai_status == 'AUDIO_VERIFIED':
+                                job.status = 'AUDIO_VERIFIED'
+                                job.current_step = 'Audio verified'
+                                job.progress_percentage = 75
+                            elif pai_status == 'DATASET_GENERATED':
+                                job.status = 'COMPLETED'
+                                job.current_step = 'Dataset ready'
+                                job.progress_percentage = 100
+                                job.result = {'pai_job_id': pai_job_id, 'status': 'completed'}
+                            elif pai_status == 'FAILED':
+                                job.status = 'FAILED'
+                                job.error = {'message': 'PAI server reported failure'}
+                            
+                            job.save()
+                except Exception as e:
+                    print(f"Error fetching status from PAI server: {e}")
+                    # Continue with existing DB status if fetch fails
+        
         # Return detailed JSON with progress information
         response_data = {
             'job_id': job.job_id,
@@ -398,3 +465,94 @@ def get_audio_file(request, audio_id: str):
     
     except Exception as e:
         return _error(f'Error fetching audio: {str(e)}', 500)
+
+
+@api_view(["GET"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def get_job_metrics(request, job_id: str):
+    """
+    Proxy endpoint to fetch dataset metrics from PAI server.
+    Returns metrics like total audio count, vocabulary size, tokens, duration.
+    """
+    try:
+        # Get PAI server URL from environment
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+        if not pai_server_url:
+            return _error('PAI server URL not configured', 500)
+        
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
+        scheme = parsed_url.scheme
+        
+        # Make request to PAI server
+        if scheme == 'https':
+            conn = http.client.HTTPSConnection(host)
+        else:
+            conn = http.client.HTTPConnection(host)
+        
+        headers = {
+            'ngrok-skip-browser-warning': 'true'
+        }
+        
+        path = f'/pai/metrics/{job_id}'
+        conn.request('GET', path, headers=headers)
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        
+        if resp.status != 200:
+            error_text = data.decode('utf-8') if data else 'Metrics not found'
+            return _error(f'PAI server error: {error_text}', resp.status)
+        
+        # Return the metrics JSON from PAI server
+        return HttpResponse(data, status=200, content_type='application/json')
+    
+    except Exception as e:
+        return _error(f'Error fetching metrics: {str(e)}', 500)
+
+
+@api_view(["GET"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def get_download_link(request, job_id: str):
+    """
+    Proxy endpoint to get download link for a job's dataset from PAI server.
+    Returns download URL or file.
+    """
+    try:
+        # Get PAI server URL from environment
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+        if not pai_server_url:
+            return _error('PAI server URL not configured', 500)
+        
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
+        scheme = parsed_url.scheme
+        
+        # Make request to PAI server
+        if scheme == 'https':
+            conn = http.client.HTTPSConnection(host)
+        else:
+            conn = http.client.HTTPConnection(host)
+        
+        headers = {
+            'ngrok-skip-browser-warning': 'true'
+        }
+        
+        path = f'/pai/download/{job_id}'
+        conn.request('GET', path, headers=headers)
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        
+        if resp.status != 200:
+            error_text = data.decode('utf-8') if data else 'Download link not found'
+            return _error(f'PAI server error: {error_text}', resp.status)
+        
+        # Return the response from PAI server (could be JSON with URL or direct file)
+        content_type = resp.getheader('Content-Type', 'application/json')
+        return HttpResponse(data, status=200, content_type=content_type)
+    
+    except Exception as e:
+        return _error(f'Error fetching download link: {str(e)}', 500)
