@@ -213,24 +213,30 @@ class UserStatsView(views.APIView):
     def get(self, request):
         try:
             user = request.user
+            arena_type = request.query_params.get('type', 'ALL')
+            
+            session_filter = Q(user=user)
+            if arena_type in ['LLM', 'ASR', 'TTS']:
+                session_filter &= Q(session_type=arena_type)
             
             # Get user stats
             stats = {
-                'total_sessions': user.chat_sessions.count(),
+                'total_sessions': user.chat_sessions.filter(session_filter).count(),
                 'total_messages': Message.objects.filter(
                     session__user=user,
+                    session__in=user.chat_sessions.filter(session_filter),
                     role='user'
                 ).count(),
-                'favorite_models': self._get_favorite_models(user),
-                'activity_streak': self._calculate_activity_streak(user),
+                'favorite_models': self._get_favorite_models(user, session_filter),
+                'activity_streak': self._calculate_activity_streak(user, session_filter),
                 'member_since': user.created_at,
-                'feedback_given': user.feedbacks.count(),
-                'session_breakdown': self._get_session_breakdown(user),
+                'feedback_given': self._get_feedback_count(user, arena_type),
+                'session_breakdown': self._get_session_breakdown(user, session_filter),
                 'detailed_votes_count': self._get_detailed_votes_count(user),
                 'llm_random_votes_count': self._get_llm_random_votes_count(user),
-                'chats_by_type': self._get_chats_by_type(user),
-                'language_stats': self._get_language_stats(user),
-                'model_preferences': self._get_model_preferences(user),
+                'chats_by_type': self._get_chats_by_type(user, session_filter),
+                'language_stats': self._get_language_stats(user, session_filter),
+                'model_preferences': self._get_model_preferences(user, arena_type),
             }
             
             return Response(stats)
@@ -243,11 +249,18 @@ class UserStatsView(views.APIView):
                 log_context=log_context
             )
     
-    def _get_favorite_models(self, user):
+    def _get_feedback_count(self, user, arena_type):
+        """Get total feedback count filtered by arena type"""
+        query = Feedback.objects.filter(user=user)
+        if arena_type in ['LLM', 'ASR', 'TTS']:
+            query = query.filter(session__session_type=arena_type)
+        return query.count()
+
+    def _get_favorite_models(self, user, session_filter):
         """Get user's most used models"""
         
         favorite_models = Message.objects.filter(
-            session__user=user,
+            session__in=user.chat_sessions.filter(session_filter),
             role='assistant',
             model__isnull=False
         ).values(
@@ -260,11 +273,11 @@ class UserStatsView(views.APIView):
         
         return list(favorite_models)
     
-    def _calculate_activity_streak(self, user):
+    def _calculate_activity_streak(self, user, session_filter):
         """Calculate user's activity streak in days"""
         
         # Get all unique days user was active
-        active_days = user.chat_sessions.annotate(
+        active_days = user.chat_sessions.filter(session_filter).annotate(
             day=TruncDate('created_at')
         ).values('day').distinct().order_by('-day')
         
@@ -283,10 +296,10 @@ class UserStatsView(views.APIView):
         
         return streak
     
-    def _get_session_breakdown(self, user):
+    def _get_session_breakdown(self, user, session_filter):
         """Get breakdown of sessions by mode"""
         
-        breakdown = user.chat_sessions.values('mode').annotate(
+        breakdown = user.chat_sessions.filter(session_filter).values('mode').annotate(
             count=Count('id')
         ).order_by('mode')
         
@@ -321,10 +334,10 @@ class UserStatsView(views.APIView):
         
         return llm_random_votes
 
-    def _get_chats_by_type(self, user):
+    def _get_chats_by_type(self, user, session_filter):
         """Get breakdown of chats by input type (Text, Image, Audio, File)"""
         stats = Message.objects.filter(
-            session__user=user, 
+            session__in=user.chat_sessions.filter(session_filter), 
             role='user'
         ).aggregate(
             image_count=Count('id', filter=Q(image_path__isnull=False)),
@@ -344,13 +357,13 @@ class UserStatsView(views.APIView):
             'text': stats['text_count']
         }
 
-    def _get_language_stats(self, user):
+    def _get_language_stats(self, user, session_filter):
         """
         Get breakdown of messages by language
         Only returning top 5 for now
         """
         langs = Message.objects.filter(
-            session__user=user,
+            session__in=user.chat_sessions.filter(session_filter),
             role='user',
             language__isnull=False
         ).exclude(language='').values('language').annotate(
@@ -359,14 +372,18 @@ class UserStatsView(views.APIView):
         
         return {item['language']: item['count'] for item in langs}
 
-    def _get_model_preferences(self, user):
+    def _get_model_preferences(self, user, arena_type):
         """
         Get ranking of models based on user's feedback (preferred models).
         Returns top 5 models that the user has voted for.
         """
         
         try:
-            feedbacks = Feedback.objects.filter(user=user).values_list('preferred_model_ids', flat=True)
+            feedback_query = Feedback.objects.filter(user=user)
+            if arena_type in ['LLM', 'ASR', 'TTS']:
+                feedback_query = feedback_query.filter(session__session_type=arena_type)
+
+            feedbacks = feedback_query.values_list('preferred_model_ids', flat=True)
             
             model_counts = {}
            
@@ -374,13 +391,18 @@ class UserStatsView(views.APIView):
                 for mid in model_ids:
                     if not mid: continue
                     model_counts[str(mid)] = model_counts.get(str(mid), 0) + 1
-            
-            direct_likes = Feedback.objects.filter(
+                    
+            direct_likes_query = Feedback.objects.filter(
                 user=user,
                 feedback_type='rating',
                 rating=5,
                 message__model__isnull=False
-            ).values_list('message__model_id', flat=True)
+            )
+            
+            if arena_type in ['LLM', 'ASR', 'TTS']:
+                direct_likes_query = direct_likes_query.filter(session__session_type=arena_type)
+
+            direct_likes = direct_likes_query.values_list('message__model_id', flat=True)
 
             for mid in direct_likes:
                 if not mid: continue
