@@ -6,6 +6,8 @@ class Job(models.Model):
     # Status choices for pipeline tracking
     STATUS_CHOICES = [
         ('SUBMITTED', 'Submitted'),
+        ('SUBMITTING', 'Submitting'),
+        ('PROCESSING', 'Processing'),
         ('SENTENCE_GENERATED', 'Sentences Generated'),
         ('AUDIO_GENERATED', 'Audio Generated'),
         ('AUDIO_VERIFIED', 'Audio Verified'),

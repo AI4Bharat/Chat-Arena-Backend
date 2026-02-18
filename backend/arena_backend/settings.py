@@ -167,7 +167,6 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
     'x-anonymous-token',
-    'ngrok-skip-browser-warning',
 ]
 
 CORS_EXPOSE_HEADERS = [

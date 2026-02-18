@@ -1,6 +1,4 @@
 from django.http import JsonResponse, HttpResponse
-from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -191,9 +189,58 @@ def create_dataset_job(request):
     return HttpResponse(job_id, status=200, content_type='text/plain')
 
 
-@api_view(["GET"])
+@api_view(["POST"])
 @authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
 @permission_classes([IsAuthenticated])
+def resubmit_job(request, job_id: str):
+    """
+    Re-submit a job that is stuck at SUBMITTED or FAILED.
+    Resets the job state and re-enqueues the Celery task.
+    """
+    try:
+        if getattr(request.user, 'is_anonymous', False):
+            return _error('Sign in required.', 403)
+    except Exception:
+        pass
+
+    try:
+        job = Job.objects.get(job_id=job_id)
+    except Job.DoesNotExist:
+        return _error('Job not found.', 404)
+
+    # Only the owner can resubmit
+    try:
+        if job.created_by and getattr(request, 'user', None) and job.created_by != request.user:
+            return _error('Forbidden', 403)
+    except Exception:
+        pass
+
+    # Only allow resubmit for stuck / failed jobs
+    allowed_statuses = ['SUBMITTED', 'FAILED', 'SUBMITTING']
+    if job.status not in allowed_statuses:
+        return _error(f'Job is currently {job.status} and cannot be resubmitted.', 409)
+
+    # Reset job state
+    job.status = 'SUBMITTED'
+    job.error = None
+    job.progress_percentage = 0
+    job.current_step = 'Resubmitted by user'
+    job.step_details = {**(job.step_details or {}), 'resubmitted': True}
+    job.generation_attempts = (job.generation_attempts or 0) + 1
+    job.save()
+
+    # Re-enqueue
+    try:
+        main_orchestrator_task.delay(job_id)
+    except Exception as e:
+        job.status = 'FAILED'
+        job.error = {'message': 'Failed to enqueue task on resubmit', 'details': str(e)}
+        job.save(update_fields=['status', 'error', 'updated_at'])
+        return _error('Failed to enqueue task. Is the task queue running?', 503)
+
+    return JsonResponse({'message': 'Job resubmitted successfully', 'job_id': job_id}, status=200)
+
+
 @api_view(["GET"])
 @authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -232,7 +279,7 @@ def job_status(request, job_id: str):
                         else:
                             conn = http.client.HTTPConnection(host)
                         
-                        headers = {'ngrok-skip-browser-warning': 'true'}
+                        headers = {}
                         conn.request('GET', f'/pai/status/{pai_job_id}', headers=headers)
                         resp = conn.getresponse()
                         data = resp.read()
@@ -380,7 +427,7 @@ def list_jobs(request):
 @permission_classes([IsAuthenticated])
 def get_job_dataset(request, job_id: str):
     """
-    Proxy endpoint to fetch the generated audio dataset from PAI server (ngrok).
+    Proxy endpoint to fetch the generated audio dataset from PAI server.
     This bypasses CORS issues by doing server-to-server communication.
     """
     try:
@@ -399,9 +446,7 @@ def get_job_dataset(request, job_id: str):
         else:
             conn = http.client.HTTPConnection(host)
         
-        headers = {
-            'ngrok-skip-browser-warning': 'true'
-        }
+        headers = {}
         
         # Get limit from query params, default to 50
         limit = request.GET.get('limit', '50')
@@ -427,7 +472,7 @@ def get_job_dataset(request, job_id: str):
 @permission_classes([IsAuthenticated])
 def get_audio_file(request, audio_id: str):
     """
-    Proxy endpoint to fetch individual audio file from PAI server (ngrok).
+    Proxy endpoint to fetch individual audio file from PAI server.
     Returns the audio file as a response.
     """
     try:
@@ -446,9 +491,7 @@ def get_audio_file(request, audio_id: str):
         else:
             conn = http.client.HTTPConnection(host)
         
-        headers = {
-            'ngrok-skip-browser-warning': 'true'
-        }
+        headers = {}
         
         path = f'/pai/audio/{audio_id}'
         conn.request('GET', path, headers=headers)
@@ -491,9 +534,7 @@ def get_job_metrics(request, job_id: str):
         else:
             conn = http.client.HTTPConnection(host)
         
-        headers = {
-            'ngrok-skip-browser-warning': 'true'
-        }
+        headers = {}
         
         path = f'/pai/metrics/{job_id}'
         conn.request('GET', path, headers=headers)
@@ -536,9 +577,7 @@ def get_download_link(request, job_id: str):
         else:
             conn = http.client.HTTPConnection(host)
         
-        headers = {
-            'ngrok-skip-browser-warning': 'true'
-        }
+        headers = {}
         
         path = f'/pai/download/{job_id}'
         conn.request('GET', path, headers=headers)

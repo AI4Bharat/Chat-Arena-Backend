@@ -81,7 +81,6 @@ def main_orchestrator_task(self, job_id: str):
         # Common headers
         headers = {
             'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true'
         }
         
         # Check if we already have a remote ID (recovery mode)

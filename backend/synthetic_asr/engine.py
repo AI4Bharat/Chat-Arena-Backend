@@ -4,7 +4,7 @@ import http.client
 from typing import Dict, List, Tuple
 from urllib.parse import urlparse
 
-# External API configuration - PAI server (ngrok tunnel)
+# External API configuration - PAI server
 PAI_SERVER_URL = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
 if not PAI_SERVER_URL:
     raise ValueError("SYNTHETIC_ASR_PAI_SERVER_URL environment variable not set")
@@ -17,7 +17,7 @@ PAI_BASE_PATH = '/pai'
 
 def _call_pai_server(endpoint: str, payload: Dict) -> Tuple[Dict, str]:
     """
-    Call PAI server (ngrok tunnel to synthetic-benchmarks).
+    Call PAI server (synthetic-benchmarks).
     """
     try:
         # Use HTTP or HTTPS based on URL scheme
@@ -28,7 +28,6 @@ def _call_pai_server(endpoint: str, payload: Dict) -> Tuple[Dict, str]:
         
         headers = {
             'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true'  # CRITICAL for ngrok tunnels
         }
         
         body = json.dumps(payload)
