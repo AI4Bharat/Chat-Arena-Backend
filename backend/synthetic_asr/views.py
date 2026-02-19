@@ -305,7 +305,7 @@ def job_status(request, job_id: str):
                                 job.status = 'AUDIO_VERIFIED'
                                 job.current_step = 'Audio verified'
                                 job.progress_percentage = 75
-                            elif pai_status == 'DATASET_GENERATED':
+                            elif pai_status in ('DATASET_GENERATED', 'DATASET_UPLOADED'):
                                 job.status = 'COMPLETED'
                                 job.current_step = 'Dataset ready'
                                 job.progress_percentage = 100
@@ -364,7 +364,7 @@ def list_jobs(request):
         if status_filter and status_filter != 'all':
             sf = str(status_filter).strip().upper()
             if sf == 'PROCESSING':
-                query = query.filter(status__in=['SUBMITTED', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED'])
+                query = query.filter(status__in=['SUBMITTED', 'PROCESSING', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED'])
             else:
                 query = query.filter(status=sf)
         
@@ -386,6 +386,7 @@ def list_jobs(request):
             else:
                 config = payload.get('config', payload if isinstance(payload, dict) else {})
             
+            sentence_config = config.get('sentence', {})
             item = {
                 'jobId': job.job_id,
                 'language': config.get('language') or payload.get('language') or 'Unknown',
@@ -396,6 +397,8 @@ def list_jobs(request):
                 'createdAt': job.created_at.isoformat() if job.created_at else None,
                 'completedAt': job.updated_at.isoformat() if job.status == 'COMPLETED' and job.updated_at else None,
                 'errorMessage': job.error.get('message', '') if job.error else None,
+                'category': sentence_config.get('category') or config.get('category') or '',
+                'generationAttempts': job.generation_attempts or 0,
             }
             
             # Apply language filter
@@ -515,42 +518,64 @@ def get_audio_file(request, audio_id: str):
 @permission_classes([IsAuthenticated])
 def get_job_metrics(request, job_id: str):
     """
-    Proxy endpoint to fetch dataset metrics from PAI server.
-    Returns metrics like total audio count, vocabulary size, tokens, duration.
+    Compute dataset metrics from PAI audio list.
+    PAI has no dedicated /metrics endpoint, so we fetch all audio items and
+    aggregate: total_audio, vocabulary_size, total_tokens, total_duration.
     """
     try:
-        # Get PAI server URL from environment
         pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
         if not pai_server_url:
             return _error('PAI server URL not configured', 500)
-        
+
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
-        
-        # Make request to PAI server
+
         if scheme == 'https':
             conn = http.client.HTTPSConnection(host)
         else:
             conn = http.client.HTTPConnection(host)
-        
-        headers = {}
-        
-        path = f'/pai/metrics/{job_id}'
-        conn.request('GET', path, headers=headers)
+
+        # Fetch all audio items (PAI requires a limit param)
+        path = f'/pai/job/{job_id}?limit=100000'
+        conn.request('GET', path, headers={})
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
-        
+
         if resp.status != 200:
-            error_text = data.decode('utf-8') if data else 'Metrics not found'
+            error_text = data.decode('utf-8') if data else 'Job not found'
             return _error(f'PAI server error: {error_text}', resp.status)
-        
-        # Return the metrics JSON from PAI server
-        return HttpResponse(data, status=200, content_type='application/json')
-    
+
+        items = json.loads(data.decode('utf-8'))
+        if not isinstance(items, list):
+            items = []
+
+        # Aggregate metrics
+        total_audio = len(items)
+        total_duration_secs = sum(float(item.get('duration', 0) or 0) for item in items)
+        total_duration_hrs = round(total_duration_secs / 3600, 2)
+
+        all_words = []
+        for item in items:
+            sentence = item.get('sentence', '') or ''
+            words = sentence.split()
+            all_words.extend(words)
+
+        total_tokens = len(all_words)
+        vocabulary_size = len(set(all_words))
+
+        metrics = {
+            'total_audio': total_audio,
+            'vocabulary_size': vocabulary_size,
+            'total_tokens': total_tokens,
+            'total_duration': total_duration_hrs,
+        }
+
+        return JsonResponse(metrics, status=200)
+
     except Exception as e:
-        return _error(f'Error fetching metrics: {str(e)}', 500)
+        return _error(f'Error computing metrics: {str(e)}', 500)
 
 
 @api_view(["GET"])
@@ -588,10 +613,19 @@ def get_download_link(request, job_id: str):
         if resp.status != 200:
             error_text = data.decode('utf-8') if data else 'Download link not found'
             return _error(f'PAI server error: {error_text}', resp.status)
-        
-        # Return the response from PAI server (could be JSON with URL or direct file)
-        content_type = resp.getheader('Content-Type', 'application/json')
-        return HttpResponse(data, status=200, content_type=content_type)
+
+        # PAI returns a plain-text signed URL. Normalise to JSON so the
+        # frontend can always do response.json() and read r.download_url.
+        raw = data.decode('utf-8').strip().strip('"')
+        try:
+            parsed = json.loads(raw)
+            # Already JSON — ensure it has a download_url key
+            if 'download_url' not in parsed:
+                parsed['download_url'] = parsed.get('url', raw)
+            return JsonResponse(parsed, status=200)
+        except (json.JSONDecodeError, TypeError):
+            # Plain-text URL — wrap it
+            return JsonResponse({'download_url': raw}, status=200)
     
     except Exception as e:
         return _error(f'Error fetching download link: {str(e)}', 500)
