@@ -319,3 +319,119 @@ def upload_tts_audio(audio_base64, folder='tts-audios'):
 
     except Exception as e:
         raise Exception(f"Failed to upload audio: {str(e)}")
+
+
+def upload_generated_image(image_data, image_format='png', folder='generated-images'):
+    """
+    Uploads a generated image to Google Cloud Storage.
+    
+    Args:
+        image_data: Can be PIL Image, base64 string, bytes, or URL string
+        image_format: Image format ('png', 'jpeg', 'webp')
+        folder: GCS folder path
+        
+    Returns:
+        dict: {'path': blob_name, 'url': signed_url}
+    """
+    try:
+        from PIL import Image
+        import requests
+        import ipaddress
+        import socket
+        from urllib.parse import urlparse
+
+        # Security: enforce allowed formats and normalize
+        allowed_formats = {"png", "jpeg", "jpg", "webp"}
+        fmt = (image_format or "png").lower()
+        if fmt == "jpg":
+            fmt = "jpeg"
+        if fmt not in allowed_formats:
+            fmt = "png"
+
+        MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB cap
+
+        def _resolve_and_validate_host(hostname: str):
+            infos = socket.getaddrinfo(hostname, None)
+            for family, *_ in infos:
+                # Get the IP address string
+                ip = infos[0][4][0]
+                ip_obj = ipaddress.ip_address(ip)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved or ip_obj.is_multicast:
+                    raise ValueError("Blocked private or special IP address in image URL")
+
+        # Handle different image_data types
+        if isinstance(image_data, str):
+            # Check if it's an HTTP(S) URL
+            if image_data.startswith('http://') or image_data.startswith('https://'):
+                # Strict URL validation to mitigate SSRF
+                parsed = urlparse(image_data)
+                if parsed.scheme != 'https':
+                    raise ValueError('Only HTTPS image URLs are allowed')
+                _resolve_and_validate_host(parsed.hostname)
+
+                with requests.get(image_data, stream=True, timeout=15) as resp:
+                    resp.raise_for_status()
+                    ctype = resp.headers.get('Content-Type', '')
+                    if not ctype.startswith('image/'):
+                        raise ValueError('URL did not return an image content-type')
+                    # Read with size cap
+                    buf = io.BytesIO()
+                    read = 0
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            buf.write(chunk)
+                            read += len(chunk)
+                            if read > MAX_IMAGE_BYTES:
+                                raise ValueError('Image exceeds maximum allowed size')
+                    image_bytes = buf.getvalue()
+            else:
+                # Assume base64 encoded
+                image_bytes = base64.b64decode(image_data, validate=True)
+                if len(image_bytes) > MAX_IMAGE_BYTES:
+                    raise ValueError('Image exceeds maximum allowed size')
+        elif hasattr(image_data, '_pil_image'):
+            # Imagen response object with PIL image
+            img = image_data._pil_image
+            buffer = io.BytesIO()
+            img.save(buffer, format=fmt.upper())
+            image_bytes = buffer.getvalue()
+        elif isinstance(image_data, Image.Image):
+            # Direct PIL Image
+            buffer = io.BytesIO()
+            image_data.save(buffer, format=fmt.upper())
+            image_bytes = buffer.getvalue()
+        elif isinstance(image_data, bytes):
+            image_bytes = image_data
+            if len(image_bytes) > MAX_IMAGE_BYTES:
+                raise ValueError('Image exceeds maximum allowed size')
+        else:
+            raise ValueError(f"Unsupported image_data type: {type(image_data)}")
+
+        # Create file-like object
+        image_file = io.BytesIO(image_bytes)
+
+        # Upload to GCS
+        client = storage.Client()
+        bucket = client.bucket(settings.GS_BUCKET_NAME)
+        blob_name = f"{folder}/{uuid.uuid4()}.{fmt}"
+        blob = bucket.blob(blob_name)
+
+        content_type = f"image/{fmt}"
+        blob.cache_control = "public, max-age=60"
+        blob.content_disposition = "inline"
+        blob.upload_from_file(image_file, content_type=content_type)
+
+        # Generate signed URL (15 minutes expiration)
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(minutes=15),
+            method="GET",
+        )
+
+        return {
+            'path': blob_name,
+            'url': signed_url,
+        }
+
+    except Exception as e:
+        raise Exception(f"Failed to upload generated image: {str(e)}")

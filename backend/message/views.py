@@ -250,18 +250,73 @@ class MessageViewSet(viewsets.ModelViewSet):
                             print(f"Error processing audio: {e}")
 
                     start_time = time.time()
-                    for chunk in get_model_output(
-                        system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
-                        user_prompt=prompt_content,
-                        history=history,
-                        model=session.model_a.model_code,
-                        image_url=image_url,
-                        context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
-                    ):
-                        if chunk:
-                            chunks.append(chunk)
-                            escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
-                            yield f'a0:"{escaped_chunk}"\n'
+                    # Check if this is an image generation request BEFORE calling get_model_output
+                    from ai_model.llm_interactions import detect_image_generation_intent
+                    is_image_generation = detect_image_generation_intent(prompt_content)
+                    
+                    if is_image_generation:
+                        # ========== IMAGE GENERATION PIPELINE (completely separate) ==========
+                        for chunk in get_model_output(
+                            system_prompt="",  # Not used for image generation
+                            user_prompt=prompt_content,
+                            history=history,
+                            model=session.model_a.model_code,
+                            image_url=image_url,
+                            context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                        ):
+                            if chunk and isinstance(chunk, dict):
+                                chunk_type = chunk.get('type')
+                                
+                                if chunk_type == 'generating':
+                                    # Initial generating event
+                                    yield f'ai:{json.dumps({"type": "generating", "message": "Generating image..."})}\n'
+                                
+                                elif chunk_type == 'partial_image':
+                                    # Stream partial image progress
+                                    yield f'ai:{json.dumps({"type": "partial", "url": chunk.get("data"), "progress": chunk.get("progress")})}\n'
+                                
+                                elif chunk_type == 'final_image':
+                                    # Upload final image to GCS and store path
+                                    try:
+                                        from message.utlis import upload_generated_image
+                                        image_format = str(chunk.get('format', 'png')).lower()
+                                        if image_format == 'jpg':
+                                            image_format = 'jpeg'
+                                        if image_format not in ['png', 'jpeg', 'webp']:
+                                            image_format = 'png'
+                                        uploaded = upload_generated_image(chunk['data'], image_format=image_format)
+                                        
+                                        # Store image path in message
+                                        assistant_message.image_path = uploaded['path']
+                                        
+                                        # Send final image URL to frontend
+                                        yield f'ai:{json.dumps({"type": "final", "url": uploaded["url"], "path": uploaded["path"]})}\n'
+                                        
+                                        # Store content as reference
+                                        chunks.append(f"[Generated Image: {uploaded['path']}]")
+                                    except Exception as e:
+                                        print(f"Error uploading generated image: {e}")
+                                        yield f'ai:{json.dumps({"type": "error", "message": str(e)})}\n'
+                                
+                                elif chunk_type == 'error':
+                                    yield f'ai:{json.dumps({"type": "error", "message": chunk.get("message", "Unknown error")})}\n'
+                    else:
+                        # ========== NORMAL TEXT GENERATION PIPELINE (unchanged) ==========
+                        for chunk in get_model_output(
+                            system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
+                            user_prompt=prompt_content,
+                            history=history,
+                            model=session.model_a.model_code,
+                            image_url=image_url,
+                            context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+                        ):
+                            if chunk:
+                                # Text chunks only - use proper protocol format
+                                if isinstance(chunk, str):
+                                    chunks.append(chunk)
+                                    # Escape for protocol: escape backslashes and newlines, wrap in quotes
+                                    escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '').replace('"', '\\"')
+                                    yield f'a0:"{escaped_chunk}"\n'
                     
                     assistant_message.content = "".join(chunks)
                     assistant_message.status = 'success'
@@ -270,6 +325,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                     
                     yield 'ad:{"finishReason":"stop"}\n'
                 except Exception as e:
+                    import traceback
+                    print(f"ERROR in direct mode streaming: {str(e)}")
+                    print(traceback.format_exc())
                     assistant_message.status = 'error'
                     assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2) if 'start_time' in locals() else None
                     assistant_message.save(using=db_alias)
@@ -361,9 +419,36 @@ class MessageViewSet(viewsets.ModelViewSet):
                             context={'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
-                                chunks_a.append(chunk)
-                                escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
-                                chunk_queue.put(('a', f'a0:"{escaped_chunk}"\n'))
+                                # Handle based on chunk type
+                                if isinstance(chunk, dict):
+                                    # Image generation response
+                                    chunk_type = chunk.get('type')
+                                    
+                                    if chunk_type == 'generating':
+                                        chunk_queue.put(('a', f'ai:{json.dumps({"type": "generating", "message": "Generating image..."})}\n'))
+                                    
+                                    elif chunk_type == 'partial_image':
+                                        chunk_queue.put(('a', f'ai:{json.dumps({"type": "partial", "url": chunk.get("data"), "progress": chunk.get("progress")})}\n'))
+                                    
+                                    elif chunk_type == 'final_image':
+                                        try:
+                                            from message.utlis import upload_generated_image
+                                            image_format = chunk.get('format', 'png')
+                                            uploaded = upload_generated_image(chunk['data'], image_format=image_format)
+                                            assistant_message_a.image_path = uploaded['path']
+                                            chunk_queue.put(('a', f'ai:{json.dumps({"type": "final", "url": uploaded["url"], "path": uploaded["path"]})}\n'))
+                                            chunks_a.append(f"[Generated Image: {uploaded['path']}]")
+                                        except Exception as e:
+                                            print(f"Error uploading generated image: {e}")
+                                            chunk_queue.put(('a', f'ai:{json.dumps({"type": "error", "message": str(e)})}\n'))
+                                    
+                                    elif chunk_type == 'error':
+                                        chunk_queue.put(('a', f'ai:{json.dumps({"type": "error", "message": chunk.get("message", "Unknown error")})}\n'))
+                                elif isinstance(chunk, str):
+                                    # Normal text response - use proper protocol format
+                                    chunks_a.append(chunk)
+                                    escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '').replace('"', '\\"')
+                                    chunk_queue.put(('a', f'a0:"{escaped_chunk}"\n'))
                         
                         assistant_message_a.content = "".join(chunks_a)
                         assistant_message_a.status = 'success'
@@ -467,9 +552,36 @@ class MessageViewSet(viewsets.ModelViewSet):
                             context={'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
-                                chunks_b.append(chunk)
-                                escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '')
-                                chunk_queue.put(('b', f'b0:"{escaped_chunk}"\n'))
+                                # Handle based on chunk type
+                                if isinstance(chunk, dict):
+                                    # Image generation response
+                                    chunk_type = chunk.get('type')
+                                    
+                                    if chunk_type == 'generating':
+                                        chunk_queue.put(('b', f'bi:{json.dumps({"type": "generating", "message": "Generating image..."})}\n'))
+                                    
+                                    elif chunk_type == 'partial_image':
+                                        chunk_queue.put(('b', f'bi:{json.dumps({"type": "partial", "url": chunk.get("data"), "progress": chunk.get("progress")})}\n'))
+                                    
+                                    elif chunk_type == 'final_image':
+                                        try:
+                                            from message.utlis import upload_generated_image
+                                            image_format = chunk.get('format', 'png')
+                                            uploaded = upload_generated_image(chunk['data'], image_format=image_format)
+                                            assistant_message_b.image_path = uploaded['path']
+                                            chunk_queue.put(('b', f'bi:{json.dumps({"type": "final", "url": uploaded["url"], "path": uploaded["path"]})}\n'))
+                                            chunks_b.append(f"[Generated Image: {uploaded['path']}]")
+                                        except Exception as e:
+                                            print(f"Error uploading generated image: {e}")
+                                            chunk_queue.put(('b', f'bi:{json.dumps({"type": "error", "message": str(e)})}\n'))
+                                    
+                                    elif chunk_type == 'error':
+                                        chunk_queue.put(('b', f'bi:{json.dumps({"type": "error", "message": chunk.get("message", "Unknown error")})}\n'))
+                                elif isinstance(chunk, str):
+                                    # Normal text response - use proper protocol format
+                                    chunks_b.append(chunk)
+                                    escaped_chunk = chunk.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '').replace('"', '\\"')
+                                    chunk_queue.put(('b', f'b0:"{escaped_chunk}"\n'))
                         
                         assistant_message_b.content = "".join(chunks_b)
                         assistant_message_b.status = 'success'
