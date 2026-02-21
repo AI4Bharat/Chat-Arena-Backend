@@ -50,6 +50,7 @@ urlpatterns = [
     path('', include('model_metrics.urls')),
     path('', include('leaderboards.urls')),
     path('', include('academic_prompts.urls')),
+    path('', include('synthetic_asr.urls')),
     path('', include('frontend_logs.urls')),
 
 # Tenant-prefixed URLs (for multi-tenant support)
