@@ -41,6 +41,11 @@ class Feedback(models.Model):
         blank=True,
         help_text="Additional structured feedback data (e.g., TTS evaluation parameters)"
     )
+    tracking_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Interaction tracking: timestamps"
+    )
     
     # Modality tracking fields for separate leaderboards
     has_image_input = models.BooleanField(
