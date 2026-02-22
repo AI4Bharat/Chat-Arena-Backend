@@ -3,7 +3,7 @@ from django.core.cache import cache
 from typing import Optional, Dict
 import jwt
 import requests
-from datetime import datetime, timedelta
+from datetime import timedelta
 from django.utils import timezone
 import logging
 from .models import User
@@ -22,8 +22,8 @@ class TokenGenerator:
         payload = {
             'user_id': user_id,
             'type': 'anonymous',
-            'exp': datetime.utcnow() + timedelta(days=30),
-            'iat': datetime.utcnow()
+            'exp': timezone.now() + timedelta(days=30),
+            'iat': timezone.now()
         }
         
         token = jwt.encode(
@@ -58,14 +58,14 @@ class UserActivityTracker:
     @staticmethod
     def track_login(user, login_type='google'):
         """Track user login event"""
-        cache_key = f"user_login_{user.id}_{datetime.now().date()}"
+        cache_key = f"user_login_{user.id}_{timezone.now().date()}"
         cache.set(cache_key, True, timeout=86400)  # 24 hours
         
         # Update last login in preferences
         if not user.preferences:
             user.preferences = {}
         
-        user.preferences['last_login'] = datetime.now().isoformat()
+        user.preferences['last_login'] = timezone.now().isoformat()
         user.preferences['login_count'] = user.preferences.get('login_count', 0) + 1
         user.save(update_fields=['preferences', 'updated_at'])
     
@@ -75,7 +75,7 @@ class UserActivityTracker:
         activity_data = {
             'user_id': str(user.id),
             'type': activity_type,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': timezone.now().isoformat(),
             'metadata': metadata or {}
         }
         
@@ -191,7 +191,7 @@ def merge_user_data(source_user, target_user):
             **target_user.preferences,
             **source_user.preferences,
             'merged_from': str(source_user.id),
-            'merged_at': datetime.now().isoformat()
+            'merged_at': timezone.now().isoformat()
         }
         target_user.save()
     

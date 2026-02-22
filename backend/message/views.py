@@ -39,7 +39,7 @@ import tempfile
 from message.utlis import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
-from django.db.models import Min
+from django.db.models import Min, Q
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -636,9 +636,32 @@ class MessageViewSet(viewsets.ModelViewSet):
                     model_b__is_active=True
                 )
                 if prompts.exists():
-                    min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
-                    least_used_prompts = prompts.filter(usage_count=min_usage_count)
-                    selected_prompt = random.choice(list(least_used_prompts))
+                    SPECIFIC_MODEL_ID = os.getenv("SPECIFIC_MODEL_ID")
+                    RECENT_DATE_THRESHOLD = datetime.datetime(2026, 2, 8, tzinfo=datetime.timezone.utc)
+
+                    recent_prompts = prompts.filter(created_at__gt=RECENT_DATE_THRESHOLD)
+                    recent_specific_model_prompts = recent_prompts.filter(
+                        Q(model_a_id=SPECIFIC_MODEL_ID) | Q(model_b_id=SPECIFIC_MODEL_ID)
+                    )
+
+                    rand = random.random()
+                    selected_prompt = None
+
+                    if rand < 0.30:
+                        # 30%: recent prompts with specific model
+                        if recent_specific_model_prompts.exists():
+                            selected_prompt = random.choice(list(recent_specific_model_prompts))
+
+                    if selected_prompt is None and rand < 0.60:
+                        # 30%: recent prompts (any model)
+                        if recent_prompts.exists():
+                            selected_prompt = random.choice(list(recent_prompts))
+
+                    if selected_prompt is None:
+                        # 40%: low usage count prompts
+                        min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
+                        least_used_prompts = prompts.filter(usage_count=min_usage_count)
+                        selected_prompt = random.choice(list(least_used_prompts))
 
                     # Update session's model_a and model_b from the selected prompt
                     session.model_a = selected_prompt.model_a
