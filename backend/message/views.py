@@ -647,18 +647,20 @@ class MessageViewSet(viewsets.ModelViewSet):
                     rand = random.random()
                     selected_prompt = None
 
-                    if rand < 0.30:
-                        # 30%: recent prompts with specific model
+                    if rand < 0.42:
+                        # 42% (60% of 70%): recent prompts with specific model
                         if recent_specific_model_prompts.exists():
                             selected_prompt = random.choice(list(recent_specific_model_prompts))
 
-                    if selected_prompt is None and rand < 0.60:
-                        # 30%: recent prompts (any model)
+                    if selected_prompt is None and rand < 0.70:
+                        # 28% (40% of 70%): recent prompts, low usage count
                         if recent_prompts.exists():
-                            selected_prompt = random.choice(list(recent_prompts))
+                            min_usage_recent = recent_prompts.aggregate(Min('usage_count'))['usage_count__min']
+                            least_used_recent = recent_prompts.filter(usage_count=min_usage_recent)
+                            selected_prompt = random.choice(list(least_used_recent))
 
                     if selected_prompt is None:
-                        # 40%: low usage count prompts
+                        # 30%: low usage count from all prompts
                         min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
                         least_used_prompts = prompts.filter(usage_count=min_usage_count)
                         selected_prompt = random.choice(list(least_used_prompts))
