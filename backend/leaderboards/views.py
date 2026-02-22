@@ -1,10 +1,10 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
-from .models import Leaderboard
+from .models import Leaderboard, LeaderboardDrilldown
 from .serializers import UserContributorSerializer
 
 # Create your views here.
@@ -19,12 +19,31 @@ def get_leaderboard_api(request, arena_type):
     ).first()
     
     if leaderboard_entry:
-        return JsonResponse(leaderboard_entry.leaderboard_json, safe=False)
+        data = leaderboard_entry.leaderboard_json
+        if isinstance(data, list):
+            for row in data:
+                if isinstance(row, dict):
+                    row['leaderboard_id'] = leaderboard_entry.id
+        return JsonResponse(data, safe=False)
     else:
         return JsonResponse(
             {"error": f"No leaderboard found for Type: {arena_type}, Org: {org_param}, Language: {language_param}"}, 
             status=404
         )
+
+def get_model_details(request, leaderboard_id, model_name):
+    drilldown = get_object_or_404(
+        LeaderboardDrilldown, 
+        leaderboard_id=leaderboard_id, 
+        model_name=model_name
+    )
+    
+    data = {
+        "model": drilldown.model_name,
+        "domain_summary": drilldown.domain_summary,
+        "benchmark_breakdown": drilldown.benchmark_breakdown
+    }
+    return JsonResponse(data)
 
 from .services import calculate_top_contributors
 
