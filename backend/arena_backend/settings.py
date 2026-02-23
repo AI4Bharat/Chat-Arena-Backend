@@ -101,7 +101,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "tenants.middleware.TenantMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    "arena_backend.middleware.ApiCsrfExemptMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
