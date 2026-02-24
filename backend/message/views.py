@@ -639,25 +639,26 @@ class MessageViewSet(viewsets.ModelViewSet):
                     SPECIFIC_MODEL_ID = os.getenv("SPECIFIC_MODEL_ID")
                     RECENT_DATE_THRESHOLD = datetime.datetime(2026, 2, 8, tzinfo=datetime.timezone.utc)
 
-                    recent_prompts = prompts.filter(created_at__gt=RECENT_DATE_THRESHOLD)
-                    recent_specific_model_prompts = recent_prompts.filter(
+                    # recent_prompts = prompts.filter(created_at__gt=RECENT_DATE_THRESHOLD)
+                    # recent_specific_model_prompts = recent_prompts.filter(
+                    #     Q(model_a_id=SPECIFIC_MODEL_ID) | Q(model_b_id=SPECIFIC_MODEL_ID)
+                    # )
+                    recent_specific_model_prompts = prompts.filter(
                         Q(model_a_id=SPECIFIC_MODEL_ID) | Q(model_b_id=SPECIFIC_MODEL_ID)
                     )
 
                     rand = random.random()
                     selected_prompt = None
 
-                    if rand < 0.42:
-                        # 42% (60% of 70%): recent prompts with specific model
+                    if rand < 0.70:
                         if recent_specific_model_prompts.exists():
                             selected_prompt = random.choice(list(recent_specific_model_prompts))
 
-                    if selected_prompt is None and rand < 0.70:
-                        # 28% (40% of 70%): recent prompts, low usage count
-                        if recent_prompts.exists():
-                            min_usage_recent = recent_prompts.aggregate(Min('usage_count'))['usage_count__min']
-                            least_used_recent = recent_prompts.filter(usage_count=min_usage_recent)
-                            selected_prompt = random.choice(list(least_used_recent))
+                    # if selected_prompt is None and rand < 0.70:
+                    #     if recent_prompts.exists():
+                    #         min_usage_recent = recent_prompts.aggregate(Min('usage_count'))['usage_count__min']
+                    #         least_used_recent = recent_prompts.filter(usage_count=min_usage_recent)
+                    #         selected_prompt = random.choice(list(least_used_recent))
 
                     if selected_prompt is None:
                         # 30%: low usage count from all prompts
