@@ -34,14 +34,14 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        queryset = ChatSession.objects.select_related('model_a', 'model_b', 'user')
+        queryset = ChatSession.objects.select_related('model_a', 'model_b', 'user').filter(
+            deleted_at__isnull=True  # Hide deleted chats from ALL endpoints
+        )
         
         # Filter based on action
         if self.action == 'shared':
-            # For shared endpoint, return public sessions
             queryset = queryset.filter(is_public=True)
         else:
-            # For other actions, return user's sessions
             queryset = queryset.filter(user=user)
         
         # Add message count annotation for list view
@@ -50,17 +50,15 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                 _message_count=Count('messages')
             )
         
-        # Apply filters
+        # Apply filters (session_type=LLM works automatically)
         mode = self.request.query_params.get('mode')
         if mode:
             queryset = queryset.filter(mode=mode)
         
-        # Search in title
         search = self.request.query_params.get('search')
         if search:
             queryset = queryset.filter(title__icontains=search)
         
-        # Date filters
         created_after = self.request.query_params.get('created_after')
         if created_after:
             queryset = queryset.filter(created_at__gte=created_after)
@@ -69,7 +67,6 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         if created_before:
             queryset = queryset.filter(created_at__lte=created_before)
         
-        # Model filter
         model_id = self.request.query_params.get('model_id')
         if model_id:
             queryset = queryset.filter(
@@ -77,7 +74,13 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             )
         
         return queryset.order_by('-updated_at')
-    
+
+    def perform_destroy(self, instance):
+        """Soft delete - mark as deleted, don't remove from DB"""
+        instance.deleted_at = timezone.now()
+        instance.save(update_fields=['deleted_at'])
+
+
     def get_serializer_class(self):
         if self.action == 'create':
             return ChatSessionCreateSerializer
