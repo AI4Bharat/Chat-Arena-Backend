@@ -11,4 +11,6 @@ class LeaderboardAdmin(admin.ModelAdmin):
     list_filter = ('arena_type', 'organization', 'language')
     
     # Allows you to search by benchmark name
+    list_display = ('benchmark_name', 'language', 'arena_type', 'organization', 'updated_at')
+    list_filter = ('arena_type', 'organization', 'language')
     search_fields = ('benchmark_name',)
