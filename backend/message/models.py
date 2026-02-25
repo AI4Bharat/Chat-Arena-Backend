@@ -28,6 +28,9 @@ class Message(models.Model):
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='messages')
     role = models.CharField(max_length=50, choices=ROLE_CHOICES)
     content = models.TextField()
+    audio_path = models.CharField(max_length=1024, null=True, blank=True)
+    image_path = models.CharField(max_length=1024, null=True, blank=True)
+    doc_path = models.CharField(max_length=1024, null=True, blank=True)
     model = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True, blank=True)
     parent_message_ids = ArrayField(
         models.UUIDField(),
@@ -63,9 +66,15 @@ class Message(models.Model):
         default=None,
         help_text="User feedback: Tie for both models, Model A and Model B for respective models and Both are bad for neither"
     )
+    has_detailed_feedback = models.BooleanField(
+        default=False,
+        help_text="Whether detailed TTS evaluation feedback has been submitted for this message"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
-    
+    language = models.CharField(max_length=100, null=True, blank=True)
+    latency_ms = models.FloatField(null=True, blank=True, help_text="Model response latency in milliseconds for Assistant messages")
+
     class Meta:
         db_table = 'messages'
         ordering = ['session', 'position']

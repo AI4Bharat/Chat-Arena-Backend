@@ -31,7 +31,7 @@ SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['http://127.0.0.1:3000','98.70.28.77', 'localhost', '127.0.0.1', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.org', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org']
+ALLOWED_HOSTS = ['34.131.31.84','localhost', '98.70.28.77', '35.200.149.142', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.co', 'https://backend.dev.arena.ai4bharat.co', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org', 'https://backend.arena.ai4bharat.co', 'backend.arena.ai4bharat.co']
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
@@ -41,6 +41,9 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
+    "https://backend.arena.ai4bharat.co",
+    "https://backend.dev.arena.ai4bharat.co"
 ]
 
 CSRF_COOKIE_SECURE = True
@@ -84,6 +87,7 @@ INSTALLED_APPS = [
     "message",
     "model_metrics",
     "user",
+    "academic_prompts",
     "channels",
     "drf_yasg",
     "corsheaders",
@@ -96,6 +100,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "tenants.middleware.TenantMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -134,7 +139,6 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'user.authentication.FirebaseAuthentication',
         'user.authentication.AnonymousTokenAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -142,12 +146,13 @@ REST_FRAMEWORK = {
 }
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React dev server
-    "http://127.0.0.1:3000",
     "https://ai4bharat.github.io",
     "https://dev.arena.ai4bharat.org",
     "https://arena.ai4bharat.org",
     "https://backend.arena.ai4bharat.org",
+    "https://dev-indic-arena.netlify.app",
+    "https://backend.arena.ai4bharat.co",
+    "https://backend.dev.arena.ai4bharat.co"
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -175,8 +180,19 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
-    }
+    },
+    "aquarium": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("AQUARIUM_DB_NAME"),
+        "USER": os.getenv("AQUARIUM_DB_USER"),
+        "PASSWORD": os.getenv("AQUARIUM_DB_PASSWORD"),
+        "HOST": os.getenv("AQUARIUM_DB_HOST"),
+        "PORT": os.getenv("AQUARIUM_DB_PORT"),
+    },
 }
+
+# Database Router for multi-tenant support
+DATABASE_ROUTERS = ['tenants.db_router.TenantDatabaseRouter']
 
 
 # Password validation
@@ -223,6 +239,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Redis configuration - use environment variable for host to support both dev and prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 'redis' for Docker, '127.0.0.1' for local dev
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
 
 # Session configuration - using Redis for load balancing support
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
@@ -232,10 +249,13 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = True
 
 # Cache configuration
+# Redis URL format: redis://[:password]@host:port/db
+REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}' if REDIS_PASSWORD else f'redis://{REDIS_HOST}:{REDIS_PORT}'
+
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': f'redis://{REDIS_HOST}:{REDIS_PORT}/1',
+        'LOCATION': f'{REDIS_URL}/1',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'CONNECTION_POOL_KWARGS': {
@@ -300,7 +320,7 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [(REDIS_HOST, int(REDIS_PORT))],
+            "hosts": [f'{REDIS_URL}/0'],
             "capacity": 1500,  # Number of messages to store
             "expiry": 10,  # Message expiry in seconds
             "group_expiry": 86400,  # Group membership expiry (24 hours)
@@ -350,3 +370,5 @@ ANONYMOUS_USER_SETTINGS = {
     'ALLOW_MODEL_SELECTION': True,  # Allow guests to choose models
     'ALLOWED_MODELS': ['gpt-3.5-turbo', 'claude-2', 'gemini-pro'],  # Limit premium models
 }
+
+GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME")

@@ -9,12 +9,12 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'display_name', 'auth_provider', 
-            'is_anonymous', 'created_at', 'updated_at', 
+            'id', 'email', 'phone_number', 'display_name', 'auth_provider',
+            'is_anonymous', 'created_at', 'updated_at',
             'is_active', 'preferences'
         ]
         read_only_fields = [
-            'id', 'auth_provider', 'is_anonymous', 
+            'id', 'auth_provider', 'is_anonymous',
             'created_at', 'updated_at', 'firebase_uid'
         ]
 
@@ -94,3 +94,20 @@ class GoogleAuthSerializer(serializers.Serializer):
     def validate_id_token(self, value):
         # This will be validated in the view using Firebase Admin SDK
         return value
+
+
+class PhoneAuthSerializer(serializers.Serializer):
+    """Serializer for Phone authentication"""
+    id_token = serializers.CharField(required=True)
+    display_name = serializers.CharField(required=True, max_length=255)
+
+    def validate_id_token(self, value):
+        # This will be validated in the view using Firebase Admin SDK
+        return value
+
+    def validate_display_name(self, value):
+        if not value or len(value.strip()) < 2:
+            raise serializers.ValidationError(
+                "Display name must be at least 2 characters long"
+            )
+        return value.strip()

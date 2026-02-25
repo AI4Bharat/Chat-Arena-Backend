@@ -81,43 +81,70 @@ class FeedbackViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def session_summary(self, request):
         """Get feedback summary for a session"""
-        session_id = request.query_params.get('session_id')
-        if not session_id:
-            return Response(
-                {'error': 'session_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
+        try:
+            session_id = request.query_params.get('session_id')
+            if not session_id:
+                return Response(
+                    {'error': 'session_id is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            session = get_object_or_404(ChatSession, id=session_id)
+            
+            # Check permissions
+            if session.user != request.user and not session.is_public:
+                return Response(
+                    {'error': 'You do not have access to this session'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            summary = FeedbackService.get_session_feedback_summary(session)
+            
+            return Response(SessionFeedbackSummarySerializer(summary).data)
+        except Exception as e:
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request, session_id=session_id if 'session_id' in locals() else None)
+            return log_and_respond(
+                e,
+                endpoint='/feedback/session_summary/',
+                log_context=log_context
             )
-        
-        session = get_object_or_404(ChatSession, id=session_id)
-        
-        # Check permissions
-        if session.user != request.user and not session.is_public:
-            return Response(
-                {'error': 'You do not have access to this session'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        summary = FeedbackService.get_session_feedback_summary(session)
-        
-        return Response(SessionFeedbackSummarySerializer(summary).data)
     
     @action(detail=False, methods=['get'])
     def my_stats(self, request):
         """Get current user's feedback statistics"""
-        time_period = request.query_params.get('period', '30')
-        
         try:
-            days = int(time_period)
-            period = timedelta(days=days)
-        except ValueError:
-            period = None
-        
-        stats = FeedbackAnalyzer.analyze_user_preferences(
-            request.user,
-            time_period=period
-        )
-        
-        return Response(stats)
+            time_period = request.query_params.get('period', '30')
+            
+            try:
+                days = int(time_period)
+                period = timedelta(days=days)
+            except ValueError as e:
+                # Log validation error with detailed context
+                from common.error_logging import log_and_respond, create_log_context
+                log_context = create_log_context(request)
+                return log_and_respond(
+                    e,
+                    endpoint='/feedback/my_stats/',
+                    log_context=log_context,
+                    custom_message=f"Invalid time period format: '{time_period}'. Please provide a valid number of days."
+                )
+            
+            stats = FeedbackAnalyzer.analyze_user_preferences(
+                request.user,
+                time_period=period
+            )
+            
+            return Response(stats)
+        except Exception as e:
+            # Log unexpected errors
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request)
+            return log_and_respond(
+                e,
+                endpoint='/feedback/my_stats/',
+                log_context=log_context
+            )
     
     @action(detail=False, methods=['get'])
     def model_comparison(self, request):
