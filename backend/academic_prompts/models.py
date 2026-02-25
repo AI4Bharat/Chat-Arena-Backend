@@ -29,6 +29,8 @@ class AcademicPrompt(models.Model):
         default=True,
         help_text="Whether this prompt is active and can be used"
     )
+    normalized = models.BooleanField(null=True, blank=True, help_text="Whether this prompt has been normalized")
+    domain = models.CharField(max_length=100, null=True, blank=True, help_text="Domain or category of the prompt")
 
     class Meta:
         db_table = 'academic_prompts'
