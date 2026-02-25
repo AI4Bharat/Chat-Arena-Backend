@@ -1190,11 +1190,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                 
                 if duration_result.returncode == 0:
                     duration = float(duration_result.stdout.strip())
-                    # Check if duration exceeds 1 minute (60 seconds)
-                    if duration > 60:
+                    # Check if duration exceeds 5 minutes (300 seconds)
+                    if duration > 300:
                         os.remove(temp_input.name)
                         return Response({
-                            'error': f'Audio duration must be less than 1 minute. Your audio is {duration:.1f} seconds.'
+                            'error': f'Audio duration must be less than 5 minutes. Your audio is {duration:.1f} seconds.'
                         }, status=status.HTTP_400_BAD_REQUEST)
             except (ValueError, subprocess.TimeoutExpired):
                 # If we can't get duration, proceed with conversion (fallback)
