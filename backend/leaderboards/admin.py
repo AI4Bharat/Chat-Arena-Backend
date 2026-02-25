@@ -6,4 +6,11 @@ from .models import Leaderboard
 class LeaderboardAdmin(admin.ModelAdmin):
     list_display = ('benchmark_name', 'language', 'arena_type', 'organization', 'updated_at')
     list_filter = ('arena_type', 'organization', 'language')
+    # This makes the list view much more readable
+    list_display = ('benchmark_name', 'language', 'arena_type', 'organization', 'updated_at')
+    
+    # Adds filters to the right sidebar
+    list_filter = ('arena_type', 'organization', 'language')
+    
+    # Allows you to search by benchmark name
     search_fields = ('benchmark_name',)

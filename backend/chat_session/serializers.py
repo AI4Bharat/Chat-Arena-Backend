@@ -41,18 +41,20 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         return None
     
     def to_representation(self, instance):
-        """Conditionally hide model names for random mode."""
+        """Conditionally hide model names for random and academic modes."""
         data = super().to_representation(instance)
-        if instance.mode == 'random' and not instance.has_feedback:
+        if (instance.mode == 'random' or instance.mode == 'academic') and not instance.has_feedback:
             data['model_a'] = {
                 'id': None,
                 'display_name': 'Model A',
-                'provider': 'Random'
+                'provider': 'Random',
+                'is_thinking_model': instance.model_a.is_thinking_model if instance.model_a else False
             }
             data['model_b'] = {
                 'id': None,
                 'display_name': 'Model B',
-                'provider': 'Random'
+                'provider': 'Random',
+                'is_thinking_model': instance.model_b.is_thinking_model if instance.model_b else False
             }
         return data
 
@@ -60,10 +62,11 @@ class ChatSessionCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating chat sessions"""
     model_a_id = serializers.UUIDField(required=False, allow_null=True)
     model_b_id = serializers.UUIDField(required=False, allow_null=True)
+    session_type = serializers.CharField(required=False, default='LLM')
     
     class Meta:
         model = ChatSession
-        fields = ['mode', 'title', 'model_a_id', 'model_b_id', 'metadata']
+        fields = ['mode', 'title', 'model_a_id', 'model_b_id', 'metadata', 'session_type']
     
     def validate(self, attrs):
         mode = attrs.get('mode')
@@ -85,7 +88,7 @@ class ChatSessionCreateSerializer(serializers.ModelSerializer):
                     "Cannot compare the same model"
                 )
         
-        elif mode == 'random':
+        elif mode == 'random' or mode == 'academic':
             # Models will be selected automatically
             attrs['model_a_id'] = None
             attrs['model_b_id'] = None
@@ -136,7 +139,8 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
         model = ChatSession
         fields = [
             'id', 'mode', 'title', 'model_a_name', 'model_b_name',
-            'created_at', 'updated_at', 'message_count', 'is_pinned'
+            'created_at', 'updated_at', 'message_count', 'is_pinned',
+            'session_type',
         ]
     
     def get_message_count(self, obj):
@@ -144,9 +148,9 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
         return getattr(obj, '_message_count', 0)
     
     def to_representation(self, instance):
-        """Conditionally hide model names for random mode."""
+        """Conditionally hide model names for random and academic modes."""
         data = super().to_representation(instance)
-        if instance.mode == 'random' and not instance.has_feedback:
+        if (instance.mode == 'random' or instance.mode == 'academic') and not instance.has_feedback:
             data['model_a_name'] = 'Model A'
             data['model_b_name'] = 'Model B'
         return data
@@ -189,19 +193,21 @@ class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatSession
         fields = [
-            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b'
+            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b', 'session_type'
         ]
 
     def to_representation(self, instance):
-        """Conditionally hide model names for random mode."""
+        """Conditionally hide model names for random and academic modes."""
         data = super().to_representation(instance)
-        if instance.mode == 'random' and not instance.has_feedback:
+        if (instance.mode == 'random' or instance.mode == 'academic') and not instance.has_feedback:
             data['model_a'] = {
                 'id': None,
                 'display_name': 'Model A',
+                'is_thinking_model': instance.model_a.is_thinking_model if instance.model_a else False
             }
             data['model_b'] = {
                 'id': None,
                 'display_name': 'Model B',
+                'is_thinking_model': instance.model_b.is_thinking_model if instance.model_b else False
             }
         return data

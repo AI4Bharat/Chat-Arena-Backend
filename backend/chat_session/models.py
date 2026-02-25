@@ -9,7 +9,14 @@ class ChatSession(models.Model):
     MODE_CHOICES = [
         ('direct', 'Direct Chat'),
         ('compare', 'Compare Models'),
-        ('random', 'Random Models')
+        ('random', 'Random Models'),
+        ('academic', 'Academic Benchmarking')
+    ]
+
+    TYPE_CHOICES = [
+        ('LLM', 'Large Language Model'),
+        ('ASR', 'Automatic Speech Recognition'),
+        ('TTS', 'Text to Speech'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -37,7 +44,9 @@ class ChatSession(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # For anonymous user cleanup
     meta_stats_json = models.JSONField(default=dict, blank=True)
+    session_type = models.CharField(max_length=100, default='LLM', choices=TYPE_CHOICES)  # e.g., 'llm', 'asr', 'tts
     is_pinned = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True, default=None)
     
     class Meta:
         db_table = 'chat_sessions'
@@ -74,6 +83,11 @@ class ChatSession(models.Model):
     @property
     def has_feedback(self):
         """
-        Checks if any feedback has been submitted for this session.
+        Checks if feedback has been submitted for this session.
+        For academic mode: requires detailed feedback to be submitted.
+        For random mode: any feedback is sufficient.
         """
-        return self.feedbacks.exists()
+        if self.mode == 'academic':
+            return self.messages.filter(has_detailed_feedback=True).exists()
+        else:
+            return self.feedbacks.exists()
