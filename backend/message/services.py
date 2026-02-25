@@ -38,13 +38,17 @@ class MessageService:
                 id=message_obj['id'],
                 session=session,
                 role=message_obj['role'],
-                content=message_obj['content'],
+                content=message_obj.get('content') or "",
                 parent_message_ids=message_obj['parent_message_ids'] or [],
                 position=position,
                 participant=message_obj.get('participant'),
                 model = AIModel.objects.get(pk=message_obj['modelId']) if message_obj.get('modelId') else None,
                 status='success' if message_obj['role'] == 'user' else 'streaming',
-                attachments=attachments or []
+                attachments=attachments or [],
+                audio_path=message_obj.get('audio_path'),
+                image_path=message_obj.get('image_path'),
+                doc_path=message_obj.get('doc_path'),
+                language=message_obj.get('language'),
             )
             
             # Update parent messages
@@ -276,9 +280,18 @@ class MessageService:
         
         history = []
         for msg in messages:
+            content = msg.content
+            if msg.metadata:
+                # Include extracted document text if available
+                if 'extracted_text' in msg.metadata:
+                    content += f"\n\n[Attached Document Content]:\n{msg.metadata['extracted_text']}"
+                # Include audio transcription if available
+                if 'audio_transcription' in msg.metadata:
+                    content += f"\n\n[Audio Transcription]:\n{msg.metadata['audio_transcription']}"
+                
             history.append({
                 'role': msg.role,
-                'content': msg.content
+                'content': content
             })
         
         return history

@@ -6,6 +6,7 @@ from django.http import StreamingHttpResponse
 from django.db.models import Q, Count, Avg
 import json
 import asyncio
+import os
 
 from model_metrics.models import AIModel, ModelMetric
 from ai_model.serializers import (
@@ -34,6 +35,8 @@ class AIModelViewSet(viewsets.ModelViewSet):
             return ModelTestSerializer
         elif self.action == 'compare':
             return ModelComparisonSerializer
+        elif self.action == 'filtered_by_type':
+            return AIModelListSerializer
         return AIModelSerializer
     
     def get_queryset(self):
@@ -42,6 +45,19 @@ class AIModelViewSet(viewsets.ModelViewSet):
         # Filter by active status
         # if not self.request.user.is_staff:
         queryset = queryset.filter(is_active=True)
+        
+        # Exclude academic-only TTS models (ElevenLabs and IndicParlerTTS) unless:
+        # 1. Mode is academic
+        
+        mode = self.request.query_params.get('mode')
+        
+        if mode != 'academic':
+            queryset = queryset.exclude(
+                model_code__in=['elevenlabs', 'indicparlertts']
+            )
+        
+        if mode != 'random':
+            queryset = queryset.exclude(model_code__in=os.environ.get('RESTRICTED_MODELS', '').split(','))
         
         # Filter by provider
         provider = self.request.query_params.get('provider')
@@ -63,8 +79,37 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 Q(model_code__icontains=search)
             )
         
-        return queryset.order_by('provider', 'model_name')
+        return queryset.order_by('-release_date', 'provider', 'display_name')
     
+    @action(detail=False, methods=['get'], url_path='type')
+    def filtered_by_type(self, request):
+        """
+        Returns models filtered by model_type
+        """
+        try:
+            model_type = request.query_params.get('model_type')
+            mode = request.query_params.get('mode')
+            qs = self.get_queryset()
+
+            if model_type:
+                qs = qs.filter(model_type=model_type)
+            
+            if mode != 'academic':
+                qs = qs.exclude(model_code__in=['elevenlabs', 'indicparlertts'])
+
+            serializer = self.get_serializer(qs, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            from common.error_logging import log_and_respond, create_log_context
+            log_context = create_log_context(request)
+            log_context['model_type'] = model_type if 'model_type' in locals() else None
+            log_context['mode'] = mode if 'mode' in locals() else None
+            return log_and_respond(
+                e,
+                endpoint='/models/type/',
+                log_context=log_context
+            )
+
     @action(detail=False, methods=['get'])
     def providers(self, request):
         """Get list of available providers"""

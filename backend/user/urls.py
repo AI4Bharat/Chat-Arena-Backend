@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from user.views import (
     UserViewSet,
     GoogleAuthView,
+    PhoneAuthView,
     AnonymousAuthView,
     UserStatsView,
     RefreshTokenView
@@ -17,6 +18,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 urlpatterns = [
     # Authentication endpoints
     path('auth/google/', GoogleAuthView.as_view(), name='google-auth'),
+    path('auth/phone/', PhoneAuthView.as_view(), name='phone-auth'),
     path('auth/anonymous/', AnonymousAuthView.as_view(), name='anonymous-auth'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('users/me/', UserViewSet.as_view({'get': 'me'}), name='user-me'),
@@ -29,6 +31,7 @@ urlpatterns = [
 
 # The URLs will be:
 # POST /api/auth/google/ - Google authentication
+# POST /api/auth/phone/ - Phone authentication
 # POST /api/auth/anonymous/ - Anonymous authentication
 # GET /api/users/ - List users (admin only)
 # POST /api/users/ - Create user

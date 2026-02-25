@@ -7,6 +7,7 @@ from message.models import Message
 from ai_model.serializers import AIModelListSerializer
 from feedback.services import FeedbackAnalyticsService
 from chat_session.serializers import ChatSessionSerializer
+from academic_prompts.models import AcademicPrompt
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
@@ -20,6 +21,8 @@ class FeedbackSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'session', 'message', 'feedback_type',
             'preferred_model', 'rating', 'categories', 'comment',
+            'additional_feedback_json', 
+            'has_image_input', 'has_audio_input', 'has_document_input', 'input_modality', 
             'created_at', 'session_info', 'message_info'
         ]
         read_only_fields = ['id', 'user', 'created_at']
@@ -55,20 +58,25 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
             'id',
             'session_id', 'message_id', 'feedback_type',
             'preference', 'rating', 'categories', 'comment',
-            'session_update'
+            'additional_feedback_json', 'session_update'
         ]
         read_only_fields = ['id']
     
     def to_representation(self, instance):
-        """Customize the output to only include session_update on first feedback."""
+        """Customize the output to include session_update when needed."""
         data = super().to_representation(instance)
         session = instance.session
+        should_include_session = False
 
-        if session.mode == 'random' and session.feedbacks.count() == 1:
-            return data
-        else:
+        if (session.mode == 'random' or session.mode == 'academic') and session.feedbacks.count() == 1:
+            should_include_session = True
+        elif session.mode == 'academic' and instance.additional_feedback_json:
+            should_include_session = True
+
+        if not should_include_session:
             data.pop('session_update', None)
-            return data
+            
+        return data
     
     def validate_rating(self, value):
         if value is not None and self.initial_data.get('feedback_type') != 'rating':
@@ -136,42 +144,99 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         # Remove the ID fields
+        session = validated_data.pop('session', None)
+        message = validated_data.pop('message', None)
         validated_data.pop('session_id', None)
         message_id = validated_data.pop('message_id', None)
         preference = validated_data.pop('preference', None)
+        feedback_type = validated_data.get('feedback_type')
+        user = self.context['request'].user
 
         try:
             userMessage = Message.objects.get(id=message_id)
         except Message.DoesNotExist:
             raise serializers.ValidationError("User Message not found")
 
-        for modelMessage in userMessage.child_ids:
-            modelMessageObj = Message.objects.get(id=modelMessage)
-            if modelMessageObj.participant == 'a':
-                modelAId = str(modelMessageObj.model_id)
-            elif modelMessageObj.participant == 'b':
-                modelBId = str(modelMessageObj.model_id)
+        is_detailed_feedback = bool(validated_data.get('additional_feedback_json'))
 
-        if preference == 'model_a':
-            preferred_model_ids = [modelAId]
-        elif preference == 'model_b':
-            preferred_model_ids = [modelBId]
-        elif preference == 'tie':
-            preferred_model_ids = [modelAId, modelBId]
+        if feedback_type == 'preference' and not is_detailed_feedback:
+            for modelMessage in userMessage.child_ids:
+                modelMessageObj = Message.objects.get(id=modelMessage)
+                if modelMessageObj.participant == 'a':
+                    modelAId = str(modelMessageObj.model_id)
+                elif modelMessageObj.participant == 'b':
+                    modelBId = str(modelMessageObj.model_id)
+
+            if preference == 'model_a':
+                preferred_model_ids = [modelAId]
+            elif preference == 'model_b':
+                preferred_model_ids = [modelBId]
+            elif preference == 'tie':
+                preferred_model_ids = [modelAId, modelBId]
+            else:
+                preferred_model_ids = []
+
+            validated_data['preferred_model_ids'] = preferred_model_ids
+
+        # Automatically detect and set modality fields based on user message
+        has_image = bool(userMessage.image_path)
+        has_audio = bool(userMessage.audio_path)
+        has_document = bool(userMessage.doc_path)
+        
+        validated_data['has_image_input'] = has_image
+        validated_data['has_audio_input'] = has_audio
+        validated_data['has_document_input'] = has_document
+        
+        # Determine primary modality
+        modality_count = sum([has_image, has_audio, has_document])
+        if modality_count > 1:
+            validated_data['input_modality'] = 'multimodal'
+        elif has_image:
+            validated_data['input_modality'] = 'image'
+        elif has_audio:
+            validated_data['input_modality'] = 'audio'
+        elif has_document:
+            validated_data['input_modality'] = 'document'
         else:
-            preferred_model_ids = []
-        
-        validated_data['preferred_model_ids'] = preferred_model_ids
-        validated_data['user'] = self.context['request'].user
-        
+            validated_data['input_modality'] = 'text'
+
+        # Use update_or_create to handle both initial feedback and detailed feedback updates
         with transaction.atomic():
-            feedback = super().create(validated_data)
-            userMessage.feedback = preference
-            userMessage.save()
-        
+            feedback, created = Feedback.objects.update_or_create(
+                user=user,
+                session=session,
+                message=userMessage,
+                feedback_type=feedback_type,
+                defaults=validated_data
+            )
+
+            message_update_fields = []
+
+            # Update message feedback field when preference is provided
+            if preference and not is_detailed_feedback:
+                userMessage.feedback = preference
+                message_update_fields.append('feedback')
+
+            if is_detailed_feedback:
+                userMessage.has_detailed_feedback = True
+                message_update_fields.append('has_detailed_feedback')
+
+                # For academic mode, increment the academic prompt's usage count on detailed feedback
+                if session.mode == 'academic' and userMessage.metadata:
+                    academic_prompt_id = userMessage.metadata.get('academic_prompt_id')
+                    if academic_prompt_id:
+                        try:
+                            academic_prompt = AcademicPrompt.objects.select_for_update().get(id=academic_prompt_id)
+                            academic_prompt.increment_usage()
+                        except AcademicPrompt.DoesNotExist:
+                            pass
+
+            if message_update_fields:
+                userMessage.save(update_fields=message_update_fields)
+
         # Trigger analytics update
         # FeedbackAnalyticsService.process_new_feedback(feedback)
-        
+
         return feedback
 
 
