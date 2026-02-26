@@ -1,0 +1,233 @@
+"""
+Sentence generation pipeline.
+Ported from synthetic-benchmarks/models/sentence_generator/engine.py
+Generates sentences using Gemini API based on configuration.
+"""
+
+import os
+import json
+from typing import List, Dict, Tuple
+from ..entities import Config
+from ..utils import save_jsonl_file, load_jsonl_file, http_utils
+
+
+def generate_sentence_pipeline(config: Config, payload: Dict = None) -> Tuple[List[Dict], str]:
+    """
+    Generate sentences for the dataset using Gemini API OR use provided sentences
+    
+    Args:
+        config: Dataset configuration
+        payload: Full job payload (optional, for accessing prompt_config)
+        
+    Returns:
+        Tuple of (sentences list, error message)
+    """
+    try:
+        if not config:
+            return [], "Config is null"
+        
+        if not config.sentence_config:
+            return [], "Sentence config is missing"
+        
+        # TODO: TEMPORARY FOR DEMO - Check if sentences are pre-provided in prompt_config
+        # This allows skipping Gemini generation and using user-provided sentences directly
+        # Expected format in payload:
+        #   "prompt_config": {
+        #     "sentences": {
+        #       "sentence_0": {
+        #         "sentence": "Actual sentence text here",
+        #         "persona": "Full persona description (not persona_0)",
+        #         "topic": "Full topic description (not topic_0)",
+        #         "scenario": "Full scenario description",
+        #         "sub_domain": "Full sub-domain name"
+        #       },
+        #       "sentence_1": { ... }
+        #     }
+        #   }
+        if payload and 'prompt_config' in payload:
+            prompt_config = payload['prompt_config']
+            if 'sentences' in prompt_config and prompt_config['sentences']:
+                # Extract sentences from prompt_config (format: { "sentence_0": { "sentence": "...", ... }, ... })
+                provided_sentences = []
+                sentences_dict = prompt_config['sentences']
+                
+                for key in sorted(sentences_dict.keys()):
+                    sentence_obj = sentences_dict[key]
+                    if isinstance(sentence_obj, dict) and 'sentence' in sentence_obj:
+                        provided_sentences.append(sentence_obj['sentence'])
+                    elif isinstance(sentence_obj, str):
+                        provided_sentences.append(sentence_obj)
+                
+                if provided_sentences:
+                    # Use provided sentences instead of generating
+                    sentences = provided_sentences
+                else:
+                    # Fall back to Gemini generation
+                    sentences, err = _generate_sentences_with_gemini(config)
+                    if err:
+                        return [], f"Error generating sentences: {err}"
+            else:
+                # No sentences in prompt_config, generate with Gemini
+                sentences, err = _generate_sentences_with_gemini(config)
+                if err:
+                    return [], f"Error generating sentences: {err}"
+        else:
+            # No payload or prompt_config, generate with Gemini
+            sentences, err = _generate_sentences_with_gemini(config)
+            if err:
+                return [], f"Error generating sentences: {err}"
+        
+        if not sentences:
+            return [], "No sentences were generated or provided"
+        
+        # Save sentences to file
+        job_id = config.job_id
+        sentences_file = _get_sentences_file_path(job_id)
+        
+        sentences_with_meta = [
+            {'id': idx, 'sentence': sent} 
+            for idx, sent in enumerate(sentences)
+        ]
+        
+        err = save_jsonl_file(sentences_with_meta, sentences_file)
+        if err:
+            return [], f"Failed to save sentences: {err}"
+        
+        return sentences_with_meta, ""
+        
+    except Exception as e:
+        return [], f"Exception in sentence generation: {str(e)}"
+
+
+def _generate_sentences_with_gemini(config: Config) -> Tuple[List[str], str]:
+    """
+    Call remote PAI server to generate sentences
+    (Previously called Gemini API directly, now delegates to dmubox server)
+    
+    Args:
+        config: Dataset configuration
+        
+    Returns:
+        Tuple of (sentences list, error message)
+    """
+    try:
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL')
+        if not pai_server_url:
+            return [], "SYNTHETIC_ASR_PAI_SERVER_URL environment variable not set"
+        
+        # Build request payload for PAI server
+        # The PAI server will handle calling Gemini on its end
+        payload = {
+            'language': config.language,
+            'category': config.sentence_config.category,
+            'style': config.sentence_config.style,
+            'description': config.sentence_config.description,
+            'entities': config.sentence_config.entities,
+            'size': config.size,
+            'topic_persona_instruction': config.sentence_config.topic_persona_instruction,
+            'sub_domain_instruction': config.sentence_config.sub_domain_instruction,
+            'scenario_instruction': config.sentence_config.scenario_instruction
+        }
+        
+        # Call the remote PAI server's sentence generation endpoint
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        # Parse URL to separate host and path
+        from urllib.parse import urlparse
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
+        scheme = parsed_url.scheme or 'https'
+        is_https = scheme == 'https'
+        
+        # Use appropriate connection method based on scheme
+        if is_https:
+            result, err = http_utils.make_post_request(
+                host,
+                '/pai/generate-sentences',
+                headers,
+                payload
+            )
+        else:
+            result, err = http_utils.make_local_post_request(
+                host,
+                '/pai/generate-sentences',
+                headers,
+                payload,
+                port=80
+            )
+        
+        if err:
+            return [], f"PAI server error: {err}"
+        
+        # Parse response
+        sentences = []
+        if isinstance(result, dict):
+            sentences = result.get('sentences', [])
+        
+        if not sentences:
+            return [], "PAI server returned no sentences"
+        
+        return sentences, ""
+        
+    except Exception as e:
+        return [], f"Exception calling PAI server: {str(e)}"
+
+
+def _build_sentence_prompt(config: Config) -> str:
+    """
+    Build detailed prompt for Gemini to generate sentences
+    
+    Args:
+        config: Dataset configuration
+        
+    Returns:
+        Prompt string
+    """
+    sentence_config = config.sentence_config
+    
+    prompt = f"""
+You are an expert text generator for ASR (Automatic Speech Recognition) training data. 
+Generate diverse, natural sentences in {config.language} for training an ASR model.
+
+Dataset Requirements:
+- Domain/Category: {sentence_config.category}
+- Language: {config.language}
+- Sentence Styles: {', '.join(sentence_config.style)}
+- Target Duration: {config.size} hours of audio
+- Description: {sentence_config.description or 'No specific description'}
+- Related Entities: {', '.join(sentence_config.entities) if sentence_config.entities else 'None'}
+
+Generation Guidelines:
+{f"- Topics/Personas: {sentence_config.topic_persona_instruction}" if sentence_config.topic_persona_instruction else ""}
+{f"- Sub-domain Focus: {sentence_config.sub_domain_instruction}" if sentence_config.sub_domain_instruction else ""}
+{f"- Scenarios: {sentence_config.scenario_instruction}" if sentence_config.scenario_instruction else ""}
+
+Important Rules:
+- Generate sentences that are natural and realistic for the given domain
+- Vary sentence length and complexity
+- Include the specified entities where relevant
+- Follow the sentence styles specified
+- Ensure linguistic diversity
+- DO NOT include explanations or commentary
+- Return ONLY valid JSON
+
+Generate 50 sentences suitable for ASR training.
+"""
+    
+    return prompt
+
+
+def _get_sentences_file_path(job_id: str) -> str:
+    """
+    Get path where sentences should be saved
+    
+    Args:
+        job_id: Job ID
+        
+    Returns:
+        File path
+    """
+    parent_folder = os.getenv('SYNTHETIC_ASR_DATA_PATH', '/tmp/synthetic_asr')
+    return f"{parent_folder}/{job_id}/sentences.jsonl"
