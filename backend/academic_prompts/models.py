@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import F
 import uuid
 from ai_model.models import AIModel
 
@@ -44,6 +45,6 @@ class AcademicPrompt(models.Model):
         return f"{self.language}: {self.text[:50]}..."
 
     def increment_usage(self):
-        """Increment the usage count for this prompt."""
-        self.usage_count += 1
-        self.save(update_fields=['usage_count', 'updated_at'])
+        """Increment the usage count for this prompt atomically."""
+        AcademicPrompt.objects.filter(pk=self.pk).update(usage_count=F('usage_count') + 1)
+        self.refresh_from_db(fields=['usage_count'])

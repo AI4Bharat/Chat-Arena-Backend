@@ -1,5 +1,7 @@
+import logging
 from rest_framework import serializers
 from django.db import transaction
+from django.db.models import F
 from feedback.models import Feedback
 from ai_model.models import AIModel
 from chat_session.models import ChatSession
@@ -8,6 +10,8 @@ from ai_model.serializers import AIModelListSerializer
 from feedback.services import FeedbackAnalyticsService
 from chat_session.serializers import ChatSessionSerializer
 from academic_prompts.models import AcademicPrompt
+
+logger = logging.getLogger(__name__)
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
@@ -218,18 +222,22 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
                 message_update_fields.append('feedback')
 
             if is_detailed_feedback:
+                is_first_detailed_feedback = not userMessage.has_detailed_feedback
+
                 userMessage.has_detailed_feedback = True
                 message_update_fields.append('has_detailed_feedback')
 
-                # For academic mode, increment the academic prompt's usage count on detailed feedback
-                if session.mode == 'academic' and userMessage.metadata:
-                    academic_prompt_id = userMessage.metadata.get('academic_prompt_id')
+                if is_first_detailed_feedback and session.mode == 'academic':
+                    academic_prompt_id = (userMessage.metadata or {}).get('academic_prompt_id')
                     if academic_prompt_id:
-                        try:
-                            academic_prompt = AcademicPrompt.objects.select_for_update().get(id=academic_prompt_id)
-                            academic_prompt.increment_usage()
-                        except AcademicPrompt.DoesNotExist:
-                            pass
+                        updated = AcademicPrompt.objects.filter(id=academic_prompt_id).update(
+                            usage_count=F('usage_count') + 1
+                        )
+                        if not updated:
+                            logger.warning(
+                                f"Academic prompt {academic_prompt_id} not found when incrementing usage "
+                                f"(message={userMessage.id}, session={session.id})"
+                            )
 
             if message_update_fields:
                 userMessage.save(update_fields=message_update_fields)
