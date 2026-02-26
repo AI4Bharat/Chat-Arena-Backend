@@ -53,7 +53,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
         
         if mode != 'academic':
             queryset = queryset.exclude(
-                model_code__in=['elevenlabs', 'indicparlertts', 'indicf5']
+                model_code__in=['elevenlabs', 'indicparlertts', 'indicf5', 'eleven_v3', 'sonic-3', 'speech-2.8-hd']
             )
         
         if mode != 'random':
