@@ -16,8 +16,10 @@ from .serializers import (
 from .services import UserService
 from .authentication import AnonymousTokenAuthentication, FirebaseAuthentication
 from .permissions import IsOwnerOrReadOnly
-from django.db.models import Count
+from django.db.models import Count, Q
 from message.models import Message
+from feedback.models import Feedback
+from ai_model.models import AIModel
 from django.db.models.functions import TruncDate
 from datetime import datetime, timedelta
 
@@ -225,7 +227,10 @@ class UserStatsView(views.APIView):
                 'feedback_given': user.feedbacks.count(),
                 'session_breakdown': self._get_session_breakdown(user),
                 'detailed_votes_count': self._get_detailed_votes_count(user),
-                'llm_random_votes_count': self._get_llm_random_votes_count(user)
+                'llm_random_votes_count': self._get_llm_random_votes_count(user),
+                'chats_by_type': self._get_chats_by_type(user),
+                'language_stats': self._get_language_stats(user),
+                'model_preferences': self._get_model_preferences(user),
             }
             
             return Response(stats)
@@ -306,7 +311,6 @@ class UserStatsView(views.APIView):
     
     def _get_llm_random_votes_count(self, user):
         """Get count of votes submitted in LLM Random mode"""
-        from feedback.models import Feedback
         
         # Count all feedbacks in random mode LLM sessions
         llm_random_votes = Feedback.objects.filter(
@@ -316,3 +320,93 @@ class UserStatsView(views.APIView):
         ).count()
         
         return llm_random_votes
+
+    def _get_chats_by_type(self, user):
+        """Get breakdown of chats by input type (Text, Image, Audio, File)"""
+        stats = Message.objects.filter(
+            session__user=user, 
+            role='user'
+        ).aggregate(
+            image_count=Count('id', filter=Q(image_path__isnull=False)),
+            audio_count=Count('id', filter=Q(audio_path__isnull=False)),
+            file_count=Count('id', filter=Q(doc_path__isnull=False)),
+            text_count=Count('id', filter=
+                Q(image_path__isnull=True) & 
+                Q(audio_path__isnull=True) & 
+                Q(doc_path__isnull=True)
+            )
+        )
+        
+        return {
+            'image': stats['image_count'],
+            'audio': stats['audio_count'],
+            'file': stats['file_count'],
+            'text': stats['text_count']
+        }
+
+    def _get_language_stats(self, user):
+        """
+        Get breakdown of messages by language
+        Only returning top 5 for now
+        """
+        langs = Message.objects.filter(
+            session__user=user,
+            role='user',
+            language__isnull=False
+        ).exclude(language='').values('language').annotate(
+            count=Count('id')
+        ).order_by('-count')[:5]
+        
+        return {item['language']: item['count'] for item in langs}
+
+    def _get_model_preferences(self, user):
+        """
+        Get ranking of models based on user's feedback (preferred models).
+        Returns top 5 models that the user has voted for.
+        """
+        
+        try:
+            feedbacks = Feedback.objects.filter(user=user).values_list('preferred_model_ids', flat=True)
+            
+            model_counts = {}
+           
+            for model_ids in feedbacks:
+                for mid in model_ids:
+                    if not mid: continue
+                    model_counts[str(mid)] = model_counts.get(str(mid), 0) + 1
+            
+            direct_likes = Feedback.objects.filter(
+                user=user,
+                feedback_type='rating',
+                rating=5,
+                message__model__isnull=False
+            ).values_list('message__model_id', flat=True)
+
+            for mid in direct_likes:
+                if not mid: continue
+                model_counts[str(mid)] = model_counts.get(str(mid), 0) + 1
+            
+            # Sort by count
+            sorted_models = sorted(model_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+           
+            if not sorted_models:
+                return []
+                
+            model_ids = [m[0] for m in sorted_models]
+            models = AIModel.objects.filter(id__in=model_ids).values('id', 'display_name', 'provider')
+            model_map = {str(m['id']): m for m in models}
+            
+            result = []
+            for mid, count in sorted_models:
+                if mid in model_map:
+                    result.append({
+                        'model_id': mid,
+                        'display_name': model_map[mid]['display_name'],
+                        'provider': model_map[mid]['provider'],
+                        'votes': count
+                    })
+            
+            return result
+        except Exception as e:
+            print(f"Error calculating model preferences for user {user.id}: {str(e)}")
+            return []
