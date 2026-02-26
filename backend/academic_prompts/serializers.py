@@ -18,7 +18,8 @@ class AcademicPromptSerializer(serializers.ModelSerializer):
             'model_a_code', 'model_b_code',
             'model_a_display', 'model_b_display',
             'gender', 'voice_a', 'voice_b',
-            'usage_count', 'created_at', 'updated_at', 'is_active'
+            'usage_count', 'created_at', 'updated_at', 'is_active',
+            'normalized', 'domain'
         ]
         read_only_fields = ['id', 'usage_count', 'created_at', 'updated_at', 'model_a_display', 'model_b_display']
 
@@ -52,6 +53,8 @@ class AcademicPromptBulkCreateSerializer(serializers.Serializer):
                 'gender': prompt_data.get('gender'),
                 'voice_a': prompt_data.get('voice_a'),
                 'voice_b': prompt_data.get('voice_b'),
+                'normalized': prompt_data.get('normalized'),
+                'domain': prompt_data.get('domain'),
             }
 
             if 'model_a_code' in prompt_data and prompt_data['model_a_code']:

@@ -4,7 +4,7 @@ from google.cloud import storage
 from django.conf import settings
 import json
 import uuid
-from datetime import datetime
+from django.utils import timezone
 import os
 
 
@@ -34,7 +34,7 @@ class FrontendErrorLogView(views.APIView):
         entry = {
             'endpoint': data.get('endpoint'),
             'method': data.get('method'),
-            'timestamp': data.get('timestamp') or datetime.utcnow().isoformat() + 'Z',
+            'timestamp': data.get('timestamp') or timezone.now().isoformat(),
             'user_email': user_email,
             'status': data.get('status'),
             'error_message': data.get('error_message'),
@@ -43,7 +43,7 @@ class FrontendErrorLogView(views.APIView):
             'tenant': data.get('tenant'),
             'domain': data.get('domain') or request.get_host(),
             'client': data.get('client'),
-            'received_at': datetime.utcnow().isoformat() + 'Z',
+            'received_at': timezone.now().isoformat(),
         }
 
         try:
@@ -70,11 +70,11 @@ def write_log_to_gcs(entry):
     bucket = client.bucket(bucket_name)
 
     # Daily file name according to spec: DD-MM-YY.log
-    date_str = datetime.utcnow().strftime('%d-%m-%y')
+    date_str = timezone.now().strftime('%d-%m-%y')
     daily_path = f"{prefix}/{date_str}.log"
 
     # Prepare a small temporary object for this event
-    tmp_name = f"{prefix}/tmp/{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex}.json"
+    tmp_name = f"{prefix}/tmp/{timezone.now().strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex}.json"
     tmp_blob = bucket.blob(tmp_name)
     line = json.dumps(entry, ensure_ascii=False) + '\n'
     tmp_blob.upload_from_string(line, content_type='application/json')
