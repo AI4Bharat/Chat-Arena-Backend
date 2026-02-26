@@ -46,7 +46,6 @@ class Leaderboard(models.Model):
         ("Urdu", "Urdu"),
         ("Bhojpuri", "Bhojpuri"),
         ("Chattisgarhi", "Chattisgarhi"),
-
     ]
 
     # --- Database Fields ---
