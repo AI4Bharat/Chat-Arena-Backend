@@ -65,6 +65,7 @@ google-cloud-resource-manager==1.15.0
 google-cloud-texttospeech==2.33.0
 google-crc32c==1.7.1
 google-resumable-media==2.7.2
+google-generativeai>=0.8.0
 googleapis-common-protos==1.70.0
 greenlet==3.3.0
 grpcio==1.67.1
@@ -128,6 +129,7 @@ pycryptodome==3.23.0
 pydantic==2.11.9
 pydantic_core==2.33.2
 pydub==0.25.1
+Pillow>=10.0.0
 PyGObject==3.50.0
 PyJWT==2.10.1
 pyOpenSSL==25.3.0
