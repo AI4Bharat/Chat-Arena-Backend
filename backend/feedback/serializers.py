@@ -58,7 +58,7 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
             'id',
             'session_id', 'message_id', 'feedback_type',
             'preference', 'rating', 'categories', 'comment',
-            'additional_feedback_json', 'tracking_data', 'session_update',
+            'additional_feedback_json', 'session_update'
         ]
         read_only_fields = ['id']
     

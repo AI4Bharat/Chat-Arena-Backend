@@ -1,5 +1,5 @@
 """Utility for logging AI model errors to GCS"""
-from django.utils import timezone
+from datetime import datetime
 import json
 
 
@@ -22,7 +22,7 @@ def extract_error_details(exception, model_code, provider, log_context=None):
         'error_type': 'model_error',
         'model': model_code,
         'provider': provider,
-        'timestamp': timezone.now().isoformat(),
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
         'error_message': str(exception),
         'session_id': log_context.get('session_id'),
         'message_id': log_context.get('message_id'),
@@ -69,7 +69,7 @@ def log_model_error_to_gcs(error_entry):
     from frontend_logs.views import write_log_to_gcs
     
     # Add received_at timestamp
-    error_entry['received_at'] = timezone.now().isoformat()
+    error_entry['received_at'] = datetime.utcnow().isoformat() + 'Z'
     
     # Reuse existing GCS logging function
     try:

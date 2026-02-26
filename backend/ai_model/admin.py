@@ -8,10 +8,10 @@ from message.models import Message
 class AIModelAdmin(admin.ModelAdmin):
     list_display = [
         'display_name', 'provider', 'model_code', 'model_type',
-        'is_active', 'supports_streaming', 'is_thinking_model', 'capabilities_display',
+        'is_active', 'supports_streaming', 'capabilities_display',
         'created_at'
     ]
-    list_filter = ['provider', 'model_type', 'is_active', 'supports_streaming', 'is_thinking_model', 'created_at']
+    list_filter = ['provider', 'model_type', 'is_active', 'supports_streaming', 'created_at']
     search_fields = ['display_name', 'model_name', 'model_code', 'description']
     readonly_fields = ['id', 'created_at', 'usage_stats']
     
@@ -23,7 +23,7 @@ class AIModelAdmin(admin.ModelAdmin):
             'fields': ('description',)
         }),
         ('Configuration', {
-            'fields': ('capabilities', 'supported_languages', 'max_tokens', 'supports_streaming', 'is_thinking_model', 'config')
+            'fields': ('capabilities', 'supported_languages', 'max_tokens', 'supports_streaming', 'config')
         }),
         ('Status', {
             'fields': ('is_active', 'created_at', 'release_date')
