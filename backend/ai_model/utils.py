@@ -181,7 +181,6 @@ class ModelSelector:
 
     @staticmethod
     def active_sampling(queryset, leaderboard_stats: dict) -> tuple:
-        print(leaderboard_stats)
         """Core active sampling logic taking only queryset and leaderboard stats"""
         models_list = list(queryset)
         
@@ -238,7 +237,6 @@ class ModelSelector:
             weights = []
             for m in models_list:
                 stats = get_stats(m)
-                print(stats)
                 w = 1.0 / ((stats['attempts'] + 1) ** ModelSelector.ALPHA)
                 weights.append(w)
 
