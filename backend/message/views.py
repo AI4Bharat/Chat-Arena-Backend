@@ -627,7 +627,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                 language = user_message.language
 
                 # Get least used prompt for uniform distribution
-                prompts = AcademicPrompt.objects.filter(
+                specific_model_id = os.getenv("SPECIFIC_MODEL_ID")
+                prompts_qs = AcademicPrompt.objects.filter(
                     language=language,
                     is_active=True,
                     model_a__isnull=False,
@@ -635,6 +636,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                     model_a__is_active=True,
                     model_b__is_active=True
                 )
+                if specific_model_id:
+                    prompts_qs = prompts_qs.filter(
+                        Q(model_a__id=specific_model_id) | Q(model_b__id=specific_model_id)
+                    )
+                prompts = prompts_qs
                 if prompts.exists():
                     min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
                     least_used_prompts = prompts.filter(usage_count=min_usage_count)
