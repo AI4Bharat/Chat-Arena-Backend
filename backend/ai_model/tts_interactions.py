@@ -135,7 +135,7 @@ def get_gemini_output(tts_input, lang, model, gender, voice=None, log_context=No
         else:
             speaker = random.choice(speakerMale)
 
-        language_code = f"{lang}-BD" if lang == "bn" else f"{lang}-IN"
+        language_code = "bn-BD" if lang == "bn" else "ur-PK" if lang == "ur" else f"{lang}-IN"
         voice = texttospeech.VoiceSelectionParams(
             language_code=language_code,
             name=speaker,
