@@ -114,6 +114,15 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             mode = serializer.validated_data['mode']
             session_type = serializer.validated_data.get('session_type')
 
+            if mode in {'direct', 'compare'} and getattr(request.user, 'is_anonymous', False):
+                return Response(
+                    {
+                        'error': 'authentication_required',
+                        'message': 'You must be signed in to create a direct or compare mode session.'
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
             if mode == 'academic' and session_type == 'TTS':
                 if not request.user.is_anonymous:
                     votes_count = self._get_academic_tts_votes_count(request.user)

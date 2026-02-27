@@ -1,3 +1,5 @@
+message/views.py
+
 import time
 from ai_model.llm_interactions import get_model_output
 from ai_model.asr_interactions import get_asr_output
@@ -39,7 +41,42 @@ import tempfile
 from message.utlis import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
-from django.db.models import Min, Q
+from django.db.models import Min
+
+
+DAILY_MESSAGE_LIMIT = 15
+RATE_LIMITED_MODES = {'direct', 'compare'}
+
+
+class _DailyLimitExceeded(Exception):
+    """Sentinel raised when a user hits the daily message cap."""
+    pass
+
+
+def _check_daily_message_limit(user, session):
+    """
+    Raises _DailyLimitExceeded if the user has sent DAILY_MESSAGE_LIMIT
+    or more user-role messages today across all direct/compare sessions.
+    Only counts messages with role='user'. Resets at midnight UTC.
+    """
+    if session.mode not in RATE_LIMITED_MODES:
+        return
+
+    today_start = datetime.datetime.combine(
+        datetime.date.today(),
+        datetime.time.min,
+        tzinfo=datetime.timezone.utc
+    )
+
+    count = Message.objects.filter(
+        session__user=user,
+        session__mode__in=RATE_LIMITED_MODES,
+        role='user',
+        created_at__gte=today_start,
+    ).count()
+
+    if count >= DAILY_MESSAGE_LIMIT:
+        raise _DailyLimitExceeded()
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -93,6 +130,28 @@ class MessageViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        if session.mode in RATE_LIMITED_MODES and getattr(request.user, 'is_anonymous', False):
+            return Response(
+                {
+                    'error': 'authentication_required',
+                    'message': 'You must be signed in to use direct or compare mode.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if serializer.validated_data.get('role', 'user') == 'user':
+            try:
+                _check_daily_message_limit(request.user, session)
+            except _DailyLimitExceeded:
+                return Response(
+                    {
+                        'error': 'daily_limit_reached',
+                        'message': f'You have reached the daily limit of {DAILY_MESSAGE_LIMIT} messages '
+                                f'in direct and compare modes. Your limit resets at midnight.'
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
         message = serializer.save()
         
         return Response(
@@ -115,6 +174,27 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+
+        if session.mode in RATE_LIMITED_MODES and getattr(request.user, 'is_anonymous', False):
+            return Response(
+                {
+                    'error': 'authentication_required',
+                    'message': 'You must be signed in to use direct or compare mode.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            _check_daily_message_limit(request.user, session)
+        except _DailyLimitExceeded:
+            return Response(
+                {
+                    'error': 'daily_limit_reached',
+                    'message': f'You have reached the daily limit of {DAILY_MESSAGE_LIMIT} messages '
+                            f'in direct and compare modes. Your limit resets at midnight.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )    
 
         RESTRICTED_MODELS = os.environ.get('RESTRICTED_MODELS', '').split(',')
         model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.model_code in RESTRICTED_MODELS
