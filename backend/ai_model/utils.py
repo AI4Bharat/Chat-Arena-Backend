@@ -3,11 +3,14 @@ from django.core.cache import cache
 from django.db.models import F
 import math
 import logging
+from django.http import JsonResponse
 from ai_model.models import AIModel
 import random
 from model_metrics.models import ModelMetric
 import markdown
 import re
+from typing import List, Optional
+from leaderboards.models import Leaderboard
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +151,143 @@ MULTIMODAL_MODELS_NAMES = [
 
 class ModelSelector:
     """Select models based on various criteria"""
+
+    ALPHA = 2.0  # Aggressive low-trials penalty
+
+    # Default mode ratios (matching Sampler_strategy.py)
+    DEFAULT_RATIOS_WITH_FRESHERS = {
+        "FRESHER": 0.50,
+        "BY_TRIALS": 0.25,
+        "BY_CI": 0.15,
+        "CLUSTER_BUSTER": 0.10,
+    }
+
+    DEFAULT_RATIOS_NO_FRESHERS = {
+        "BY_TRIALS": 0.5,
+        "BY_CI": 0.25,
+        "CLUSTER_BUSTER": 0.25,
+    }
+
+    @staticmethod
+    def _pick_mode_from_ratios(ratios: dict) -> str:
+        items = list(ratios.items())
+        modes = [k for k, _ in items]
+        weights = [max(0.0, float(v)) for _, v in items]
+        total = sum(weights)
+        if total <= 0:
+            return random.choice(modes)
+        weights = [w / total for w in weights]
+        return random.choices(modes, weights=weights, k=1)[0]
+
+    @staticmethod
+    def active_sampling(queryset, leaderboard_stats: dict) -> tuple:
+        print(leaderboard_stats)
+        """Core active sampling logic taking only queryset and leaderboard stats"""
+        models_list = list(queryset)
+        
+        if len(models_list) < 2:
+            raise ValueError("Not enough models available for comparison")
+            
+        def get_stats(m):
+            # Match DB model_code with JSON model name
+            if m.model_code in leaderboard_stats:
+                s = leaderboard_stats[m.model_code]
+                score = s['score']
+                upper = score + s['ci_upper']
+                lower = score + s['ci_lower']
+                return {
+                    'score': score,
+                    'upper': upper,
+                    'lower': lower,
+                    'ci_width': s['ci_width'],
+                    'attempts': s['attempts']
+                }
+            # Fallback if model not in JSON
+            return {
+                'score': 1200.0,
+                'upper': 1260.0,
+                'lower': 1140.0,
+                'ci_width': 120.0,
+                'attempts': 0
+            }
+
+        # Identify freshers using the database flag
+        active_freshers = [m for m in models_list if m.is_fresh_model]
+
+        # Determine mode
+        if active_freshers:
+            ratios = ModelSelector.DEFAULT_RATIOS_WITH_FRESHERS
+        else:
+            ratios = ModelSelector.DEFAULT_RATIOS_NO_FRESHERS
+            
+        mode = ModelSelector._pick_mode_from_ratios(ratios)
+
+        # 1. FRESHER Mode
+        if mode == "FRESHER" and active_freshers:
+            student = random.choice(active_freshers)
+            
+            # Play with anyone at random (excluding the student itself)
+            possible_opponents = [m for m in models_list if m.id != student.id]
+            teacher = random.choice(possible_opponents)
+                
+            # Randomize order so fresher isn't always model_a
+            return (student, teacher) if random.random() > 0.5 else (teacher, student)
+
+        # 2. BY_TRIALS Mode
+        elif mode == "BY_TRIALS":
+            weights = []
+            for m in models_list:
+                stats = get_stats(m)
+                print(stats)
+                w = 1.0 / ((stats['attempts'] + 1) ** ModelSelector.ALPHA)
+                weights.append(w)
+
+            m1, m2 = random.choices(models_list, weights=weights, k=2)
+            while m1.id == m2.id:
+                m2 = random.choices(models_list, weights=weights, k=1)[0]
+                
+            return m1, m2
+
+        # 3. BY_CI Mode
+        elif mode == "BY_CI":
+            weights = []
+            for m in models_list:
+                stats = get_stats(m)
+                weights.append(stats['ci_width'] + 0.1)
+                
+            m1, m2 = random.choices(models_list, weights=weights, k=2)
+            while m1.id == m2.id:
+                m2 = random.choices(models_list, weights=weights, k=1)[0]
+                
+            return m1, m2
+
+        # 4. CLUSTER_BUSTER Mode
+        elif mode == "CLUSTER_BUSTER":
+            candidates = []
+            total_weight = 0.0
+
+            for i in range(len(models_list)):
+                for j in range(i + 1, len(models_list)):
+                    m1, m2 = models_list[i], models_list[j]
+                    stats1 = get_stats(m1)
+                    stats2 = get_stats(m2)
+                    
+                    overlap = min(stats1['upper'], stats2['upper']) - max(stats1['lower'], stats2['lower'])
+                    if overlap > 0:
+                        weight = overlap ** 2
+                        candidates.append((m1, m2, weight))
+                        total_weight += weight
+
+            if total_weight > 0:
+                pick = random.uniform(0, total_weight)
+                curr = 0.0
+                for m1, m2, weight in candidates:
+                    curr += weight
+                    if curr >= pick:
+                        return m1, m2
+
+        # Fallback to random if cluster buster fails or mode is unrecognized
+        return tuple(random.sample(models_list, 2))
     
     # Academic-only models that should only be used in academic mode
     ACADEMIC_ONLY_MODELS = ['elevenlabs', 'indicparlertts']
@@ -188,6 +328,10 @@ class ModelSelector:
                  # Raising error is safer to prevent sending image to a blind model
                  raise ValueError("Not enough multimodal models available for comparison")
             raise ValueError("Not enough models available for comparison")
+        
+        if model_type == "LLM":
+            leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall").first()
+            return ModelSelector.active_sampling(queryset, leaderboard_entry.leaderboard_json)
         
         return random.sample(models, 2)
     
