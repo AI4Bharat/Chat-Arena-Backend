@@ -93,7 +93,6 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "leaderboards",
-    "synthetic_asr",
 ]
 
 MIDDLEWARE = [
@@ -102,7 +101,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "tenants.middleware.TenantMiddleware",
-    "arena_backend.middleware.ApiCsrfExemptMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -140,6 +139,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'user.authentication.FirebaseAuthentication',
         'user.authentication.AnonymousTokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -169,19 +169,6 @@ CORS_ALLOW_HEADERS = [
     'x-anonymous-token',
 ]
 
-CORS_EXPOSE_HEADERS = [
-    'content-type',
-    'x-csrftoken',
-]
-
-CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
-]
 
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
@@ -244,7 +231,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = "Asia/Kolkata"
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -324,15 +311,6 @@ CELERY_BEAT_SCHEDULE = {
     }
 }
 
-# Celery Configuration - Use Redis as broker and result backend
-CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
-
-
 # AI Provider API Keys (use environment variables in production)
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
@@ -406,53 +384,3 @@ ANONYMOUS_USER_SETTINGS = {
 }
 
 GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME")
-
-# ============================================================================
-# HYBRID WSGI+ASGI CONFIGURATION
-# ============================================================================
-
-# Container type (set via environment variable)
-CONTAINER_TYPE = os.getenv('CONTAINER_TYPE', 'wsgi')  # 'wsgi' or 'asgi'
-
-# Enable async views (for ASGI containers)
-USE_ASYNC_VIEWS = os.getenv('USE_ASYNC_VIEWS', 'False').lower() == 'true'
-
-# Log container configuration
-if DEBUG:
-    import sys
-    print(f'Container Type: {CONTAINER_TYPE}', file=sys.stderr)
-    print(f'Async Views Enabled: {USE_ASYNC_VIEWS}', file=sys.stderr)
-
-# ============================================================================
-
-# ASGI application for Channels/WebSocket support
-ASGI_APPLICATION = 'arena_backend.asgi.application'
-
-
-# ============================================================================
-# DATABASE CONFIGURATION FOR HYBRID WSGI+ASGI
-# ============================================================================
-
-# Connection lifetime - reuse connections to reduce overhead
-# WSGI: Longer connections (workers handle sequential requests)
-# ASGI: Shorter connections (async handles concurrent requests)
-if CONTAINER_TYPE == 'asgi':
-    # ASGI: Shorter lived connections
-    DATABASES['default']['CONN_MAX_AGE'] = 300  # 5 minutes
-else:
-    # WSGI: Longer lived connections
-    DATABASES['default']['CONN_MAX_AGE'] = 600  # 10 minutes
-
-# Database connection options
-if 'OPTIONS' not in DATABASES['default']:
-    DATABASES['default']['OPTIONS'] = {}
-
-DATABASES['default']['OPTIONS'].update({
-    'connect_timeout': 10,  # Connection timeout
-    'options': '-c statement_timeout=30000'  # 30 second query timeout
-})
-
-# Note: Using psycopg2 (sync driver)
-# For true async DB, consider upgrading to psycopg3 in future
-# ASGI containers will use sync_to_async for ORM queries
-

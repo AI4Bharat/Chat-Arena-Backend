@@ -24,10 +24,16 @@ if not firebase_admin._apps:
         # Check if file exists
         if not os.path.exists(cred_path):
             logger.error(f"Firebase credentials file not found at: {cred_path}")
-            raise FileNotFoundError(f"Firebase credentials not found at: {cred_path}")
+            logger.warning(f"Firebase credentials not found at: {cred_path}. Firebase authentication disabled for local development.")
 
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
+        # Check if Firebase credentials exist
+        if os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+        else:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("Firebase disabled for local dev")
         logger.info("Firebase Admin SDK initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
