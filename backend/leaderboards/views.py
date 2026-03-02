@@ -8,21 +8,29 @@ from .models import Leaderboard
 from .serializers import UserContributorSerializer
 
 # Create your views here.
-def get_leaderboard_api(request, arena_type):
+def get_leaderboard_api(request, arena_type, sub_arena=None):
     org_param = request.GET.get('org', 'ai4b')
     language_param = request.GET.get('language', 'Overall')
     
-    leaderboard_entry = Leaderboard.objects.filter(
-        arena_type=arena_type,
-        organization=org_param,
-        language=language_param
-    ).first()
+    filters = {
+        'arena_type': arena_type,
+        'organization': org_param,
+        'language': language_param
+    }
+    
+    if sub_arena:
+        filters['benchmark_name'] = sub_arena
+
+    leaderboard_entry = Leaderboard.objects.filter(**filters).first()
     
     if leaderboard_entry:
         return JsonResponse(leaderboard_entry.leaderboard_json, safe=False)
     else:
+        error_msg = f"No leaderboard found for Type: {arena_type}, Org: {org_param}, Language: {language_param}"
+        if sub_arena:
+             error_msg += f", Sub Arena: {sub_arena}"
         return JsonResponse(
-            {"error": f"No leaderboard found for Type: {arena_type}, Org: {org_param}, Language: {language_param}"}, 
+            {"error": error_msg}, 
             status=404
         )
 
@@ -54,11 +62,15 @@ class TopContributorsView(APIView):
              return Response({"error": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def get_leaderboard_languages(request, arena_type):
+def get_leaderboard_languages(request, arena_type, sub_arena=None):
     org_param = request.GET.get('org', 'ai4b')
-    languages = Leaderboard.objects.filter(
-        arena_type=arena_type,
-        organization=org_param
-    ).values_list('language', flat=True).distinct()
+    filters = {
+        'arena_type': arena_type,
+        'organization': org_param
+    }
+    if sub_arena:
+        filters['benchmark_name'] = sub_arena
+
+    languages = Leaderboard.objects.filter(**filters).values_list('language', flat=True).distinct()
     
     return JsonResponse(list(languages), safe=False)
