@@ -93,6 +93,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "leaderboards",
+    "synthetic_asr",
 ]
 
 MIDDLEWARE = [
@@ -101,7 +102,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "tenants.middleware.TenantMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    "arena_backend.middleware.ApiCsrfExemptMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -168,6 +169,19 @@ CORS_ALLOW_HEADERS = [
     'x-anonymous-token',
 ]
 
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'x-csrftoken',
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
@@ -230,7 +244,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Kolkata"
 
 USE_I18N = True
 
@@ -309,6 +323,15 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(day_of_month=1, hour=3, minute=0),  # Monthly
     }
 }
+
+# Celery Configuration - Use Redis as broker and result backend
+CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+
 
 # AI Provider API Keys (use environment variables in production)
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')

@@ -1,5 +1,5 @@
 """Utility for logging general endpoint errors to GCS"""
-from datetime import datetime
+from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status as http_status
 import traceback
@@ -54,7 +54,7 @@ def extract_endpoint_error_details(exception, endpoint, log_context=None):
     error_entry = {
         'error_type': categorize_error(exception),
         'endpoint': endpoint,
-        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'timestamp': timezone.now().isoformat(),
         'error_message': str(exception),
         'error_class': type(exception).__name__,
         'traceback': traceback.format_exc(),
@@ -88,7 +88,7 @@ def log_endpoint_error_to_gcs(error_entry):
     from frontend_logs.views import write_log_to_gcs
     
     # Add received_at timestamp
-    error_entry['received_at'] = datetime.utcnow().isoformat() + 'Z'
+    error_entry['received_at'] = timezone.now().isoformat()
     
     # Reuse existing GCS logging function
     try:

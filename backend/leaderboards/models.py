@@ -44,6 +44,8 @@ class Leaderboard(models.Model):
         ("Telugu", "Telugu"),
         ("Thai", "Thai"),
         ("Urdu", "Urdu"),
+        ("Bhojpuri", "Bhojpuri"),
+        ("Chattisgarhi", "Chattisgarhi"),
     ]
 
     # --- Database Fields ---

@@ -3,7 +3,7 @@ from django.utils import timezone
 from datetime import timedelta
 import logging
 from message.models import Message
-from message.utils import MessageCache, MessageAnalyzer
+from message.utlis import MessageCache, MessageAnalyzer
 from django.core.cache import cache
 logger = logging.getLogger(__name__)
 
