@@ -79,15 +79,31 @@ class Leaderboard(models.Model):
         help_text="Name of the specific benchmark (e.g., 'IndicMMLU-v1')"
     )
 
+    calculated_at = models.DateField(
+        null=True,
+        blank=True,
+        help_text="The date on which the leaderboard scores were calculated."
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Only the active version is served. Previous versions are archived with False."
+    )
+
     # Standard timestamps for record keeping
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # Optional: Ensure we don't duplicate a benchmark for the same language/org/type
-        unique_together = ('benchmark_name', 'language', 'arena_type', 'organization')
         verbose_name = "Leaderboard"
         verbose_name_plural = "Leaderboards"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['benchmark_name', 'language', 'arena_type', 'organization'],
+                condition=models.Q(is_active=True),
+                name='unique_active_leaderboard'
+            )
+        ]
 
     def __str__(self):
         return f"{self.benchmark_name} ({self.language}) - {self.get_arena_type_display()}"
