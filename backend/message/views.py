@@ -1,4 +1,4 @@
-message/views.py
+#message/views.py
 
 import time
 from ai_model.llm_interactions import get_model_output
@@ -41,7 +41,7 @@ import tempfile
 from message.utlis import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
-from django.db.models import Min
+from django.db.models import Min, Q
 
 
 DAILY_MESSAGE_LIMIT = 15
@@ -57,27 +57,35 @@ def _check_daily_message_limit(user, session):
     """
     Raises _DailyLimitExceeded if the user has sent DAILY_MESSAGE_LIMIT
     or more user-role messages today across all direct/compare sessions.
-    Only counts messages with role='user'. Resets at midnight UTC.
+    Uses select_for_update() inside an atomic block so the read and the
+    subsequent insert are serialised at the DB level (no TOCTOU race).
     """
     if session.mode not in RATE_LIMITED_MODES:
         return
 
     today_start = datetime.datetime.combine(
-        datetime.date.today(),
+        datetime.datetime.now(datetime.timezone.utc).date(),
         datetime.time.min,
         tzinfo=datetime.timezone.utc
     )
 
-    count = Message.objects.filter(
-        session__user=user,
-        session__mode__in=RATE_LIMITED_MODES,
-        role='user',
-        created_at__gte=today_start,
-    ).count()
+    with transaction.atomic():
+        count = (
+            Message.objects
+            .select_for_update()
+            .filter(
+                session__user=user,
+                session__mode__in=RATE_LIMITED_MODES,
+                role='user',
+                created_at__gte=today_start,
+            )
+            .count()
+        )
 
-    if count >= DAILY_MESSAGE_LIMIT:
-        raise _DailyLimitExceeded()
+        if count >= DAILY_MESSAGE_LIMIT:
+            raise _DailyLimitExceeded()
 
+            
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
     authentication_classes = [FirebaseAuthentication, AnonymousTokenAuthentication]
