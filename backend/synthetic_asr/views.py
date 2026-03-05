@@ -17,9 +17,11 @@ from .engine import (
     sample_scenario_handler,
     sample_sentence_handler,
 )
-from .tasks import main_orchestrator_task
 import time
+import os
 import random
+from urllib.parse import urlparse
+from .utils import http_utils
 
 
 def _json_body(request):
@@ -139,6 +141,38 @@ def sample_sentence(request):
     return JsonResponse({'sentences': sentences_obj}, status=200)
 
 
+def _submit_to_pai(job):
+    """
+    Submit a job to the PAI server synchronously.
+    Returns (pai_job_id, error_message). On success error_message is None.
+    """
+    pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL')
+    if not pai_server_url:
+        return None, 'SYNTHETIC_ASR_PAI_SERVER_URL not configured'
+
+    parsed_url = urlparse(pai_server_url)
+    host = parsed_url.netloc
+    scheme = parsed_url.scheme or 'https'
+    is_https = scheme == 'https'
+
+    headers = {'Content-Type': 'application/json'}
+    payload = {'config': job.payload}
+
+    if is_https:
+        result, err = http_utils.make_post_request(host, '/pai/create', headers, payload)
+    else:
+        result, err = http_utils.make_local_post_request(host, '/pai/create', headers, payload, port=80)
+
+    if err:
+        return None, f'Failed to submit to PAI server: {err}'
+
+    pai_job_id = str(result) if result else None
+    if not pai_job_id:
+        return None, 'PAI server did not return job ID'
+
+    return pai_job_id, None
+
+
 @api_view(["POST"])
 @authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -160,7 +194,7 @@ def create_dataset_job(request):
 
     # Store job in Django DB
     try:
-        Job.objects.create(
+        job = Job.objects.create(
             job_id=job_id,
             payload=config_dict,
             status='SUBMITTED',
@@ -169,22 +203,23 @@ def create_dataset_job(request):
     except Exception as e:
         return _error(f'Server error occured, {e}', 405)
 
-    # Trigger async pipeline execution (best-effort). If queue is down, keep the job and return 200.
-    try:
-        main_orchestrator_task.delay(job_id)
-    except Exception as e:
-        # Update job with failure info but still return job_id so UI can show status
-        try:
-            job = Job.objects.get(job_id=job_id)
-            job.status = 'FAILED'
-            job.error = {'message': 'Failed to enqueue task', 'details': str(e)}
-            job.current_step = 'QUEUE_ENQUEUE'
-            job.step_details = {**(job.step_details or {}), 'enqueue_error': str(e)}
-            job.save(update_fields=['status', 'error', 'current_step', 'step_details', 'updated_at'])
-        except Exception:
-            pass
-        # Do NOT 405 the client; allow UI to move forward and show failure state
+    # Submit to PAI server synchronously
+    job.status = 'SUBMITTING'
+    job.current_step = 'Submitting to PAI server'
+    job.save(update_fields=['status', 'current_step', 'updated_at'])
+
+    pai_job_id, err = _submit_to_pai(job)
+    if err:
+        job.status = 'FAILED'
+        job.error = {'step': 'pai_submit', 'message': err}
+        job.current_step = 'PAI submission failed'
+        job.save(update_fields=['status', 'error', 'current_step', 'updated_at'])
         return HttpResponse(job_id, status=200, content_type='text/plain')
+
+    job.status = 'PROCESSING'
+    job.current_step = 'Processing on PAI server'
+    job.step_details = {'pai_job_id': pai_job_id}
+    job.save(update_fields=['status', 'current_step', 'step_details', 'updated_at'])
 
     return HttpResponse(job_id, status=200, content_type='text/plain')
 
@@ -194,8 +229,8 @@ def create_dataset_job(request):
 @permission_classes([IsAuthenticated])
 def resubmit_job(request, job_id: str):
     """
-    Re-submit a job that is stuck at SUBMITTED or FAILED.
-    Resets the job state and re-enqueues the Celery task.
+    Re-submit a job that is FAILED.
+    Resets the job state and submits to PAI server directly.
     """
     try:
         if getattr(request.user, 'is_anonymous', False):
@@ -215,13 +250,13 @@ def resubmit_job(request, job_id: str):
     except Exception:
         pass
 
-    # Only allow resubmit for stuck / failed jobs
+    # Only allow resubmit for failed jobs
     allowed_statuses = ['SUBMITTED', 'FAILED', 'SUBMITTING']
     if job.status not in allowed_statuses:
         return _error(f'Job is currently {job.status} and cannot be resubmitted.', 409)
 
     # Reset job state
-    job.status = 'SUBMITTED'
+    job.status = 'SUBMITTING'
     job.error = None
     job.progress_percentage = 0
     job.current_step = 'Resubmitted by user'
@@ -229,14 +264,18 @@ def resubmit_job(request, job_id: str):
     job.generation_attempts = (job.generation_attempts or 0) + 1
     job.save()
 
-    # Re-enqueue
-    try:
-        main_orchestrator_task.delay(job_id)
-    except Exception as e:
+    # Submit to PAI directly
+    pai_job_id, err = _submit_to_pai(job)
+    if err:
         job.status = 'FAILED'
-        job.error = {'message': 'Failed to enqueue task on resubmit', 'details': str(e)}
+        job.error = {'step': 'pai_submit', 'message': err}
         job.save(update_fields=['status', 'error', 'updated_at'])
-        return _error('Failed to enqueue task. Is the task queue running?', 503)
+        return _error(f'Failed to submit to PAI: {err}', 503)
+
+    job.status = 'PROCESSING'
+    job.current_step = 'Processing on PAI server'
+    job.step_details = {**(job.step_details or {}), 'pai_job_id': pai_job_id}
+    job.save(update_fields=['status', 'current_step', 'step_details', 'updated_at'])
 
     return JsonResponse({'message': 'Job resubmitted successfully', 'job_id': job_id}, status=200)
 
