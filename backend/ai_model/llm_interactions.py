@@ -496,6 +496,26 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
     # Assume that translation happens outside (and the prompt is already translated)
     # audio_url parameter reserved for future native audio API integration
     log_context = kwargs.get('context')
+    
+    # Check if this is an image generation request
+    is_generation_request = detect_image_generation_intent(user_prompt)
+    
+    if is_generation_request:
+        # Route to image generation based on model provider
+        if model.startswith("gpt-5") or model.startswith("gpt-4"):
+            # Use GPT Responses API with image_generation tool
+            return generate_image_with_gpt5(user_prompt, model=model, log_context=log_context)
+        elif model.startswith("gemini"):
+            # Use Gemini built-in generation
+            return generate_image_with_gemini(user_prompt, model, history, log_context=log_context)
+        elif "imagen" in model:
+            # Use dedicated Imagen API
+            return generate_image_with_imagen(user_prompt, model=model, log_context=log_context)
+        else:
+            # Model doesn't support generation - fallback to text response
+            pass
+    
+    # Standard text generation (existing logic)
     out = ""
     if model == GPT35:
         out = get_gpt3_output(system_prompt, user_prompt, history, log_context=log_context)
@@ -537,3 +557,188 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run, log
             results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model, log_context=log_context)
 
     return results
+
+
+# ==================== IMAGE GENERATION FUNCTIONS ====================
+
+def detect_image_generation_intent(prompt):
+    """
+    Detects if a user prompt is requesting image generation.
+    Returns True if generation keywords are found.
+    """
+    generation_keywords = [
+        'generate image', 'create image', 'make image', 'draw', 'paint', 
+        'sketch', 'illustrate', 'design', 'render', 'visualize',
+        'generate photo', 'create photo', 'make photo', 'picture of',
+        'show me', 'image of', 'photo of', 'illustration of'
+    ]
+    prompt_lower = prompt.lower()
+    return any(keyword in prompt_lower for keyword in generation_keywords)
+
+
+def generate_image_with_gpt5(prompt, model='gpt-5', quality='auto', size='auto', format='png', log_context=None):
+    """
+    Generate images using OpenAI's GPT Image API.
+    Routes any GPT model request to the appropriate image generation model.
+    
+    Args:
+        prompt: Text description of image to generate (max 32000 chars for GPT image models)
+        model: Model code (gpt-5, gpt-5.2, gpt-4, etc.) - will be mapped to gpt-image-1.5
+        quality: 'high', 'medium', 'low', or 'auto' (default)
+        size: '1024x1024', '1536x1024', '1024x1536', or 'auto' (default)
+        format: 'png', 'jpeg', or 'webp' (output_format param NOT used for GPT image models - they always return b64)
+        log_context: Error logging context
+        
+    Yields:
+        Dict with 'type' and 'data' for final image
+    """
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY_GPT_5")
+    )
+
+    try:
+        # Yield initial generating event to show loading UI
+        yield {
+            "type": "generating",
+            "message": "Generating image..."
+        }
+        
+        # Map chat models to GPT Image model (latest is gpt-image-1.5)
+        image_model = "gpt-image-1.5"
+        
+        # Use OpenAI's Image API endpoint with correct parameters
+        # NOTE: GPT image models ALWAYS return base64-encoded images, not URLs
+        # output_format parameter is NOT supported for GPT image models (only for DALL-E)
+        # They automatically return base64 encoded images
+        response = client.images.generate(
+            model=image_model,
+            prompt=prompt,
+            size=size if size != 'auto' else None,  # Let API choose if auto
+            quality=quality if quality != 'auto' else None,  # Let API choose if auto
+            n=1  # Generate 1 image
+        )
+
+        # Extract the base64 image from response
+        if response.data and len(response.data) > 0:
+            image_b64 = response.data[0].b64_json
+            
+            yield {
+                "type": "final_image",
+                "data": image_b64,  # Base64 encoded image
+                "format": format,
+                "size": size,
+                "model_used": image_model,
+                "is_base64": True,
+            }
+        else:
+            yield {
+                "type": "error",
+                "message": "No image generated from API"
+            }
+
+    except Exception as e:
+        # Yield error dict instead of raising - allows graceful handling in views.py
+        error_message = str(e)
+        print(f"Error generating image with GPT: {error_message}")
+        yield {
+            "type": "error",
+            "message": error_message
+        }
+
+
+def generate_image_with_imagen(prompt, model='imagen-4.0-generate-001', number_of_images=1, 
+                                 aspect_ratio='1:1', size='1K', log_context=None):
+    """
+    Generate images using Google Imagen 4 models.
+    
+    Args:
+        prompt: Text description (max 480 tokens)
+        model: 'imagen-4.0-generate-001', 'imagen-4.0-ultra-generate-001', 'imagen-4.0-fast-generate-001'
+        number_of_images: 1-4 images per request
+        aspect_ratio: '1:1', '3:4', '4:3', '9:16', '16:9'
+        size: '1K' or '2K' (2K only for standard/ultra)
+        log_context: Error logging context
+        
+    Yields:
+        Dict with 'type' and 'data' for each generated image
+    """
+    try:
+        # Using Vertex AI client
+        from google.cloud import aiplatform
+        from vertexai.preview import vision_models
+        
+        # Initialize with project credentials
+        aiplatform.init(
+            project=os.getenv("GOOGLE_CLOUD_PROJECT_ID"),
+            location=os.getenv("GOOGLE_CLOUD_REGION", "us-central1")
+        )
+        
+        imagen_model = vision_models.ImageGenerationModel.from_pretrained(model)
+        
+        response = imagen_model.generate_images(
+            prompt=prompt,
+            number_of_images=number_of_images,
+            aspect_ratio=aspect_ratio,
+            safety_filter_level="block_some",
+            person_generation="allow_adult"
+        )
+        
+        for idx, image in enumerate(response.images):
+            # Image objects have ._pil_image attribute
+            yield {
+                "type": "final_image",
+                "data": image._pil_image,  # PIL Image object
+                "index": idx,
+                "model": model,
+                "aspect_ratio": aspect_ratio
+            }
+            
+    except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        message = f"Error generating image with Imagen: {str(e)}"
+        log_and_raise(e, model_code=model, provider='google', custom_message=message, log_context=log_context)
+
+
+def generate_image_with_gemini(prompt, model, history, log_context=None):
+    """
+    Generate images using Google's Imagen 4 (dedicated image generation model).
+    Although Gemini can generate images, we use Imagen 4 for specialized image generation.
+    
+    Args:
+        prompt: Text description (max 480 tokens)
+        model: Gemini model code (mapped to Imagen internally)
+        history: Conversation history (not used for image generation)
+        log_context: Error logging context
+        
+    Yields:
+        Dict with 'type' and 'data' for each generated image
+    """
+    try:
+        # Import Vertex AI
+        import google.generativeai as genai
+        
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        
+        # Use Imagen 4 for specialized image generation
+        imagen_model = genai.ImageGenerationModel("imagen-3.0-generate-001")
+        
+        response = imagen_model.generate_images(
+            prompt=prompt,
+            number_of_images=1,
+            aspect_ratio="1:1",
+            safety_filter_level="block_some",
+        )
+        
+        for idx, image in enumerate(response.images):
+            # Images are PIL Image objects
+            yield {
+                "type": "final_image",
+                "data": image,  # PIL Image object
+                "index": idx,
+                "model": "imagen-3.0-generate-001",
+            }
+            
+    except Exception as e:
+        from ai_model.error_logging import log_and_raise
+        message = f"Error generating image with Gemini/Imagen: {str(e)}"
+        log_and_raise(e, model_code=model, provider='google', custom_message=message, log_context=log_context)
