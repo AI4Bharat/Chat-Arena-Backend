@@ -15,23 +15,25 @@ logger = logging.getLogger(__name__)
 # Initialize Firebase Admin SDK
 if not firebase_admin._apps:
     try:
-        # Path to service account key
-        cred_path = os.path.join(settings.BASE_DIR, 'arena_backend/serviceAccountKey.json')
-
-        # Log the path for debugging
-        logger.info(f"Loading Firebase credentials from: {cred_path}")
-
-        # Check if file exists
-        if not os.path.exists(cred_path):
-            logger.error(f"Firebase credentials file not found at: {cred_path}")
-            raise FileNotFoundError(f"Firebase credentials not found at: {cred_path}")
-
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase Admin SDK initialized successfully")
+        firebase_config = os.environ.get('FIREBASE_CONFIG')
+        if firebase_config:
+            import json
+            cred_dict = json.loads(firebase_config)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            logger.info("Firebase Admin SDK initialized from FIREBASE_CONFIG env variable")
+        else:
+            cred_path = os.path.join(settings.BASE_DIR, 'arena_backend/serviceAccountKey.json')
+            if os.path.exists(cred_path):
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
+                logger.info("Firebase Admin SDK initialized from serviceAccountKey.json")
+            else:
+                logger.warning(f"Firebase credentials not found. Set FIREBASE_CONFIG env var or "
+                               f"place serviceAccountKey.json at {cred_path}")
     except Exception as e:
-        logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
-        raise
+        logger.warning(f"Failed to initialize Firebase Admin SDK: {e}. "
+                       "Server will start but Firebase auth will not work.")
 
 
 class UserService:

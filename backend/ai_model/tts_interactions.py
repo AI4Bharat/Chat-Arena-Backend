@@ -10,10 +10,17 @@ import base64
 from ai_model.error_logging import log_and_raise
 from cartesia import Cartesia
 from elevenlabs.client import ElevenLabs
-import tritonclient.http as http_client
-from tritonclient.utils import np_to_triton_dtype
+try:
+    import tritonclient.http as http_client
+    from tritonclient.utils import np_to_triton_dtype
+except ImportError:
+    http_client = None
+    np_to_triton_dtype = None
 import numpy as np
-import librosa
+try:
+    import librosa
+except ImportError:
+    librosa = None
 from scipy.io.wavfile import write as scipy_wav_write
 import io
 import json

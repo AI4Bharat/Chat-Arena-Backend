@@ -125,8 +125,8 @@ def main_orchestrator_task(self, job_id: str):
             if not dmubox_job_id:
                 raise Exception("PAI server did not return job ID")
             
-            job.status = 'PROCESSING'
-            job.current_step = 'Processing on PAI server'
+            job.status = 'SUBMITTED'
+            job.current_step = 'SUBMITTED'
             job.step_details = {'pai_job_id': dmubox_job_id}
             job.save()
             

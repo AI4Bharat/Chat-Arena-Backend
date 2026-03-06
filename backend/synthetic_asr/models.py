@@ -7,10 +7,13 @@ class Job(models.Model):
     STATUS_CHOICES = [
         ('SUBMITTED', 'Submitted'),
         ('SUBMITTING', 'Submitting'),
+        ('ACCEPTED', 'Accepted'),
         ('PROCESSING', 'Processing'),
         ('SENTENCE_GENERATED', 'Sentences Generated'),
         ('AUDIO_GENERATED', 'Audio Generated'),
         ('AUDIO_VERIFIED', 'Audio Verified'),
+        ('DATASET_GENERATED', 'Dataset Generated'),
+        ('DATASET_UPLOADED', 'Dataset Uploaded'),
         ('COMPLETED', 'Completed'),
         ('FAILED', 'Failed'),
     ]
@@ -71,3 +74,23 @@ class Job(models.Model):
         if details:
             self.step_details = details
         self.save(update_fields=['progress_percentage', 'current_step', 'step_details', 'updated_at'])
+
+
+class FailureReport(models.Model):
+    """Track user-reported failures for failed jobs."""
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='failure_reports', to_field='job_id')
+    reported_by = models.ForeignKey(
+        'user.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='synthetic_asr_failure_reports',
+    )
+    message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'synthetic_asr_failure_reports'
+
+    def __str__(self):
+        return f'Report for {self.job_id} by {self.reported_by}'

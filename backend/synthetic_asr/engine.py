@@ -7,11 +7,16 @@ from urllib.parse import urlparse
 # External API configuration - PAI server
 PAI_SERVER_URL = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
 if not PAI_SERVER_URL:
-    raise ValueError("SYNTHETIC_ASR_PAI_SERVER_URL environment variable not set")
-
-parsed_url = urlparse(PAI_SERVER_URL)
-PAI_HOST = parsed_url.netloc
-PAI_SCHEME = parsed_url.scheme  # 'http' or 'https'
+    import logging
+    logging.getLogger(__name__).warning(
+        "SYNTHETIC_ASR_PAI_SERVER_URL not set. Synthetic ASR features will not work."
+    )
+    PAI_HOST = ''
+    PAI_SCHEME = ''
+else:
+    parsed_url = urlparse(PAI_SERVER_URL)
+    PAI_HOST = parsed_url.netloc
+    PAI_SCHEME = parsed_url.scheme  # 'http' or 'https'
 PAI_BASE_PATH = '/pai'
 
 
