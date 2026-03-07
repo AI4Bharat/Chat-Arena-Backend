@@ -47,6 +47,7 @@ import requests
 from rest_framework import status
 from rest_framework.response import Response
 from litellm import completion
+import json
 
 GPT35 = "GPT3.5"
 GPT4 = "GPT4"
@@ -324,19 +325,27 @@ def get_sarvam_output(system_prompt, conv_history, user_prompt, model, log_conte
     
     try:
         s = requests.Session()
-        response = s.post(url, headers=headers, json=body)
-        response.raise_for_status() 
-        response_data = response.json()
-        return response_data["choices"][0]["message"]["content"].strip()
+        response = s.post(url, headers=headers, json=body, stream=True)
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if not line:
+                continue
+            line = line.decode("utf-8") if isinstance(line, bytes) else line
+            if line.startswith("data:"):
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    content = chunk["choices"][0]["delta"].get("content")
+                    if content:
+                        yield content
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
     except requests.exceptions.RequestException as e:
         from ai_model.error_logging import log_and_raise
         print(f"An error occurred during the API request: {e}")
-        log_and_raise(e, model_code='sarvam-m', provider='sarvam', custom_message=f"Sarvam API request failed: {e}", log_context=log_context)
-    except (KeyError, IndexError) as e:
-        from ai_model.error_logging import log_and_raise
-        print(f"Error parsing the API response: {e}")
-        print(f"Full response data: {response_data}")
-        log_and_raise(e, model_code='sarvam-m', provider='sarvam', custom_message=f"Sarvam API response parsing error: {e}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='sarvam', custom_message=f"Sarvam API request failed: {e}", log_context=log_context)
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
     try:
