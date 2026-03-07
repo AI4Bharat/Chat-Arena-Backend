@@ -503,7 +503,7 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
         out = get_gpt5_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt, log_context=log_context)
-    elif model == SARVAM_M:
+    elif model.lower().startswith("sarvam"):
         out = get_sarvam_m_output(system_prompt, history, user_prompt, log_context=log_context)
     elif model.startswith("gemini"):
         out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
@@ -531,7 +531,7 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run, log
             results[model] = get_gpt5_output(system_prompt, user_prompt, model_history, log_context=log_context)
         elif model == LLAMA2:
             results[model] = get_llama2_output(system_prompt, model_history, user_prompt, log_context=log_context)
-        elif model == SARVAM_M:
+        elif model.lower().startswith("sarvam"):
             results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt, log_context=log_context)
         else:
             results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model, log_context=log_context)
