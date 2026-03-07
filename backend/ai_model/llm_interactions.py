@@ -294,7 +294,7 @@ def get_llama2_output(system_prompt, conv_history, user_prompt, log_context=None
         from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='llama-2-70b', provider='meta', log_context=log_context)
 
-def get_sarvam_m_output(system_prompt, conv_history, user_prompt, log_context=None):
+def get_sarvam_output(system_prompt, conv_history, user_prompt, model, log_context=None):
     api_base = os.getenv("SARVAM_M_API_BASE")
     api_key = os.getenv("SARVAM_M_API_KEY") 
     url = f"{api_base}/chat/completions"
@@ -313,12 +313,13 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt, log_context=No
         messages.append({"role": "user", "content": user_prompt})
 
     body = {
-        "model": "sarvam-m",
+        "model": model,
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": 2048,
+        "max_tokens": 16384,
+        "reasoning_effort": "medium",
         "top_p": 1,
-        # "stream": True
+        "stream": True,
     }
     
     try:
@@ -504,7 +505,7 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt, log_context=log_context)
     elif model.lower().startswith("sarvam"):
-        out = get_sarvam_m_output(system_prompt, history, user_prompt, log_context=log_context)
+        out = get_sarvam_output(system_prompt, history, user_prompt, model, log_context=log_context)
     elif model.startswith("gemini"):
         out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     elif model.startswith("ibm"):
@@ -532,7 +533,7 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run, log
         elif model == LLAMA2:
             results[model] = get_llama2_output(system_prompt, model_history, user_prompt, log_context=log_context)
         elif model.lower().startswith("sarvam"):
-            results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt, log_context=log_context)
+            results[model] = get_sarvam_output(system_prompt, model_history, user_prompt, model, log_context=log_context)
         else:
             results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model, log_context=log_context)
 
