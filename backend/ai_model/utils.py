@@ -191,15 +191,12 @@ class ModelSelector:
             # Match DB model_code with JSON model name
             if m.model_code in leaderboard_stats:
                 s = leaderboard_stats[m.model_code]
-                score = s['score']
-                upper = score + s['ci_upper']
-                lower = score + s['ci_lower']
                 return {
-                    'score': score,
-                    'upper': upper,
-                    'lower': lower,
+                    'score': s['score'],
+                    'upper': s['ci_upper'],
+                    'lower': s['ci_lower'],
                     'ci_width': s['ci_width'],
-                    'attempts': s['attempts']
+                    'attempts': s['battles']
                 }
             # Fallback if model not in JSON
             return {
@@ -329,7 +326,8 @@ class ModelSelector:
         
         if model_type == "LLM":
             leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall").first()
-            return ModelSelector.active_sampling(queryset, leaderboard_entry.leaderboard_json)
+            leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
+            return ModelSelector.active_sampling(queryset, leaderboard_stats)
         
         return random.sample(models, 2)
     
