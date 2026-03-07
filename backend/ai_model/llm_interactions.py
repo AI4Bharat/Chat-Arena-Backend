@@ -317,7 +317,7 @@ def get_sarvam_output(system_prompt, conv_history, user_prompt, model, log_conte
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": 16384,
-        "reasoning_effort": "medium",
+        "reasoning_effort": "high",
         "top_p": 1,
         "stream": True,
     }
