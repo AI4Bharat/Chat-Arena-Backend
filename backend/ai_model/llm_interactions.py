@@ -47,6 +47,7 @@ import requests
 from rest_framework import status
 from rest_framework.response import Response
 from litellm import completion
+import json
 
 GPT35 = "GPT3.5"
 GPT4 = "GPT4"
@@ -294,7 +295,7 @@ def get_llama2_output(system_prompt, conv_history, user_prompt, log_context=None
         from ai_model.error_logging import log_and_raise
         log_and_raise(e, model_code='llama-2-70b', provider='meta', log_context=log_context)
 
-def get_sarvam_m_output(system_prompt, conv_history, user_prompt, log_context=None):
+def get_sarvam_output(system_prompt, conv_history, user_prompt, model, log_context=None):
     api_base = os.getenv("SARVAM_M_API_BASE")
     api_key = os.getenv("SARVAM_M_API_KEY") 
     url = f"{api_base}/chat/completions"
@@ -305,7 +306,7 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt, log_context=No
     }
 
     history = conv_history
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = []
     messages.extend(history)
     if type(user_prompt) == list:
         messages.append({"role": "user", "content": user_prompt[0]['text']})
@@ -313,29 +314,38 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt, log_context=No
         messages.append({"role": "user", "content": user_prompt})
 
     body = {
-        "model": "sarvam-m",
+        "model": model,
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": 2048,
+        "max_tokens": 16384,
+        "reasoning_effort": "high",
         "top_p": 1,
-        # "stream": True
+        "stream": True,
     }
     
     try:
         s = requests.Session()
-        response = s.post(url, headers=headers, json=body)
-        response.raise_for_status() 
-        response_data = response.json()
-        return response_data["choices"][0]["message"]["content"].strip()
+        response = s.post(url, headers=headers, json=body, stream=True)
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if not line:
+                continue
+            line = line.decode("utf-8") if isinstance(line, bytes) else line
+            if line.startswith("data:"):
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    content = chunk["choices"][0]["delta"].get("content")
+                    if content:
+                        yield content
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
     except requests.exceptions.RequestException as e:
         from ai_model.error_logging import log_and_raise
         print(f"An error occurred during the API request: {e}")
-        log_and_raise(e, model_code='sarvam-m', provider='sarvam', custom_message=f"Sarvam API request failed: {e}", log_context=log_context)
-    except (KeyError, IndexError) as e:
-        from ai_model.error_logging import log_and_raise
-        print(f"Error parsing the API response: {e}")
-        print(f"Full response data: {response_data}")
-        log_and_raise(e, model_code='sarvam-m', provider='sarvam', custom_message=f"Sarvam API response parsing error: {e}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='sarvam', custom_message=f"Sarvam API request failed: {e}", log_context=log_context)
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
     try:
@@ -503,8 +513,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
         out = get_gpt5_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt, log_context=log_context)
-    elif model == SARVAM_M:
-        out = get_sarvam_m_output(system_prompt, history, user_prompt, log_context=log_context)
+    elif model.lower().startswith("sarvam"):
+        out = get_sarvam_output(system_prompt, history, user_prompt, model, log_context=log_context)
     elif model.startswith("gemini"):
         out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     elif model.startswith("ibm"):
@@ -531,8 +541,8 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run, log
             results[model] = get_gpt5_output(system_prompt, user_prompt, model_history, log_context=log_context)
         elif model == LLAMA2:
             results[model] = get_llama2_output(system_prompt, model_history, user_prompt, log_context=log_context)
-        elif model == SARVAM_M:
-            results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt, log_context=log_context)
+        elif model.lower().startswith("sarvam"):
+            results[model] = get_sarvam_output(system_prompt, model_history, user_prompt, model, log_context=log_context)
         else:
             results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model, log_context=log_context)
 

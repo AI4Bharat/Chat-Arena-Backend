@@ -156,10 +156,10 @@ class ModelSelector:
 
     # Default mode ratios (matching Sampler_strategy.py)
     DEFAULT_RATIOS_WITH_FRESHERS = {
-        "FRESHER": 0.50,
-        "BY_TRIALS": 0.25,
+        "FRESHER": 0.60,
+        "BY_TRIALS": 0.10,
         "BY_CI": 0.15,
-        "CLUSTER_BUSTER": 0.10,
+        "CLUSTER_BUSTER": 0.15,
     }
 
     DEFAULT_RATIOS_NO_FRESHERS = {
@@ -191,15 +191,12 @@ class ModelSelector:
             # Match DB model_code with JSON model name
             if m.model_code in leaderboard_stats:
                 s = leaderboard_stats[m.model_code]
-                score = s['score']
-                upper = score + s['ci_upper']
-                lower = score + s['ci_lower']
                 return {
-                    'score': score,
-                    'upper': upper,
-                    'lower': lower,
+                    'score': s['score'],
+                    'upper': s['ci_upper'],
+                    'lower': s['ci_lower'],
                     'ci_width': s['ci_width'],
-                    'attempts': s['attempts']
+                    'attempts': s['battles']
                 }
             # Fallback if model not in JSON
             return {
@@ -234,28 +231,34 @@ class ModelSelector:
 
         # 2. BY_TRIALS Mode
         elif mode == "BY_TRIALS":
+            non_fresher_models = [m for m in models_list if not m.is_fresh_model]
+            pool = non_fresher_models if len(non_fresher_models) >= 2 else models_list
+
             weights = []
-            for m in models_list:
+            for m in pool:
                 stats = get_stats(m)
                 w = 1.0 / ((stats['attempts'] + 1) ** ModelSelector.ALPHA)
                 weights.append(w)
 
-            m1, m2 = random.choices(models_list, weights=weights, k=2)
+            m1, m2 = random.choices(pool, weights=weights, k=2)
             while m1.id == m2.id:
-                m2 = random.choices(models_list, weights=weights, k=1)[0]
+                m2 = random.choices(pool, weights=weights, k=1)[0]
                 
             return m1, m2
 
-        # 3. BY_CI Mode
         elif mode == "BY_CI":
             weights = []
-            for m in models_list:
+            
+            non_fresher_models = [m for m in models_list if not m.is_fresh_model]
+            pool = non_fresher_models if len(non_fresher_models) >= 2 else models_list
+            
+            for m in pool:
                 stats = get_stats(m)
                 weights.append(stats['ci_width'] + 0.1)
                 
-            m1, m2 = random.choices(models_list, weights=weights, k=2)
+            m1, m2 = random.choices(pool, weights=weights, k=2)
             while m1.id == m2.id:
-                m2 = random.choices(models_list, weights=weights, k=1)[0]
+                m2 = random.choices(pool, weights=weights, k=1)[0]
                 
             return m1, m2
 
@@ -264,9 +267,12 @@ class ModelSelector:
             candidates = []
             total_weight = 0.0
 
-            for i in range(len(models_list)):
-                for j in range(i + 1, len(models_list)):
-                    m1, m2 = models_list[i], models_list[j]
+            non_fresher_models = [m for m in models_list if not m.is_fresh_model]
+            pool = non_fresher_models if len(non_fresher_models) >= 2 else models_list
+
+            for i in range(len(pool)):
+                for j in range(i + 1, len(pool)):
+                    m1, m2 = pool[i], pool[j]
                     stats1 = get_stats(m1)
                     stats2 = get_stats(m2)
                     
@@ -329,7 +335,8 @@ class ModelSelector:
         
         if model_type == "LLM":
             leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall").first()
-            return ModelSelector.active_sampling(queryset, leaderboard_entry.leaderboard_json)
+            leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
+            return ModelSelector.active_sampling(queryset, leaderboard_stats)
         
         return random.sample(models, 2)
     
