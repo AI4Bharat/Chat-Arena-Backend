@@ -334,7 +334,7 @@ class ModelSelector:
             raise ValueError("Not enough models available for comparison")
         
         if model_type == "LLM":
-            leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall").first()
+            leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="OverallNew").first()
             leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
             return ModelSelector.active_sampling(queryset, leaderboard_stats)
         
