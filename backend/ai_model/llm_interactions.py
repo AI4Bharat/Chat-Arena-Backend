@@ -306,7 +306,7 @@ def get_sarvam_output(system_prompt, conv_history, user_prompt, model, log_conte
     }
 
     history = conv_history
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = []
     messages.extend(history)
     if type(user_prompt) == list:
         messages.append({"role": "user", "content": user_prompt[0]['text']})
