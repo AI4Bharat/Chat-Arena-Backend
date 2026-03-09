@@ -74,6 +74,7 @@ SIMPLE_JWT = {
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -135,6 +136,7 @@ TEMPLATE_LOADERS = (
 )
 
 WSGI_APPLICATION = "arena_backend.wsgi.application"
+ASGI_APPLICATION = "arena_backend.asgi.application"
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [

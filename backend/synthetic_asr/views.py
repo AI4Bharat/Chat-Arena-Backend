@@ -325,9 +325,14 @@ def _sync_job_status_from_pai(job):
         conn.close()
 
         if resp.status == 200:
-            pai_status_data = json.loads(data.decode('utf-8'))
-            pai_status_raw = pai_status_data.get('status')
-            pai_status = str(pai_status_raw).upper() if pai_status_raw else None
+            decoded_data = data.decode('utf-8').strip()
+            try:
+                pai_status_data = json.loads(decoded_data)
+                pai_status_raw = pai_status_data.get('status')
+                pai_status = str(pai_status_raw).upper() if pai_status_raw else None
+            except json.JSONDecodeError:
+                # Fallback: the endpoint might be returning plain text e.g., "SUBMITTED"
+                pai_status = decoded_data.upper() if decoded_data else None
         else:
             print(f"Failed to fetch status for {pai_job_id}: {resp.status} {data}")
             return job
