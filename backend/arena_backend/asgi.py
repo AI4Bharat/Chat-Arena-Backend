@@ -23,16 +23,21 @@ from channels.auth import AuthMiddlewareStack
 from channels.security.websocket import AllowedHostsOriginValidator
 from django.urls import re_path
 from chat_session.consumers import ChatSessionConsumer
+import synthetic_asr.routing
 
 websocket_urlpatterns = [
     re_path(r'ws/chat/session/(?P<session_id>[^/]+)/$', ChatSessionConsumer.as_asgi()),
-]
+] + synthetic_asr.routing.websocket_urlpatterns
+
+from user.middleware import WebSocketAuthMiddleware
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
     "websocket": AllowedHostsOriginValidator(
-        AuthMiddlewareStack(
-            URLRouter(websocket_urlpatterns)
+        WebSocketAuthMiddleware(
+            AuthMiddlewareStack(
+                URLRouter(websocket_urlpatterns)
+            )
         )
     ),
 })
