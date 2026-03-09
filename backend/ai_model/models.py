@@ -40,6 +40,7 @@ class AIModel(models.Model):
     is_thinking_model = models.BooleanField(default=False)
     is_fresh_model = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    random_only = models.BooleanField(default=False)  # If True, model is only available in random mode
     release_date = models.DateField(default="2020-01-01")
     config = models.JSONField(default=dict, blank=True)  # API endpoints, model-specific settings
     created_at = models.DateTimeField(auto_now_add=True)

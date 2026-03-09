@@ -40,7 +40,7 @@ class AIModelListSerializer(serializers.ModelSerializer):
         model = AIModel
         fields = [
             'id', 'provider', 'model_code', 'display_name',
-            'capabilities', 'supported_languages', 'is_active', 'release_date', 'model_type', 'is_thinking_model', 'url'
+            'capabilities', 'supported_languages', 'is_active', 'release_date', 'model_type', 'is_thinking_model', 'url', 'random_only'
         ]
 
 
