@@ -116,9 +116,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
 
-        RESTRICTED_MODELS = os.environ.get('RESTRICTED_MODELS', '').split(',')
-        model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.model_code in RESTRICTED_MODELS
-        model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.model_code in RESTRICTED_MODELS
+        model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.random_only
+        model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.random_only
 
         for message in serializer.validated_data:
             if message['role'] == 'user':
