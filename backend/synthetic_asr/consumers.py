@@ -86,23 +86,44 @@ class JobStatusConsumer(AsyncWebsocketConsumer):
         """Background loop that occasionally checks PAI and pushes updates."""
         try:
             first_run = True
+            # Keep track of what we sent to the client last time
+            last_known_state = {}
+            # Keep track of job IDs that were active in the previous loop
+            previously_active_ids = set()
+            
             while True:
                 # 1. Fetch user's active jobs from the DB
                 active_jobs = await self.get_active_jobs()
+                current_active_ids = {job.job_id for job in active_jobs}
+                
+                # Identify jobs that just finished (were active last loop, but not this loop)
+                newly_finished_ids = previously_active_ids - current_active_ids
+                if newly_finished_ids:
+                    # Fetch their final states to broadcast the 100% COMPLETED/FAILED message
+                    finished_jobs = await sync_to_async(list)(Job.objects.filter(job_id__in=newly_finished_ids))
+                    active_jobs.extend(finished_jobs)
                 
                 # 2. Iterate through them and sync with PAI
                 updated_job_data_list = []
                 for job in active_jobs:
-                    # Capture old status
-                    old_status = job.status
-                    old_progress = job.progress_percentage
                     
                     # Sync and format
                     job_dto = await self.sync_and_format_job(job)
+                    job_id = job_dto['jobId']
                     
-                    # If status or progress changed, or it's the first run, push it down the websocket
-                    if first_run or job_dto['status'] != old_status or job_dto['progress'] != old_progress:
+                    # Check if status or progress changed compared to our last broadcast
+                    last_state = last_known_state.get(job_id)
+                    
+                    if (first_run or 
+                        last_state is None or 
+                        job_dto['status'] != last_state['status'] or 
+                        job_dto['progress'] != last_state['progress']):
+                        
                         updated_job_data_list.append(job_dto)
+                        last_known_state[job_id] = {
+                            'status': job_dto['status'], 
+                            'progress': job_dto['progress']
+                        }
                 
                 # 3. If any jobs changed (or first run), broadcast them
                 if updated_job_data_list:
@@ -113,7 +134,10 @@ class JobStatusConsumer(AsyncWebsocketConsumer):
                             'jobs': updated_job_data_list
                         }
                     )
+                
+                # Prepare for next loop
                 first_run = False
+                previously_active_ids = current_active_ids
                 
                 # 4. Wait a few seconds before polling again
                 await asyncio.sleep(4)
