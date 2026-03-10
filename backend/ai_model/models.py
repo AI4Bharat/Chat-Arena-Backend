@@ -18,6 +18,11 @@ class AIModel(models.Model):
         ('minimax', 'MiniMax'),
         ('cartesia', 'Cartesia'),
         ('murf', 'MurfAI'),
+        ('microsoft', 'Microsoft'),
+        ('aws', 'AWS'),
+        ('deepgram', 'Deepgram'),
+        ('assemblyai', 'AssemblyAI'),
+        ('aquarium', 'Aquarium'),
     ]
 
     TYPE_CHOICES = [
