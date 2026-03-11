@@ -65,36 +65,69 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
-def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
-    client = OpenAI(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-    )
-
-    input_items = [{"role": "system", "content": system_prompt}]
-    input_items.extend(history)
+def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None, web_search_enabled=False):
+    """
+    Get output from Gemini model.
     
-    # Handle multimodal input (text + image)
-    if image_url:
-        user_content = [
-            {"type": "text", "text": user_prompt},
-            {"type": "image_url", "image_url": {"url": image_url}}
-        ]
-        input_items.append({"role": "user", "content": user_content})
-    else:
-        input_items.append({"role": "user", "content": user_prompt})
-
+    Args:
+        web_search_enabled: If True, enables Google Search grounding for real-time web access.
+    """
+    import google.generativeai as genai
+    
+    # Configure the Gemini client
+    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+    
+    # Build messages in Gemini format
+    gemini_history = []
+    for msg in history:
+        role = "user" if msg.get("role") == "user" else "model"
+        gemini_history.append({"role": role, "parts": [msg.get("content", "")]})
+    
+    # Create the model with optional grounding
+    generation_config = genai.GenerationConfig(
+        temperature=0.7,
+        max_output_tokens=2048,
+    )
+    
+    # Set up tools for web search grounding
+    tools = None
+    if web_search_enabled:
+        tools = [genai.Tool(google_search=genai.GoogleSearch())]
+    
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=input_items,
-            stream=True,
+        gemini_model = genai.GenerativeModel(
+            model_name=model,
+            system_instruction=system_prompt,
+            generation_config=generation_config,
+            tools=tools
         )
-
+        
+        chat = gemini_model.start_chat(history=gemini_history)
+        
+        # Handle multimodal input
+        if image_url:
+            import requests as req
+            from io import BytesIO
+            from PIL import Image
+            img_response = req.get(image_url)
+            img = Image.open(BytesIO(img_response.content))
+            response = chat.send_message([user_prompt, img], stream=True)
+        else:
+            response = chat.send_message(user_prompt, stream=True)
+        
+        import json
         for chunk in response:
-            delta = chunk.choices[0].delta
-            if delta and getattr(delta, "content", None):
-                yield delta.content
+            # Check for grounding metadata (web search queries)
+            if hasattr(chunk, 'candidates') and chunk.candidates:
+                candidate = chunk.candidates[0]
+                if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
+                    gm = candidate.grounding_metadata
+                    if hasattr(gm, 'web_search_queries') and gm.web_search_queries:
+                        for query in gm.web_search_queries:
+                             yield f"[SEARCH:{json.dumps({'status': 'searching', 'message': f'Searching: {query}', 'query': query})}]"
+            
+            if chunk.text:
+                yield chunk.text
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
@@ -110,7 +143,14 @@ def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='google', custom_message=message, log_context=log_context)
 
-def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
+def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None, web_search_enabled=False):
+    """
+    Get output from GPT-5 model using the Responses API.
+    
+    Args:
+        web_search_enabled: If True, enables web search tool for real-time web access.
+    """
+    import json
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY_GPT_5")
     )
@@ -134,6 +174,10 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, 
         "text": {"verbosity": "medium"},
         "stream": True,
     }
+    
+    # Add web search tool if enabled
+    if web_search_enabled:
+        request_args["tools"] = [{"type": "web_search"}]
 
     if model.startswith("gpt-5"):
         if model == "gpt-5-pro":
@@ -150,10 +194,63 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, 
         response = client.responses.create(**request_args)
 
         for event in response:
-            if event.type == "response.output_text.delta":
-                yield event.delta
-            elif event.type == "response.completed":
-                break
+            # Handle web search events
+            if hasattr(event, 'type'):
+                if event.type == "response.web_search_call.in_progress":
+                    # Web search started
+                    search_info = {"status": "searching", "message": "Searching the web..."}
+                    yield f"[SEARCH:{json.dumps(search_info)}]"
+                    
+                elif event.type == "response.web_search_call.searching":
+                    # Currently searching - extract details with fallback
+                    search_info = {"status": "searching"}
+                    
+                    # Try to get data from event object or dictionary
+                    action = getattr(event, 'action', None)
+                    if not action and hasattr(event, '__dict__'):
+                        action = event.__dict__.get('action')
+                    
+                    if action == "search":
+                        query = getattr(event, 'query', None)
+                        if not query and hasattr(event, '__dict__'):
+                             query = event.__dict__.get('query')
+                        
+                        search_info["message"] = f"Searching: {query or '...'}"
+                        search_info["query"] = query or ""
+                        
+                    elif action == "open_page":
+                        url = getattr(event, 'url', None)
+                        if not url and hasattr(event, '__dict__'):
+                             url = event.__dict__.get('url')
+                             
+                        if url:
+                            # Extract domain from URL for cleaner display
+                            try:
+                                from urllib.parse import urlparse
+                                domain = urlparse(url).netloc
+                                search_info["message"] = f"Reading: {domain}"
+                                search_info["url"] = url
+                            except:
+                                search_info["message"] = f"Reading source..."
+                                search_info["url"] = url
+                        else:
+                             search_info["message"] = "Reading content..."
+                             
+                    elif action == "find_in_page":
+                        search_info["message"] = "Analyzing content..."
+                        
+                    yield f"[SEARCH:{json.dumps(search_info)}]"
+                    
+                elif event.type == "response.web_search_call.completed":
+                    # Search completed
+                    search_info = {"status": "completed", "message": "Search complete"}
+                    yield f"[SEARCH:{json.dumps(search_info)}]"
+                    
+                elif event.type == "response.output_text.delta":
+                    yield event.delta
+                    
+                elif event.type == "response.completed":
+                    break
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
@@ -168,6 +265,7 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, 
         
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='openai', custom_message=message, log_context=log_context)
+
 
 def get_gpt4_output(system_prompt, user_prompt, history, model, log_context=None):
     if model == "GPT4":
@@ -420,7 +518,13 @@ def get_ibm_output(system_prompt, user_prompt, history, model, log_context=None)
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='ibm', custom_message=message, log_context=log_context)
 
-def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
+def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None, web_search_enabled=False):
+    """
+    Get output from Anthropic Claude model.
+    
+    Args:
+        web_search_enabled: If True, enables native web search tool for real-time web access.
+    """
     client = anthropic.Anthropic(
         api_key=os.getenv("ANTHROPIC_API_KEY")
     )
@@ -451,6 +555,14 @@ def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=N
             "system": system_prompt,
             "messages": messages,
         }
+        
+        # Add web search tool if enabled
+        if web_search_enabled:
+            stream_params["tools"] = [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 5
+            }]
 
         if enable_thinking:
             stream_params["max_tokens"] = 16384
@@ -461,13 +573,25 @@ def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=N
         else:
             stream_params["max_tokens"] = 8192
 
+        import json
         with client.messages.stream(**stream_params) as stream:
             in_thinking_block = False
             for event in stream:
                 if event.type == "content_block_start":
-                    if hasattr(event.content_block, 'type') and event.content_block.type == "thinking":
-                        in_thinking_block = True
-                        yield "<think>"
+                    if hasattr(event.content_block, 'type'):
+                        if event.content_block.type == "thinking":
+                            in_thinking_block = True
+                            yield "<think>"
+                        elif event.content_block.type == "tool_use" and event.content_block.name == "web_search":
+                            # Extract search query from tool input if available
+                            search_query = "Searching the web..."
+                            try:
+                                if hasattr(event.content_block, 'input') and event.content_block.input:
+                                     search_query = event.content_block.input.get('query', search_query)
+                            except:
+                                pass
+                            
+                            yield f"[SEARCH:{json.dumps({'status': 'searching', 'message': f'Searching: {search_query}', 'query': search_query})}]"
                 elif event.type == "content_block_stop":
                     if in_thinking_block:
                         yield "</think>"
@@ -492,7 +616,13 @@ def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=N
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='anthropic', custom_message=message, log_context=log_context)
     
-def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None, audio_url=None, **kwargs):
+def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image_url=None, audio_url=None, web_search_enabled=False, **kwargs):
+    """
+    Get output from the specified model.
+    
+    Args:
+        web_search_enabled: If True, enables native web search for supported models (GPT-5, Gemini, Claude).
+    """
     # Assume that translation happens outside (and the prompt is already translated)
     # audio_url parameter reserved for future native audio API integration
     log_context = kwargs.get('context')
@@ -500,20 +630,21 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
     if model == GPT35:
         out = get_gpt3_output(system_prompt, user_prompt, history, log_context=log_context)
     elif model.startswith("gpt"):
-        out = get_gpt5_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
+        out = get_gpt5_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context, web_search_enabled=web_search_enabled)
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt, log_context=log_context)
     elif model == SARVAM_M:
         out = get_sarvam_m_output(system_prompt, history, user_prompt, log_context=log_context)
     elif model.startswith("gemini"):
-        out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
+        out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context, web_search_enabled=web_search_enabled)
     elif model.startswith("ibm"):
         out = get_ibm_output(system_prompt, user_prompt, history, model, log_context=log_context)
     elif model.startswith("claude"):
-        out = get_anthropic_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
+        out = get_anthropic_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context, web_search_enabled=web_search_enabled)
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     return out
+
 
 def get_all_model_output(system_prompt, user_prompt, history, models_to_run, log_context=None):
     results = {}
