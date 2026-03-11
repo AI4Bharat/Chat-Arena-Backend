@@ -11,6 +11,7 @@ class AIModel(models.Model):
         ('mistral', 'Mistral'),
         ('deepseek', 'DeepSeek'),
         ('qwen', 'Qwen'),
+        ('alibaba', 'Alibaba'),
         ('sarvam', 'Sarvam'),
         ('ibm', 'IBM'),
         ('ai4b', 'AI4Bharat'),
