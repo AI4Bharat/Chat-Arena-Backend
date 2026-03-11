@@ -103,6 +103,9 @@ class JobStatusConsumer(AsyncWebsocketConsumer):
                     finished_jobs = await sync_to_async(list)(Job.objects.filter(job_id__in=newly_finished_ids))
                     active_jobs.extend(finished_jobs)
                 
+                if len(active_jobs) > 0:
+                     print(f"[WebSocket Poller] TICK: Checking PAI server for {len(active_jobs)} active jobs...")
+                
                 # 2. Iterate through them and sync with PAI
                 updated_job_data_list = []
                 for job in active_jobs:

@@ -356,7 +356,7 @@ def _sync_job_status_from_pai(job):
             status_changed = True
         elif pai_status == 'AUDIO_VERIFIED' and job.status != 'AUDIO_VERIFIED':
             job.status = 'AUDIO_VERIFIED'
-            job.current_step = 'GENERATING AUDIO'
+            job.current_step = 'VERIFYING AUDIO'
             job.progress_percentage = 75
             status_changed = True
         elif pai_status == 'DATASET_GENERATED' and job.status != 'DATASET_GENERATED':
