@@ -18,6 +18,11 @@ class AIModel(models.Model):
         ('minimax', 'MiniMax'),
         ('cartesia', 'Cartesia'),
         ('murf', 'MurfAI'),
+        ('microsoft', 'Microsoft'),
+        ('aws', 'AWS'),
+        ('deepgram', 'Deepgram'),
+        ('assemblyai', 'AssemblyAI'),
+        ('aquarium', 'Aquarium'),
     ]
 
     TYPE_CHOICES = [
@@ -46,6 +51,7 @@ class AIModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
     url = models.URLField(max_length=500, blank=True, null=True)
+    license = models.CharField(max_length=255, blank=True, null=True)
     
     class Meta:
         db_table = 'ai_models'
