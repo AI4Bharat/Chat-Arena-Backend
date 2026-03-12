@@ -5,6 +5,7 @@ from django.conf import settings
 class Job(models.Model):
     # Status choices for pipeline tracking
     STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
         ('SUBMITTED', 'Submitted'),
         ('SUBMITTING', 'Submitting'),
         ('PROCESSING', 'Processing'),

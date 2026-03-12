@@ -193,17 +193,35 @@ def create_dataset_job(request):
     job_id = _ensure_numeric_job_id(config_dict)
     # Ensure is_sample is always False for final jobs
     config_dict['is_sample'] = False
+    is_draft = body.get('is_draft', False)
 
     # Store job in Django DB
     try:
-        job = Job.objects.create(
+        job, created = Job.objects.get_or_create(
             job_id=job_id,
-            payload=config_dict,
-            status='SUBMITTED',
-            created_by=getattr(request, 'user', None)
+            defaults={
+                'payload': config_dict,
+                'status': 'DRAFT' if is_draft else 'SUBMITTED',
+                'created_by': getattr(request, 'user', None)
+            }
         )
+        if not created:
+            job.payload = config_dict
+            job.status = 'DRAFT' if is_draft else 'SUBMITTED'
+            job.save(update_fields=['payload', 'status', 'updated_at'])
     except Exception as e:
         return _error(f'Server error occured, {e}', 405)
+
+    if is_draft:
+        wizard_stage = body.get('wizard_stage', 1)
+        wizard_form_data = body.get('wizard_form_data', None)
+        if wizard_form_data:
+            config_dict['_wizard_form_data'] = wizard_form_data
+            job.payload = config_dict
+        job.current_step = 'Saved as Draft'
+        job.step_details = {**(job.step_details or {}), 'wizard_stage': wizard_stage}
+        job.save(update_fields=['payload', 'current_step', 'step_details', 'updated_at'])
+        return HttpResponse(job_id, status=200, content_type='text/plain')
 
     # Submit to PAI server synchronously
     job.status = 'SUBMITTING'
@@ -500,7 +518,11 @@ def list_jobs(request):
             if language_filter and language_filter != 'all':
                 if item['language'] != language_filter:
                     continue
-            
+            # Include full payload for DRAFT jobs so frontend can pre-fill the edit form
+            if job.status == 'DRAFT':
+                item['payload'] = payload
+                item['wizardStage'] = (job.step_details or {}).get('wizard_stage', 1)
+
             items.append(item)
         
         # Recount after language filter
@@ -518,6 +540,39 @@ def list_jobs(request):
     
     except Exception as e:
         return _error(f'Failed to fetch jobs: {str(e)}', 400)
+
+
+@api_view(["DELETE"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def delete_draft_job(request, job_id: str):
+    """
+    Delete a job that is in DRAFT status.
+    Only the owner can delete their own drafts.
+    """
+    try:
+        if getattr(request.user, 'is_anonymous', False):
+            return _error('Sign in required.', 403)
+    except Exception:
+        pass
+
+    try:
+        job = Job.objects.get(job_id=job_id)
+    except Job.DoesNotExist:
+        return _error('Job not found.', 404)
+
+    # Only the owner can delete
+    try:
+        if job.created_by and getattr(request, 'user', None) and job.created_by != request.user:
+            return _error('Forbidden', 403)
+    except Exception:
+        pass
+
+    if job.status != 'DRAFT':
+        return _error('Only draft jobs can be deleted.', 409)
+
+    job.delete()
+    return JsonResponse({'status': 'deleted', 'jobId': job_id}, status=200)
 
 
 @api_view(["GET"])
