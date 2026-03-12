@@ -23,6 +23,7 @@ from django.http import StreamingHttpResponse
 import threading
 import queue
 from rest_framework.views import APIView
+from common.streaming_utils import make_async_generator
 import requests
 import os
 import base64
@@ -798,11 +799,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_b.join()
     
         if session.session_type == 'ASR':
-            return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
+            return StreamingHttpResponse(make_async_generator(generate_asr_output()), content_type='text/plain')
         elif session.session_type == 'TTS':
-            return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
+            return StreamingHttpResponse(make_async_generator(generate_tts_output()), content_type='text/plain')
         else:
-            return StreamingHttpResponse(generate(), content_type='text/plain')
+            return StreamingHttpResponse(make_async_generator(generate()), content_type='text/plain')
 
     @action(detail=True, methods=['post'])
     def regenerate(self, request, pk=None):
@@ -994,11 +995,11 @@ class MessageViewSet(viewsets.ModelViewSet):
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
             if session.session_type == 'ASR':
-                return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
+                return StreamingHttpResponse(make_async_generator(generate_asr_output()), content_type='text/plain')
             elif session.session_type == 'TTS':
-                return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
+                return StreamingHttpResponse(make_async_generator(generate_tts_output()), content_type='text/plain')
             else:
-                return StreamingHttpResponse(generate(), content_type='text/plain')
+                return StreamingHttpResponse(make_async_generator(generate()), content_type='text/plain')
             
         except Message.DoesNotExist:
             return Response(
