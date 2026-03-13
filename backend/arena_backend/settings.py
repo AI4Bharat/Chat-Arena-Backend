@@ -70,6 +70,7 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
+# Application definition
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -335,8 +336,6 @@ AI_MODEL_CONFIG = {
     'REQUEST_TIMEOUT': 30,  # seconds
     'MAX_RETRIES': 3,
 }
-
-
 
 # Channel Layers - Redis backend for distributed WebSocket support
 CHANNEL_LAYERS = {
