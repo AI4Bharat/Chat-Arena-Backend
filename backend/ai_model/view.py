@@ -177,7 +177,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 yield "data: [DONE]\n\n"
             
             response = StreamingHttpResponse(
-                generate(),
+                asyncio.run(generate()),
                 content_type='text/event-stream'
             )
             response['Cache-Control'] = 'no-cache'
@@ -230,7 +230,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
             yield "n"
         
         response = StreamingHttpResponse(
-            generate(),
+            asyncio.run(generate()),
             content_type='text/event-stream'
         )
         response['Cache-Control'] = 'no-cache'

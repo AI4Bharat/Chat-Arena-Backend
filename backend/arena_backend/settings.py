@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "model_metrics",
     "user",
     "academic_prompts",
+    "channels",
     "drf_yasg",
     "corsheaders",
     "rest_framework",
@@ -334,6 +335,36 @@ AI_MODEL_CONFIG = {
     'REQUEST_TIMEOUT': 30,  # seconds
     'MAX_RETRIES': 3,
 }
+
+
+
+# Channel Layers - Redis backend for distributed WebSocket support
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [f'{REDIS_URL}/0'],
+            "capacity": 1500,  # Number of messages to store
+            "expiry": 10,  # Message expiry in seconds
+            "group_expiry": 86400,  # Group membership expiry (24 hours)
+            "symmetric_encryption_keys": [SECRET_KEY],  # Encrypt messages
+        },
+    },
+}
+
+# Fallback to in-memory for local development (set USE_REDIS_CHANNELS=False in .env)
+if os.getenv('USE_REDIS_CHANNELS', 'True').lower() == 'false':
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer'
+        }
+    }
+
+# WebSocket authentication
+CHANNELS_MIDDLEWARE = [
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'user.middleware.WebSocketAuthMiddleware',  # Custom middleware for token auth
+]
 
 # try:
 #     from user.firebase_init import initialize_firebase
