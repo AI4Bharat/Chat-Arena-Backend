@@ -8,7 +8,6 @@ from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentica
 import json
 import os
 import http.client
-import uuid
 from urllib.parse import urlparse
 
 from user.models import User
