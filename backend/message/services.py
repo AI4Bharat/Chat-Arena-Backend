@@ -303,12 +303,12 @@ class MessageService:
         if child_id not in parent.child_ids:
             parent.child_ids.append(child_id)
             parent.save()
-    
+
     @staticmethod
     def _send_message_update(message: Message, action: str):
         """Send message update via WebSocket"""
         channel_layer = get_channel_layer()
-        
+
         async_to_sync(channel_layer.group_send)(
             f"session_{message.session_id}",
             {
