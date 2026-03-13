@@ -297,26 +297,25 @@ class MessageService:
         return history
     
     @staticmethod
-    def _update_parent_child_ids(parent_id: str, child_id: str):
-        """Update parent message's child IDs"""
-        parent = Message.objects.get(id=parent_id)
-        if child_id not in parent.child_ids:
-            parent.child_ids.append(child_id)
-            parent.save()
-    
-    @staticmethod
     def _send_message_update(message: Message, action: str):
-        """Send message update via WebSocket"""
-        channel_layer = get_channel_layer()
-        
-        async_to_sync(channel_layer.group_send)(
-            f"session_{message.session_id}",
-            {
-                'type': 'message_update',
-                'message': MessageSerializer(message).data,
-                'action': action
-            }
-        )
+        """Send message update via WebSocket (gracefully fails if Channels is missing)"""
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer is None:
+                return
+
+            async_to_sync(channel_layer.group_send)(
+                f"session_{message.session_id}",
+                {
+                    'type': 'message_update',
+                    'message': MessageSerializer(message).data,
+                    'action': action
+                }
+            )
+        except Exception as e:
+            # Skip errors related to Websockets in WSGI mode
+            print(f"Warning: Could not send socket update: {e}")
+            pass
     
     @staticmethod
     def get_message_tree(root_message_id: str) -> Dict:

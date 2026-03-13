@@ -12,6 +12,7 @@ class Job(models.Model):
         ('SENTENCE_GENERATED', 'Sentences Generated'),
         ('AUDIO_GENERATED', 'Audio Generated'),
         ('AUDIO_VERIFIED', 'Audio Verified'),
+        ('DATASET_GENERATED', 'Dataset Generated'),
         ('COMPLETED', 'Completed'),
         ('FAILED', 'Failed'),
     ]

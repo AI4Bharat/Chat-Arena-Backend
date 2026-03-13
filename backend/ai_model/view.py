@@ -7,7 +7,6 @@ from django.db.models import Q, Count, Avg
 import json
 import asyncio
 import os
-from common.streaming_utils import make_async_generator
 
 from model_metrics.models import AIModel, ModelMetric
 from ai_model.serializers import (
@@ -178,7 +177,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 yield "data: [DONE]\n\n"
             
             response = StreamingHttpResponse(
-                make_async_generator(asyncio.run(generate())),
+                generate(),
                 content_type='text/event-stream'
             )
             response['Cache-Control'] = 'no-cache'
@@ -231,7 +230,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
             yield "n"
         
         response = StreamingHttpResponse(
-            make_async_generator(asyncio.run(generate())),
+            generate(),
             content_type='text/event-stream'
         )
         response['Cache-Control'] = 'no-cache'

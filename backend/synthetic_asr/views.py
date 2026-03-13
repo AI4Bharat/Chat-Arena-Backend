@@ -8,8 +8,11 @@ from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentica
 import json
 import os
 import http.client
+import uuid
 from urllib.parse import urlparse
 
+from user.models import User
+from user.services import UserService
 from .models import Job
 from .engine import (
     sample_sub_domain_handler,
@@ -24,6 +27,124 @@ from urllib.parse import urlparse
 from .utils import http_utils
 from django.core.mail import send_mail
 from django.conf import settings as django_settings
+from django.http import StreamingHttpResponse
+
+
+def job_status_stream(request):
+    """
+    SSE endpoint that streams job status updates to the frontend.
+    """
+    print(f"DEBUG: job_status_stream called for user: {request.user}")
+    from django.http import StreamingHttpResponse
+    user = request.user
+    
+    # SSE EventSource doesn't support headers, so we check query params for tokens
+    if not user or user.is_anonymous:
+        token = request.GET.get('token')
+        anonymous_token = request.GET.get('anonymous_token')
+        
+        if token:
+            try:
+                from rest_framework_simplejwt.authentication import JWTAuthentication
+                jwt_auth = JWTAuthentication()
+                validated_token = jwt_auth.get_validated_token(token)
+                user_id = validated_token.get('user_id')
+                if user_id:
+                    user = User.objects.get(id=user_id)
+            except Exception:
+                # Try Firebase if JWT fails
+                try:
+                    firebase_user = UserService.verify_google_token_with_pyrebase(token)
+                    if firebase_user:
+                        user = User.objects.get(firebase_uid=firebase_user['localId'])
+                except Exception:
+                    pass
+        
+        if (not user or user.is_anonymous) and anonymous_token:
+            user = User.objects.filter(is_anonymous=True, preferences__anonymous_token=anonymous_token).first()
+
+    if not user or user.is_anonymous:
+        # Note: EventSource might not handle 401 well, but standard for SSE
+        return HttpResponse("Unauthorized", status=401)
+
+    print(f"DEBUG: Authenticated user for SSE stream: {user.email}")
+
+    def event_stream():
+        last_known_state = {}
+        first_run = True
+        
+        while True:
+            try:
+                # 1. Heartbeat Ping
+                hb_data = json.dumps({
+                    'type': 'ping', 
+                    'time': time.time()
+                })
+                yield f"data: {hb_data}\n\n"
+
+                # 2. Get jobs
+                # We include COMPLETED/FAILED jobs so that the "final" state update can be sent.
+                # The state tracking logic below will ensure we don't spam redundant updates for finished jobs.
+                query = Job.objects.filter(created_by=user).order_by('-created_at').exclude(status='DRAFT')
+                
+                active_jobs = list(query)
+
+                all_current_jobs = []
+                for job in active_jobs:
+                    updated_job = _sync_job_status_from_pai(job)
+                    
+                    # Format
+                    payload = updated_job.payload or {}
+                    config = payload if (isinstance(payload, dict) and 'language' in payload) else payload.get('config', payload if isinstance(payload, dict) else {})
+                    sentence_config = config.get('sentence', {})
+
+                    job_data = {
+                        'jobId': updated_job.job_id,
+                        'language': config.get('language') or payload.get('language') or 'Unknown',
+                        'size': config.get('size') or payload.get('size') or 0,
+                        'status': updated_job.status,
+                        'progress': updated_job.progress_percentage,
+                        'currentStage': updated_job.current_step or 'Pending',
+                        'createdAt': updated_job.created_at.isoformat() if updated_job.created_at else None,
+                        'completedAt': updated_job.updated_at.isoformat() if updated_job.status == 'COMPLETED' and updated_job.updated_at else None,
+                        'category': sentence_config.get('category') or config.get('category') or '',
+                        'generationAttempts': updated_job.generation_attempts or 0,
+                    }
+                    all_current_jobs.append(job_data)
+
+                # 3. YIELD UPDATES (Differential)
+                to_send = []
+                for job_data in all_current_jobs:
+                    job_id = job_data['jobId']
+                    last_state = last_known_state.get(job_id)
+                    # Send if it's the first time we see the job OR if status/progress changed
+                    if (first_run or last_state is None or 
+                        job_data['status'] != last_state['status'] or 
+                        job_data['progress'] != last_state['progress']):
+                        to_send.append(job_data)
+                        last_known_state[job_id] = {'status': job_data['status'], 'progress': job_data['progress']}
+
+                if to_send:
+                    data = json.dumps({
+                        'type': 'jobs_update', 
+                        'jobs': to_send, 
+                        'server_time': time.time()
+                    })
+                    # Use padding to bypass potential proxy buffers
+                    padding = ":" + (" " * 2048) + "\n"
+                    yield f"data: {data}\n{padding}\n\n"
+                
+                first_run = False
+            except Exception as e:
+                data = json.dumps({'type': 'error', 'message': str(e)})
+                yield f"data: {data}\n\n"
+            
+            time.sleep(5)
+
+    response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+    response['Cache-Control'] = 'no-cache, no-transform'
+    response['X-Accel-Buffering'] = 'no'
+    return response
 
 
 def _json_body(request):
@@ -346,6 +467,7 @@ def _sync_job_status_from_pai(job):
             decoded_data = data.decode('utf-8').strip()
             try:
                 pai_status_data = json.loads(decoded_data)
+                print(f"PAI status data for {pai_job_id}: {pai_status_data}")
                 pai_status_raw = pai_status_data.get('status')
                 pai_status = str(pai_status_raw).upper() if pai_status_raw else None
             except json.JSONDecodeError:
