@@ -1,4 +1,4 @@
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -7,6 +7,8 @@ from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentica
 
 import json
 import os
+import time
+import random
 import http.client
 from urllib.parse import urlparse
 
@@ -19,14 +21,9 @@ from .engine import (
     sample_scenario_handler,
     sample_sentence_handler,
 )
-import time
-import os
-import random
-from urllib.parse import urlparse
 from .utils import http_utils
 from django.core.mail import send_mail
 from django.conf import settings as django_settings
-from django.http import StreamingHttpResponse
 
 
 def job_status_stream(request):
@@ -34,7 +31,6 @@ def job_status_stream(request):
     SSE endpoint that streams job status updates to the frontend.
     """
     print(f"DEBUG: job_status_stream called for user: {request.user}")
-    from django.http import StreamingHttpResponse
     user = request.user
     
     # SSE EventSource doesn't support headers, so we check query params for tokens
