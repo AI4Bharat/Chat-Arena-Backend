@@ -17,6 +17,7 @@ class ChatSession(models.Model):
         ('LLM', 'Large Language Model'),
         ('ASR', 'Automatic Speech Recognition'),
         ('TTS', 'Text to Speech'),
+        ('OCR', 'Optical Character Recognition'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

@@ -329,7 +329,9 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                         'audio_path': msg.audio_path,
                         'language': msg.language,
                         'has_detailed_feedback': msg.has_detailed_feedback,
-                        **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {})
+                        'image_path': msg.image_path,
+                        **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {}),
+                        **({'temp_image_url': generate_signed_url(msg.image_path, 900)} if msg.image_path else {}),
                     }
                     for msg in reversed(messages)
                 ]
