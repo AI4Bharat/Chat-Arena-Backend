@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from django.utils import timezone
 from rest_framework import viewsets, status
@@ -351,7 +352,28 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
     def generate_title(self, request, pk=None):
         """Generate AI-based title for the session"""
         session = self.get_object()
-        
+
+        # OCR: derive title directly from annotations — no AI call needed
+        if session.session_type == "OCR":
+            assistant_msg = session.messages.filter(role='assistant').order_by('created_at').first()
+            if not assistant_msg or not assistant_msg.content:
+                return Response({'error': 'No OCR result found'}, status=400)
+            try:
+                annotations = json.loads(assistant_msg.content)
+            except (ValueError, TypeError):
+                return Response({'error': 'Invalid OCR content'}, status=400)
+            # Prefer first annotation labelled 'title', fallback to first with text
+            title_ann = next((a for a in annotations if a.get('label', '').lower() == 'title' and a.get('text', '').strip()), None)
+            fallback_ann = next((a for a in annotations if a.get('text', '').strip()), None)
+            source = title_ann or fallback_ann
+            if not source:
+                return Response({'error': 'No text in OCR result'}, status=400)
+            raw = source['text'].strip().splitlines()[0]  # first line only
+            generated_title = raw[:47] + '...' if len(raw) > 50 else raw
+            session.title = generated_title
+            session.save(update_fields=['title'])
+            return Response({'title': generated_title})
+
         if session.session_type == "LLM" or session.session_type == "TTS":
             message = session.messages.filter(role='user').first()
         else:
