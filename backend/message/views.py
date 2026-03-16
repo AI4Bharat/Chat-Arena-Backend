@@ -2,6 +2,7 @@ import time
 from ai_model.llm_interactions import get_model_output
 from ai_model.asr_interactions import get_asr_output
 from ai_model.tts_interactions import get_tts_output
+from ai_model.ocr_interactions import get_ocr_output, stream_ocr_output
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -797,12 +798,136 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_a.join()
                 thread_b.join()
     
+        def generate_ocr_output():
+            db_alias = session._state.db
+            generate_text = request.data.get('generate_text_within', True)
+
+            if session.mode == 'direct':
+                start_time = time.time()
+                image_url = generate_signed_url(user_message.image_path, 900)
+                context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
+
+                ocr_result = []
+                for annotation in stream_ocr_output(image_url, model=session.model_a.model_code, generate_text=generate_text, log_context=context):
+                    ocr_result.append(annotation)
+                    yield f'aa:{json.dumps(annotation)}\n'
+
+                assistant_message.content = json.dumps(ocr_result)
+                assistant_message.status = 'success'
+                assistant_message.latency_ms = round((time.time() - start_time) * 1000, 2)
+                assistant_message.save(using=db_alias)
+
+                yield f'ad:{json.dumps({"finishReason": "stop"})}\n'
+            else:
+                chunk_queue = queue.Queue()
+
+                def stream_model_a():
+                    start_time_a = time.time()
+                    try:
+                        image_url = generate_signed_url(user_message.image_path, 900)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
+                        ocr_result_a = []
+                        for annotation in stream_ocr_output(image_url, model=session.model_a.model_code, generate_text=generate_text, log_context=context):
+                            ocr_result_a.append(annotation)
+                            chunk_queue.put(('a', f'aa:{json.dumps(annotation)}\n'))
+
+                        assistant_message_a.content = json.dumps(ocr_result_a)
+                        assistant_message_a.status = 'success'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
+                        assistant_message_a.save(using=db_alias)
+
+                        chunk_queue.put(('a', f'ad:{json.dumps({"finishReason": "stop"})}\n'))
+                    except Exception as e:
+                        assistant_message_a.status = 'error'
+                        assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
+                        assistant_message_a.save(using=db_alias)
+                        chunk_queue.put(('a', f'ad:{json.dumps({"finishReason": "error", "error": str(e)})}\n'))
+                    finally:
+                        chunk_queue.put(('a', None))
+
+                def stream_model_b():
+                    start_time_b = time.time()
+                    try:
+                        image_url = generate_signed_url(user_message.image_path, 900)
+                        context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
+                        ocr_result_b = []
+                        for annotation in stream_ocr_output(image_url, model=session.model_b.model_code, generate_text=generate_text, log_context=context):
+                            ocr_result_b.append(annotation)
+                            chunk_queue.put(('b', f'ab:{json.dumps(annotation)}\n'))
+
+                        assistant_message_b.content = json.dumps(ocr_result_b)
+                        assistant_message_b.status = 'success'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
+                        assistant_message_b.save(using=db_alias)
+
+                        chunk_queue.put(('b', f'bd:{json.dumps({"finishReason": "stop"})}\n'))
+                    except Exception as e:
+                        assistant_message_b.status = 'error'
+                        assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
+                        assistant_message_b.save(using=db_alias)
+                        chunk_queue.put(('b', f'bd:{json.dumps({"finishReason": "error", "error": str(e)})}\n'))
+                    finally:
+                        chunk_queue.put(('b', None))
+
+                thread_a = threading.Thread(target=stream_model_a)
+                thread_b = threading.Thread(target=stream_model_b)
+                thread_a.start()
+                thread_b.start()
+
+                completed = {'a': False, 'b': False}
+                while not all(completed.values()):
+                    try:
+                        model_key, chunk = chunk_queue.get(timeout=0.1)
+                        if chunk is None:
+                            completed[model_key] = True
+                        else:
+                            yield chunk
+                    except queue.Empty:
+                        continue
+
+                thread_a.join()
+                thread_b.join()
+
         if session.session_type == 'ASR':
             return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
         elif session.session_type == 'TTS':
             return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
+        elif session.session_type == 'OCR':
+            return StreamingHttpResponse(generate_ocr_output(), content_type='text/plain')
         else:
             return StreamingHttpResponse(generate(), content_type='text/plain')
+
+    @action(detail=True, methods=['patch'])
+    def save_annotations(self, request, pk=None):
+        """Persist edited OCR annotations back to the message content."""
+        message = get_object_or_404(Message, id=pk, session__user=request.user)
+        ocr_result = request.data.get('ocr_result')
+        if ocr_result is None:
+            return Response({'error': 'ocr_result is required'}, status=status.HTTP_400_BAD_REQUEST)
+        message.content = json.dumps(ocr_result)
+        message.save(update_fields=['content'])
+        return Response({'status': 'saved', 'count': len(ocr_result)})
+
+    @action(detail=True, methods=['post'])
+    def extract_region_text(self, request, pk=None):
+        """Crop a bounding box from the document image and extract its text."""
+        from ai_model.ocr_interactions import extract_region_text as ocr_extract_region
+
+        message = get_object_or_404(Message, id=pk, session__user=request.user)
+        box = request.data.get('box')
+        if not box or len(box) != 4:
+            return Response({'error': 'box [x1, y1, x2, y2] is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = message.session
+        user_message = session.messages.filter(role='user').order_by('created_at').first()
+        if not user_message or not getattr(user_message, 'image_path', None):
+            return Response({'error': 'No image found for this session'}, status=status.HTTP_400_BAD_REQUEST)
+
+        image_url = generate_signed_url(user_message.image_path, 300)
+        model_code = (message.model.model_code if message.model else None) or session.model_a.model_code
+        context = {'session_id': str(session.id), 'message_id': str(message.id), 'user_email': getattr(request.user, 'email', None)}
+        text = ocr_extract_region(image_url, box, model=model_code, log_context=context)
+        return Response({'text': text or ''})
 
     @action(detail=True, methods=['post'])
     def regenerate(self, request, pk=None):
@@ -1135,6 +1260,63 @@ class MessageViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_ocr_image(self, request):
+        """Upload an image or PDF for OCR processing to GCS and return its path, URL, and dimensions."""
+        from PIL import Image as PILImage
+
+        if 'file' not in request.FILES:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ocr_file = request.FILES['file']
+
+        allowed_types = [
+            'image/jpeg', 'image/jpg', 'image/png', 'image/tiff',
+            'image/webp', 'image/bmp', 'application/pdf',
+        ]
+        if ocr_file.content_type not in allowed_types:
+            return Response({
+                'error': f'Invalid file type: {ocr_file.content_type}. Allowed: JPEG, PNG, TIFF, WEBP, BMP, PDF'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if ocr_file.size > 20 * 1024 * 1024:
+            return Response({'error': 'File size must be less than 20MB'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            ext = os.path.splitext(ocr_file.name)[1].lower() or '.jpg'
+            blob_name = f"ocr-inputs/{uuid.uuid4()}{ext}"
+
+            client = storage.Client()
+            bucket = client.bucket(settings.GS_BUCKET_NAME)
+            blob = bucket.blob(blob_name)
+            blob.upload_from_file(ocr_file, content_type=ocr_file.content_type)
+
+            signed_url = generate_signed_url(blob_name, expiration=900)
+
+            # Get image dimensions (for coordinate rendering on frontend).
+            # Apply EXIF transpose so dimensions match what browsers render.
+            width, height, page_count = None, None, 1
+            if ocr_file.content_type != 'application/pdf':
+                try:
+                    from PIL import ImageOps
+                    ocr_file.seek(0)
+                    img = PILImage.open(ocr_file)
+                    img = ImageOps.exif_transpose(img)  # apply EXIF rotation
+                    width, height = img.size
+                except Exception:
+                    pass
+
+            return Response({
+                'path': blob_name,
+                'url': signed_url,
+                'width': width,
+                'height': height,
+                'page_count': page_count,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_audio(self, request):
         if 'audio' not in request.FILES:

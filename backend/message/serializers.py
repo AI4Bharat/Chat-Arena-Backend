@@ -158,8 +158,9 @@ class MessageStreamSerializer(serializers.Serializer):
                     raise serializers.ValidationError("Model not found or inactive")
                     # handle participant for compare mode
 
+        image_path = attrs.get('image_path')
         if role != 'assistant' and not content:
-            if not audio_path and not language:
+            if not audio_path and not language and not image_path:
                 raise serializers.ValidationError({
                     'content': 'This field is required when role is not "assistant".'
                 })
