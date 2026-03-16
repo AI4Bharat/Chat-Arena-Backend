@@ -11,12 +11,12 @@ from message.serializers import MessageSerializer
 def message_saved(sender, instance, created, **kwargs):
     """Send WebSocket notification when message is saved"""
     channel_layer = get_channel_layer()
-    
+
     # Send to session group
     group_name = f"session_{instance.session_id}"
-    
+
     event_type = 'message_created' if created else 'message_updated'
-    
+
     async_to_sync(channel_layer.group_send)(
         group_name,
         {
@@ -34,10 +34,10 @@ def message_saved(sender, instance, created, **kwargs):
 def message_deleted(sender, instance, **kwargs):
     """Send WebSocket notification when message is deleted"""
     channel_layer = get_channel_layer()
-    
+
     # Send to session group
     group_name = f"session_{instance.session_id}"
-    
+
     async_to_sync(channel_layer.group_send)(
         group_name,
         {

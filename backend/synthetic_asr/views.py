@@ -1,4 +1,4 @@
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -7,9 +7,13 @@ from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentica
 
 import json
 import os
+import time
+import random
 import http.client
 from urllib.parse import urlparse
 
+from user.models import User
+from user.services import UserService
 from .models import Job
 from .engine import (
     sample_sub_domain_handler,
@@ -17,9 +21,125 @@ from .engine import (
     sample_scenario_handler,
     sample_sentence_handler,
 )
-from .tasks import main_orchestrator_task
-import time
-import random
+from .utils import http_utils
+from django.core.mail import send_mail
+from django.conf import settings as django_settings
+
+
+def job_status_stream(request):
+    """
+    SSE endpoint that streams job status updates to the frontend.
+    """
+    print(f"DEBUG: job_status_stream called for user: {request.user}")
+    user = request.user
+    
+    # SSE EventSource doesn't support headers, so we check query params for tokens
+    if not user or user.is_anonymous:
+        token = request.GET.get('token')
+        anonymous_token = request.GET.get('anonymous_token')
+        
+        if token:
+            try:
+                from rest_framework_simplejwt.authentication import JWTAuthentication
+                jwt_auth = JWTAuthentication()
+                validated_token = jwt_auth.get_validated_token(token)
+                user_id = validated_token.get('user_id')
+                if user_id:
+                    user = User.objects.get(id=user_id)
+            except Exception:
+                # Try Firebase if JWT fails
+                try:
+                    firebase_user = UserService.verify_google_token_with_pyrebase(token)
+                    if firebase_user:
+                        user = User.objects.get(firebase_uid=firebase_user['localId'])
+                except Exception:
+                    pass
+        
+        if (not user or user.is_anonymous) and anonymous_token:
+            user = User.objects.filter(is_anonymous=True, preferences__anonymous_token=anonymous_token).first()
+
+    if not user or user.is_anonymous:
+        # Note: EventSource might not handle 401 well, but standard for SSE
+        return HttpResponse("Unauthorized", status=401)
+
+    print(f"DEBUG: Authenticated user for SSE stream: {user.email}")
+
+    def event_stream():
+        last_known_state = {}
+        first_run = True
+        
+        while True:
+            try:
+                # 1. Heartbeat Ping
+                hb_data = json.dumps({
+                    'type': 'ping', 
+                    'time': time.time()
+                })
+                yield f"data: {hb_data}\n\n"
+
+                # 2. Get jobs
+                # We include COMPLETED/FAILED jobs so that the "final" state update can be sent.
+                # The state tracking logic below will ensure we don't spam redundant updates for finished jobs.
+                query = Job.objects.filter(created_by=user).order_by('-created_at').exclude(status='DRAFT')
+                
+                active_jobs = list(query)
+
+                all_current_jobs = []
+                for job in active_jobs:
+                    updated_job = _sync_job_status_from_pai(job)
+                    
+                    # Format
+                    payload = updated_job.payload or {}
+                    config = payload if (isinstance(payload, dict) and 'language' in payload) else payload.get('config', payload if isinstance(payload, dict) else {})
+                    sentence_config = config.get('sentence', {})
+
+                    job_data = {
+                        'jobId': updated_job.job_id,
+                        'language': config.get('language') or payload.get('language') or 'Unknown',
+                        'size': config.get('size') or payload.get('size') or 0,
+                        'status': updated_job.status,
+                        'progress': updated_job.progress_percentage,
+                        'currentStage': updated_job.current_step or 'Pending',
+                        'createdAt': updated_job.created_at.isoformat() if updated_job.created_at else None,
+                        'completedAt': updated_job.updated_at.isoformat() if updated_job.status == 'COMPLETED' and updated_job.updated_at else None,
+                        'category': sentence_config.get('category') or config.get('category') or '',
+                        'generationAttempts': updated_job.generation_attempts or 0,
+                    }
+                    all_current_jobs.append(job_data)
+
+                # 3. YIELD UPDATES (Differential)
+                to_send = []
+                for job_data in all_current_jobs:
+                    job_id = job_data['jobId']
+                    last_state = last_known_state.get(job_id)
+                    # Send if it's the first time we see the job OR if status/progress changed
+                    if (first_run or last_state is None or 
+                        job_data['status'] != last_state['status'] or 
+                        job_data['progress'] != last_state['progress']):
+                        to_send.append(job_data)
+                        last_known_state[job_id] = {'status': job_data['status'], 'progress': job_data['progress']}
+
+                if to_send:
+                    data = json.dumps({
+                        'type': 'jobs_update', 
+                        'jobs': to_send, 
+                        'server_time': time.time()
+                    })
+                    # Use padding to bypass potential proxy buffers
+                    padding = ":" + (" " * 2048) + "\n"
+                    yield f"data: {data}\n{padding}\n\n"
+                
+                first_run = False
+            except Exception as e:
+                data = json.dumps({'type': 'error', 'message': str(e)})
+                yield f"data: {data}\n\n"
+            
+            time.sleep(5)
+
+    response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+    response['Cache-Control'] = 'no-cache, no-transform'
+    response['X-Accel-Buffering'] = 'no'
+    return response
 
 
 def _json_body(request):
@@ -139,6 +259,38 @@ def sample_sentence(request):
     return JsonResponse({'sentences': sentences_obj}, status=200)
 
 
+def _submit_to_pai(job):
+    """
+    Submit a job to the PAI server synchronously.
+    Returns (pai_job_id, error_message). On success error_message is None.
+    """
+    pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL')
+    if not pai_server_url:
+        return None, 'SYNTHETIC_ASR_PAI_SERVER_URL not configured'
+
+    parsed_url = urlparse(pai_server_url)
+    host = parsed_url.netloc
+    scheme = parsed_url.scheme or 'https'
+    is_https = scheme == 'https'
+
+    headers = {'Content-Type': 'application/json'}
+    payload = {'config': job.payload}
+
+    if is_https:
+        result, err = http_utils.make_post_request(host, '/pai/create', headers, payload)
+    else:
+        result, err = http_utils.make_local_post_request(host, '/pai/create', headers, payload, port=80)
+
+    if err:
+        return None, f'Failed to submit to PAI server: {err}'
+
+    pai_job_id = str(result) if result else None
+    if not pai_job_id:
+        return None, 'PAI server did not return job ID'
+
+    return pai_job_id, None
+
+
 @api_view(["POST"])
 @authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -157,34 +309,53 @@ def create_dataset_job(request):
     job_id = _ensure_numeric_job_id(config_dict)
     # Ensure is_sample is always False for final jobs
     config_dict['is_sample'] = False
+    is_draft = body.get('is_draft', False)
 
     # Store job in Django DB
     try:
-        Job.objects.create(
+        job, created = Job.objects.get_or_create(
             job_id=job_id,
-            payload=config_dict,
-            status='SUBMITTED',
-            created_by=getattr(request, 'user', None)
+            defaults={
+                'payload': config_dict,
+                'status': 'DRAFT' if is_draft else 'SUBMITTED',
+                'created_by': getattr(request, 'user', None)
+            }
         )
+        if not created:
+            job.payload = config_dict
+            job.status = 'DRAFT' if is_draft else 'SUBMITTED'
+            job.save(update_fields=['payload', 'status', 'updated_at'])
     except Exception as e:
         return _error(f'Server error occured, {e}', 405)
 
-    # Trigger async pipeline execution (best-effort). If queue is down, keep the job and return 200.
-    try:
-        main_orchestrator_task.delay(job_id)
-    except Exception as e:
-        # Update job with failure info but still return job_id so UI can show status
-        try:
-            job = Job.objects.get(job_id=job_id)
-            job.status = 'FAILED'
-            job.error = {'message': 'Failed to enqueue task', 'details': str(e)}
-            job.current_step = 'QUEUE_ENQUEUE'
-            job.step_details = {**(job.step_details or {}), 'enqueue_error': str(e)}
-            job.save(update_fields=['status', 'error', 'current_step', 'step_details', 'updated_at'])
-        except Exception:
-            pass
-        # Do NOT 405 the client; allow UI to move forward and show failure state
+    if is_draft:
+        wizard_stage = body.get('wizard_stage', 1)
+        wizard_form_data = body.get('wizard_form_data', None)
+        if wizard_form_data:
+            config_dict['_wizard_form_data'] = wizard_form_data
+            job.payload = config_dict
+        job.current_step = 'Saved as Draft'
+        job.step_details = {**(job.step_details or {}), 'wizard_stage': wizard_stage}
+        job.save(update_fields=['payload', 'current_step', 'step_details', 'updated_at'])
         return HttpResponse(job_id, status=200, content_type='text/plain')
+
+    # Submit to PAI server synchronously
+    job.status = 'SUBMITTING'
+    job.current_step = 'Submitting to PAI server'
+    job.save(update_fields=['status', 'current_step', 'updated_at'])
+
+    pai_job_id, err = _submit_to_pai(job)
+    if err:
+        job.status = 'FAILED'
+        job.error = {'step': 'pai_submit', 'message': err}
+        job.current_step = 'PAI submission failed'
+        job.save(update_fields=['status', 'error', 'current_step', 'updated_at'])
+        return HttpResponse(job_id, status=200, content_type='text/plain')
+
+    job.status = 'SUBMITTED'
+    job.current_step = 'SUBMITTED'
+    job.step_details = {'pai_job_id': pai_job_id}
+    job.save(update_fields=['status', 'current_step', 'step_details', 'updated_at'])
 
     return HttpResponse(job_id, status=200, content_type='text/plain')
 
@@ -194,8 +365,8 @@ def create_dataset_job(request):
 @permission_classes([IsAuthenticated])
 def resubmit_job(request, job_id: str):
     """
-    Re-submit a job that is stuck at SUBMITTED or FAILED.
-    Resets the job state and re-enqueues the Celery task.
+    Re-submit a job that is FAILED.
+    Resets the job state and submits to PAI server directly.
     """
     try:
         if getattr(request.user, 'is_anonymous', False):
@@ -215,30 +386,143 @@ def resubmit_job(request, job_id: str):
     except Exception:
         pass
 
-    # Only allow resubmit for stuck / failed jobs
+    # Only allow resubmit for failed jobs
     allowed_statuses = ['SUBMITTED', 'FAILED', 'SUBMITTING']
     if job.status not in allowed_statuses:
         return _error(f'Job is currently {job.status} and cannot be resubmitted.', 409)
 
+    # Generate a new job ID for the PAI side to avoid 500 Internal Server Error conflicts
+    from time import time
+    new_pai_job_id = str(int(time() * 1000))
+    
+    # Update the payload with the new ID for the PAI server
+    new_payload = dict(job.payload) if job.payload else {}
+    new_payload['job_id'] = new_pai_job_id
+    job.payload = new_payload
+
     # Reset job state
-    job.status = 'SUBMITTED'
+    job.status = 'SUBMITTING'
     job.error = None
     job.progress_percentage = 0
     job.current_step = 'Resubmitted by user'
-    job.step_details = {**(job.step_details or {}), 'resubmitted': True}
+    job.step_details = {**(job.step_details or {}), 'resubmitted': True, 'old_pai_job_id': job.step_details.get('pai_job_id')}
     job.generation_attempts = (job.generation_attempts or 0) + 1
     job.save()
 
-    # Re-enqueue
-    try:
-        main_orchestrator_task.delay(job_id)
-    except Exception as e:
+    # Submit to PAI directly
+    pai_job_id, err = _submit_to_pai(job)
+    if err:
         job.status = 'FAILED'
-        job.error = {'message': 'Failed to enqueue task on resubmit', 'details': str(e)}
+        job.error = {'step': 'pai_submit', 'message': err}
         job.save(update_fields=['status', 'error', 'updated_at'])
-        return _error('Failed to enqueue task. Is the task queue running?', 503)
+        return JsonResponse({'message': 'Job resubmitted but failed to reach PAI', 'job_id': job_id}, status=200)
 
-    return JsonResponse({'message': 'Job resubmitted successfully', 'job_id': job_id}, status=200)
+    job.status = 'SUBMITTED'
+    job.current_step = 'SUBMITTED'
+    job.step_details = {**(job.step_details or {}), 'pai_job_id': pai_job_id}
+    job.save(update_fields=['status', 'current_step', 'step_details', 'updated_at'])
+
+    return HttpResponse(job_id, status=200, content_type='text/plain')
+
+
+def _sync_job_status_from_pai(job):
+    """
+    Internal helper to sync a job's status from the PAI server if it's currently processing.
+    """
+    if job.status not in ['SUBMITTING', 'SUBMITTED', 'PROCESSING', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED', 'DATASET_GENERATED']:
+        return job
+
+    pai_job_id = job.step_details.get('pai_job_id') if job.step_details else None
+    if not pai_job_id:
+        return job
+
+    try:
+        # Get PAI server URL
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL')
+        if not pai_server_url:
+            return job
+
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
+        scheme = parsed_url.scheme or 'https'
+        is_https = scheme == 'https'
+
+        # Fetch status from PAI server
+        if is_https:
+            conn = http.client.HTTPSConnection(host)
+        else:
+            conn = http.client.HTTPConnection(host)
+            
+        conn.request('GET', f'/pai/status/{pai_job_id}', headers={})
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+
+        if resp.status == 200:
+            decoded_data = data.decode('utf-8').strip()
+            try:
+                pai_status_data = json.loads(decoded_data)
+                print(f"PAI status data for {pai_job_id}: {pai_status_data}")
+                pai_status_raw = pai_status_data.get('status')
+                pai_status = str(pai_status_raw).upper() if pai_status_raw else None
+            except json.JSONDecodeError:
+                # Fallback: the endpoint might be returning plain text e.g., "SUBMITTED"
+                pai_status = decoded_data.upper() if decoded_data else None
+        else:
+            print(f"Failed to fetch status for {pai_job_id}: {resp.status} {data}")
+            return job
+
+        # Update job based on PAI status
+        status_changed = False
+        if pai_status == 'ACCEPTED' and job.status != 'PROCESSING':
+            job.status = 'PROCESSING'
+            job.current_step = 'STARTED'
+            job.progress_percentage = 10
+            status_changed = True
+        elif pai_status == 'SENTENCE_GENERATED' and job.status != 'SENTENCE_GENERATED':
+            job.status = 'SENTENCE_GENERATED'
+            job.current_step = 'GENERATED SENTENCES'
+            job.progress_percentage = 25
+            status_changed = True
+        elif pai_status == 'AUDIO_GENERATED' and job.status != 'AUDIO_GENERATED':
+            job.status = 'AUDIO_GENERATED'
+            job.current_step = 'GENERATING AUDIO'
+            job.progress_percentage = 50
+            status_changed = True
+        elif pai_status == 'AUDIO_VERIFIED' and job.status != 'AUDIO_VERIFIED':
+            job.status = 'AUDIO_VERIFIED'
+            job.current_step = 'VERIFYING AUDIO'
+            job.progress_percentage = 75
+            status_changed = True
+        elif pai_status == 'DATASET_GENERATED' and job.status != 'DATASET_GENERATED':
+            job.status = 'DATASET_GENERATED'
+            job.current_step = 'FINISHING UP'
+            job.progress_percentage = 90
+            status_changed = True
+        elif pai_status in ['DATASET_UPLOADED', 'COMPLETED'] and job.status != 'COMPLETED':
+            job.status = 'COMPLETED'
+            job.current_step = 'DATASET READY'
+            job.progress_percentage = 100
+            job.result = {'pai_job_id': pai_job_id, 'status': 'completed'}
+            job.save()
+            # Send email notification to job creator
+            try:
+                _send_dataset_ready_email(job)
+            except Exception:
+                pass
+            status_changed = False # Already saved
+        elif pai_status == 'FAILED' and job.status != 'FAILED':
+            job.status = 'FAILED'
+            job.error = {'message': 'PAI server reported failure'}
+            status_changed = True
+
+        if status_changed:
+            job.save()
+
+    except Exception as e:
+        print(f"Error fetching status from PAI server for {job.job_id}: {e}")
+
+    return job
 
 
 @api_view(["GET"])
@@ -258,67 +542,10 @@ def job_status(request, job_id: str):
                 return _error('Forbidden', 403)
         except Exception:
             pass
-        
-        # If job is still processing, fetch latest status from PAI server
-        if job.status in ['SUBMITTING', 'PROCESSING', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED']:
-            pai_job_id = job.step_details.get('pai_job_id') if job.step_details else None
-            
-            if pai_job_id:
-                try:
-                    # Get PAI server URL
-                    pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL')
-                    if pai_server_url:
-                        parsed_url = urlparse(pai_server_url)
-                        host = parsed_url.netloc
-                        scheme = parsed_url.scheme or 'https'
-                        is_https = scheme == 'https'
-                        
-                        # Fetch status from PAI server
-                        if is_https:
-                            conn = http.client.HTTPSConnection(host)
-                        else:
-                            conn = http.client.HTTPConnection(host)
-                        
-                        headers = {}
-                        conn.request('GET', f'/pai/status/{pai_job_id}', headers=headers)
-                        resp = conn.getresponse()
-                        data = resp.read()
-                        conn.close()
-                        
-                        if resp.status == 200:
-                            pai_status = data.decode('utf-8').strip().strip('"')
-                            
-                            # Update job based on PAI status
-                            if pai_status == 'ACCEPTED':
-                                job.status = 'PROCESSING'
-                                job.current_step = 'Job accepted by worker'
-                                job.progress_percentage = 10
-                            elif pai_status == 'SENTENCE_GENERATED':
-                                job.status = 'SENTENCE_GENERATED'
-                                job.current_step = 'Sentences generated'
-                                job.progress_percentage = 25
-                            elif pai_status == 'AUDIO_GENERATED':
-                                job.status = 'AUDIO_GENERATED'
-                                job.current_step = 'Audio generated'
-                                job.progress_percentage = 50
-                            elif pai_status == 'AUDIO_VERIFIED':
-                                job.status = 'AUDIO_VERIFIED'
-                                job.current_step = 'Audio verified'
-                                job.progress_percentage = 75
-                            elif pai_status in ('DATASET_GENERATED', 'DATASET_UPLOADED'):
-                                job.status = 'COMPLETED'
-                                job.current_step = 'Dataset ready'
-                                job.progress_percentage = 100
-                                job.result = {'pai_job_id': pai_job_id, 'status': 'completed'}
-                            elif pai_status == 'FAILED':
-                                job.status = 'FAILED'
-                                job.error = {'message': 'PAI server reported failure'}
-                            
-                            job.save()
-                except Exception as e:
-                    print(f"Error fetching status from PAI server: {e}")
-                    # Continue with existing DB status if fetch fails
-        
+
+        # Fetch latest status from PAI server
+        job = _sync_job_status_from_pai(job)
+
         # Return detailed JSON with progress information
         response_data = {
             'job_id': job.job_id,
@@ -351,32 +578,35 @@ def list_jobs(request):
         page = int(request.GET.get('page', 1))
         limit = int(request.GET.get('limit', 10))
         offset = (page - 1) * limit
-        
+
         # Get filter params
         status_filter = request.GET.get('status', '')
         language_filter = request.GET.get('language', '')
-        
+
         # Build query
         # Only jobs created by current user
         query = Job.objects.filter(created_by=request.user)
-        
+
         # Apply status filter (accept lowercase aliases from UI)
         if status_filter and status_filter != 'all':
             sf = str(status_filter).strip().upper()
             if sf == 'PROCESSING':
-                query = query.filter(status__in=['SUBMITTED', 'PROCESSING', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED'])
+                query = query.filter(status__in=['SUBMITTED', 'PROCESSING', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED', 'DATASET_GENERATED'])
             else:
                 query = query.filter(status=sf)
-        
+
         # Get total count before pagination
         total_count = query.count()
-        
+
         # Apply pagination
         jobs = query.order_by('-created_at')[offset:offset + limit]
-        
+
         # Build response items
         items = []
         for job in jobs:
+            # First, if the job is processing, sync its status from the PAI server
+            if job.status in ['SUBMITTING', 'SUBMITTED', 'PROCESSING', 'SENTENCE_GENERATED', 'AUDIO_GENERATED', 'AUDIO_VERIFIED', 'DATASET_GENERATED']:
+                job = _sync_job_status_from_pai(job)
             # Extract language and size from payload
             payload = job.payload or {}
             # In create_dataset_job we store the config dict directly in payload.
@@ -405,7 +635,11 @@ def list_jobs(request):
             if language_filter and language_filter != 'all':
                 if item['language'] != language_filter:
                     continue
-            
+            # Include full payload for DRAFT jobs so frontend can pre-fill the edit form
+            if job.status == 'DRAFT':
+                item['payload'] = payload
+                item['wizardStage'] = (job.step_details or {}).get('wizard_stage', 1)
+
             items.append(item)
         
         # Recount after language filter
@@ -423,6 +657,39 @@ def list_jobs(request):
     
     except Exception as e:
         return _error(f'Failed to fetch jobs: {str(e)}', 400)
+
+
+@api_view(["DELETE"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def delete_draft_job(request, job_id: str):
+    """
+    Delete a job that is in DRAFT status.
+    Only the owner can delete their own drafts.
+    """
+    try:
+        if getattr(request.user, 'is_anonymous', False):
+            return _error('Sign in required.', 403)
+    except Exception:
+        pass
+
+    try:
+        job = Job.objects.get(job_id=job_id)
+    except Job.DoesNotExist:
+        return _error('Job not found.', 404)
+
+    # Only the owner can delete
+    try:
+        if job.created_by and getattr(request, 'user', None) and job.created_by != request.user:
+            return _error('Forbidden', 403)
+    except Exception:
+        pass
+
+    if job.status != 'DRAFT':
+        return _error('Only draft jobs can be deleted.', 409)
+
+    job.delete()
+    return JsonResponse({'status': 'deleted', 'jobId': job_id}, status=200)
 
 
 @api_view(["GET"])
@@ -629,3 +896,73 @@ def get_download_link(request, job_id: str):
     
     except Exception as e:
         return _error(f'Error fetching download link: {str(e)}', 500)
+
+
+@api_view(["POST"])
+@authentication_classes([FirebaseAuthentication, AnonymousTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def report_failed_job(request, job_id: str):
+    """Report a failed job — sends email notification to admins."""
+    try:
+        job = Job.objects.get(job_id=job_id)
+    except Job.DoesNotExist:
+        return _error('Job not found.', 404)
+
+    body = _json_body(request)
+    message = body.get('message', '')
+
+    _send_failure_email(job, message, getattr(request, 'user', None))
+
+    return JsonResponse({'message': 'Report submitted successfully'}, status=200)
+
+
+def _send_failure_email(job, message, user):
+    """Send failure report email notification to admins."""
+    
+    recipients = getattr(django_settings, 'FAILURE_REPORT_RECIPIENTS', [])
+    if not recipients:
+        return
+
+    subject = f'[Arena] Job {job.job_id} Failure Report'
+    body = (
+        f'Job ID: {job.job_id}\n'
+        f'Status: {job.status}\n'
+        f'Language: {job.payload.get("language", "N/A")}\n'
+        f'Reported by: {user}\n'
+        f'Message: {message or "No message provided"}\n'
+        f'Error: {job.error}\n'
+    )
+
+    try:
+        send_mail(subject, body, None, recipients, fail_silently=True)
+    except Exception as e:
+        print(f'Failed to send failure email: {e}')
+
+
+def _send_dataset_ready_email(job):
+    """Send email to the job creator when the dataset is ready."""
+    
+    if not job.created_by or not getattr(job.created_by, 'email', None):
+        return
+
+    subject = f'[Arena] Your dataset {job.job_id} is ready!'
+    body = (
+        f'Hi {job.created_by.username or job.created_by.email},\n\n'
+        f'Your synthetic ASR dataset is ready for download.\n\n'
+        f'Job ID: {job.job_id}\n'
+        f'Language: {job.payload.get("language", "N/A")}\n'
+        f'Status: {job.status}\n\n'
+        f'You can download it from the Arena dashboard.\n\n'
+        f'— Arena Team'
+    )
+
+    try:
+        send_mail(
+            subject, body,
+            getattr(django_settings, 'DEFAULT_FROM_EMAIL', None),
+            [job.created_by.email],
+            fail_silently=True,
+        )
+    except Exception as e:
+        print(f'Failed to send dataset ready email: {e}')
+
