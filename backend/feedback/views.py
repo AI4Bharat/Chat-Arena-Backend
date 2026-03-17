@@ -264,7 +264,7 @@ class FeedbackViewSet(viewsets.ModelViewSet):
             ).count() if voted_msg else None
 
             results.append({
-                'email': user.email,
+                'user_email': user.email,
                 'session_id': str(sid),
                 'session_type': fb.session.session_type,
                 'num_turns': num_turns,
