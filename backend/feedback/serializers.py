@@ -1,6 +1,7 @@
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 from django.db import transaction
-from feedback.models import Feedback
+from feedback.models import Feedback, CeilRestrictedUser
 from ai_model.models import AIModel
 from chat_session.models import ChatSession
 from message.models import Message
@@ -158,6 +159,22 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("User Message not found")
 
         is_detailed_feedback = bool(validated_data.get('additional_feedback_json'))
+
+        # --- Restriction check for random mode ---
+        if (
+            feedback_type == 'preference'
+            and session.mode == 'random'
+            and CeilRestrictedUser.objects.filter(user=user).exists()
+        ):
+            vote_count = Feedback.objects.filter(
+                user=user,
+                session__mode='random',
+                feedback_type='preference'
+            ).count()
+            if vote_count >= 100:
+                raise PermissionDenied(
+                    "You have reached the maximum limit of 100 votes in random mode."
+                )
 
         if feedback_type == 'preference' and not is_detailed_feedback:
             for modelMessage in userMessage.child_ids:
