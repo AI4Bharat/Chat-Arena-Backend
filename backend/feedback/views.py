@@ -3,8 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Avg, Q
-from datetime import timedelta, datetime
+from django.db.models import Count, Avg, Q, Prefetch
+from datetime import timedelta, datetime, timezone as dt_timezone
 from django.utils import timezone
 
 from feedback.models import Feedback
@@ -15,9 +15,11 @@ from feedback.serializers import (
 )
 from feedback.services import FeedbackService, FeedbackAnalyticsService
 from feedback.analytics import FeedbackAnalyzer
-from feedback.permissions import IsFeedbackOwner
+from feedback.permissions import IsFeedbackOwner, HasAdminApiKey
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
+from user.models import User
 from chat_session.models import ChatSession
+from message.models import Message
 from ai_model.models import AIModel
 
 
@@ -170,8 +172,105 @@ class FeedbackViewSet(viewsets.ModelViewSet):
         """Get trending feedback categories"""
         days = int(request.query_params.get('days', 7))
         trending = FeedbackAnalyticsService.get_trending_feedback_categories(days)
-        
+
         return Response(trending)
+
+    @action(detail=False, methods=['post'], permission_classes=[HasAdminApiKey])
+    def user_tracking_stats(self, request):
+        """
+        Admin endpoint: per-session random-mode tracking stats.
+
+        Body (JSON):
+          date    (required) – "YYYY-MM-DD"; window is day T00:00:00+05:30 → T23:59:59+05:30
+          emails  (required) – list of user email addresses
+
+        Returns one entry per random-mode session where a preference vote was cast
+        during the given day, for each of the requested users.
+        """
+        date_str = request.data.get('date')
+        emails = request.data.get('emails')
+
+        if not date_str:
+            return Response({'error': 'date is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not emails or not isinstance(emails, list):
+            return Response({'error': 'emails must be a non-empty list'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- parse date into IST window ---
+        IST = dt_timezone(timedelta(hours=5, minutes=30))
+        try:
+            d = datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            return Response(
+                {'error': 'Invalid date format. Use YYYY-MM-DD'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        window_start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=IST)
+        window_end   = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=IST)
+
+        # --- resolve users ---
+        users = User.objects.filter(email__in=emails)
+        found_emails = set(users.values_list('email', flat=True))
+        missing = [e for e in emails if e not in found_emails]
+        if missing:
+            return Response(
+                {'error': f'Users not found: {missing}'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        results = []
+        for user in users:
+            results.extend(self._random_session_stats(user, window_start, window_end))
+
+        return Response(results)
+
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+
+    def _random_session_stats(self, user, window_start, window_end):
+        """
+        For a single user, return one record per random-mode session where
+        the first preference vote was cast within [window_start, window_end].
+        """
+        # First preference feedback per session, cast within the day window
+        feedbacks = (
+            Feedback.objects
+            .filter(
+                user=user,
+                feedback_type='preference',
+                session__mode='random',
+                created_at__gte=window_start,
+                created_at__lte=window_end,
+            )
+            .select_related('session', 'message')
+            .order_by('session_id', 'created_at')
+        )
+
+        # Keep only the *first* feedback per session
+        seen_sessions = {}
+        for fb in feedbacks:
+            sid = fb.session_id
+            if sid not in seen_sessions:
+                seen_sessions[sid] = fb
+
+        results = []
+        for sid, fb in seen_sessions.items():
+            # num_turns = number of user messages in the session up to and including the voted turn
+            voted_msg = fb.message
+            num_turns = Message.objects.filter(
+                session_id=sid,
+                role='user',
+                created_at__lte=voted_msg.created_at,
+            ).count() if voted_msg else None
+
+            results.append({
+                'email': user.email,
+                'session_id': str(sid),
+                'session_type': fb.session.session_type,
+                'num_turns': num_turns,
+                'tracking_data': fb.tracking_data or {},
+            })
+        return results
 
 
 class ModelFeedbackView(views.APIView):
