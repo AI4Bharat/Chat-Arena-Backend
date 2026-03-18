@@ -1262,8 +1262,12 @@ class MessageViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_ocr_image(self, request):
-        """Upload an image or PDF for OCR processing to GCS and return its path, URL, and dimensions."""
-        from PIL import Image as PILImage
+        """Upload an image or PDF for OCR processing to GCS.
+
+        Returns { pages: [{path, url, width, height}] } — always an array so
+        the frontend can handle single images and multi-page PDFs uniformly.
+        """
+        from PIL import Image as PILImage, ImageOps
 
         if 'file' not in request.FILES:
             return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1283,36 +1287,50 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({'error': 'File size must be less than 20MB'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            ext = os.path.splitext(ocr_file.name)[1].lower() or '.jpg'
-            blob_name = f"ocr-inputs/{uuid.uuid4()}{ext}"
+            gcs_client = storage.Client()
+            bucket = gcs_client.bucket(settings.GS_BUCKET_NAME)
 
-            client = storage.Client()
-            bucket = client.bucket(settings.GS_BUCKET_NAME)
-            blob = bucket.blob(blob_name)
-            blob.upload_from_file(ocr_file, content_type=ocr_file.content_type)
+            def _upload_bytes(data, content_type, blob_name):
+                blob = bucket.blob(blob_name)
+                blob.upload_from_string(data, content_type=content_type)
+                return generate_signed_url(blob_name, expiration=900)
 
-            signed_url = generate_signed_url(blob_name, expiration=900)
+            pages = []
 
-            # Get image dimensions (for coordinate rendering on frontend).
-            # Apply EXIF transpose so dimensions match what browsers render.
-            width, height, page_count = None, None, 1
-            if ocr_file.content_type != 'application/pdf':
+            if ocr_file.content_type == 'application/pdf':
+                import fitz
+                pdf_data = ocr_file.read()
+                doc = fitz.open(stream=pdf_data, filetype='pdf')
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    mat = fitz.Matrix(2, 2)
+                    pix = page.get_pixmap(matrix=mat)
+                    img_bytes = pix.tobytes('png')
+                    blob_name = f"ocr-inputs/{uuid.uuid4()}_p{page_num + 1}.png"
+                    signed_url = _upload_bytes(img_bytes, 'image/png', blob_name)
+                    pages.append({
+                        'path': blob_name,
+                        'url': signed_url,
+                        'width': pix.width,
+                        'height': pix.height,
+                    })
+            else:
+                ext = os.path.splitext(ocr_file.name)[1].lower() or '.jpg'
+                file_data = ocr_file.read()
+                blob_name = f"ocr-inputs/{uuid.uuid4()}{ext}"
+                signed_url = _upload_bytes(file_data, ocr_file.content_type, blob_name)
+
+                width, height = None, None
                 try:
-                    from PIL import ImageOps
-                    ocr_file.seek(0)
-                    img = PILImage.open(ocr_file)
-                    img = ImageOps.exif_transpose(img)  # apply EXIF rotation
+                    img = PILImage.open(io.BytesIO(file_data))
+                    img = ImageOps.exif_transpose(img)
                     width, height = img.size
                 except Exception:
                     pass
 
-            return Response({
-                'path': blob_name,
-                'url': signed_url,
-                'width': width,
-                'height': height,
-                'page_count': page_count,
-            }, status=status.HTTP_200_OK)
+                pages.append({'path': blob_name, 'url': signed_url, 'width': width, 'height': height})
+
+            return Response({'pages': pages}, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -331,6 +331,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                         'language': msg.language,
                         'has_detailed_feedback': msg.has_detailed_feedback,
                         'image_path': msg.image_path,
+                        'parent_message_ids': [str(pid) for pid in (msg.parent_message_ids or [])],
                         **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {}),
                         **({'temp_image_url': generate_signed_url(msg.image_path, 900)} if msg.image_path else {}),
                     }
@@ -353,9 +354,16 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         """Generate AI-based title for the session"""
         session = self.get_object()
 
-        # OCR: derive title directly from annotations — no AI call needed
+        # OCR: derive title directly from page-0 annotations — no AI call needed
         if session.session_type == "OCR":
-            assistant_msg = session.messages.filter(role='assistant').order_by('created_at').first()
+            first_user_msg = session.messages.filter(role='user').order_by('created_at').first()
+            if first_user_msg:
+                assistant_msg = session.messages.filter(
+                    role='assistant',
+                    parent_message_ids__contains=[str(first_user_msg.id)],
+                ).first()
+            else:
+                assistant_msg = session.messages.filter(role='assistant').order_by('created_at').first()
             if not assistant_msg or not assistant_msg.content:
                 return Response({'error': 'No OCR result found'}, status=400)
             try:
