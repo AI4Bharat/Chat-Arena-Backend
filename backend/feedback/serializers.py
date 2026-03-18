@@ -13,6 +13,7 @@ from academic_prompts.models import AcademicPrompt
 
 logger = logging.getLogger(__name__)
 
+VOTE_LIMIT = int(os.getenv('RANDOM_MODE_VOTE_LIMIT', 100))
 
 class FeedbackSerializer(serializers.ModelSerializer):
     """Full feedback serializer"""
@@ -174,9 +175,9 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
                 session__mode='random',
                 feedback_type='preference'
             ).count()
-            if vote_count >= 100:
+            if vote_count >= VOTE_LIMIT:
                 raise PermissionDenied(
-                    "You have reached the maximum limit of 100 votes in random mode."
+                    f"You have reached the maximum limit of {VOTE_LIMIT} votes in random mode."
                 )
 
         if feedback_type == 'preference' and not is_detailed_feedback:
