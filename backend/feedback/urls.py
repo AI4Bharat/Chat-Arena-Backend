@@ -24,5 +24,6 @@ urlpatterns = [
 # GET /api/feedback/my_stats/ - Get user's feedback statistics
 # GET /api/feedback/model_comparison/ - Compare two models
 # GET /api/feedback/trending_categories/ - Get trending categories
+# GET /api/feedback/user_tracking_stats/ - Admin: per-turn tracking stats for a user
 # GET /api/models/{model_id}/feedback/ - Get model feedback stats
 # GET /api/reports/ - Generate feedback report

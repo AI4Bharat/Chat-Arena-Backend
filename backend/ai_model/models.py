@@ -11,6 +11,7 @@ class AIModel(models.Model):
         ('mistral', 'Mistral'),
         ('deepseek', 'DeepSeek'),
         ('qwen', 'Qwen'),
+        ('alibaba', 'Alibaba'),
         ('sarvam', 'Sarvam'),
         ('ibm', 'IBM'),
         ('ai4b', 'AI4Bharat'),
@@ -18,6 +19,11 @@ class AIModel(models.Model):
         ('minimax', 'MiniMax'),
         ('cartesia', 'Cartesia'),
         ('murf', 'MurfAI'),
+        ('microsoft', 'Microsoft'),
+        ('aws', 'AWS'),
+        ('deepgram', 'Deepgram'),
+        ('assemblyai', 'AssemblyAI'),
+        ('aquarium', 'Aquarium'),
     ]
 
     TYPE_CHOICES = [
@@ -41,11 +47,13 @@ class AIModel(models.Model):
     is_thinking_model = models.BooleanField(default=False)
     is_fresh_model = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    random_only = models.BooleanField(default=False)  # If True, model is only available in random mode
     release_date = models.DateField(default="2020-01-01")
     config = models.JSONField(default=dict, blank=True)  # API endpoints, model-specific settings
     created_at = models.DateTimeField(auto_now_add=True)
     meta_stats_json = models.JSONField(default=dict, blank=True)
     url = models.URLField(max_length=500, blank=True, null=True)
+    license = models.CharField(max_length=255, blank=True, null=True)
     
     class Meta:
         db_table = 'ai_models'

@@ -13,7 +13,6 @@ class Leaderboard(models.Model):
     ORGANIZATION_CHOICES = [
         ('ai4b', 'AI4B'),
         ('aquarium', 'Aquarium'),
-        ('ai4x', 'AI4X'),
     ]
 
     LANGUAGE_CHOICES = [

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import F
 import uuid
 from ai_model.models import AIModel
 
@@ -15,7 +16,9 @@ class AcademicPrompt(models.Model):
         help_text="Language code (e.g., 'en', 'hi', 'mr')"
     )
     model_a = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='academic_prompts_model_a', null=True, blank=True)
+    model_a_name = models.CharField(max_length=255, null=True, blank=True, help_text="Display name of model_a for quick reference")
     model_b = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='academic_prompts_model_b', null=True, blank=True)
+    model_b_name = models.CharField(max_length=255, null=True, blank=True, help_text="Display name of model_b for quick reference")
     gender = models.CharField(max_length=10, null=True, blank=True, help_text="Gender for voice selection")
     voice_a = models.CharField(max_length=100, null=True, blank=True, help_text="Specific voice/speaker for model_a. If null, randomly selected based on gender.")
     voice_b = models.CharField(max_length=100, null=True, blank=True, help_text="Specific voice/speaker for model_b. If null, randomly selected based on gender.")
@@ -44,6 +47,6 @@ class AcademicPrompt(models.Model):
         return f"{self.language}: {self.text[:50]}..."
 
     def increment_usage(self):
-        """Increment the usage count for this prompt."""
-        self.usage_count += 1
-        self.save(update_fields=['usage_count', 'updated_at'])
+        """Increment the usage count for this prompt atomically."""
+        AcademicPrompt.objects.filter(pk=self.pk).update(usage_count=F('usage_count') + 1)
+        self.refresh_from_db(fields=['usage_count'])
