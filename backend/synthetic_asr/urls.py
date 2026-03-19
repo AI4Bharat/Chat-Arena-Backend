@@ -14,4 +14,6 @@ urlpatterns = [
     path('pai/audio/<str:audio_id>', views.get_audio_file, name='pai-audio-file'),
     path('pai/metrics/<str:job_id>', views.get_job_metrics, name='pai-metrics'),
     path('pai/download/<str:job_id>', views.get_download_link, name='pai-download'),
+    path('pai/draft/<str:job_id>', views.delete_draft_job, name='pai-delete-draft'),
+    path('pai/job-status-stream/', views.job_status_stream, name='pai-job-status-stream'),
 ]
