@@ -5,12 +5,14 @@ from django.conf import settings
 class Job(models.Model):
     # Status choices for pipeline tracking
     STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
         ('SUBMITTED', 'Submitted'),
         ('SUBMITTING', 'Submitting'),
         ('PROCESSING', 'Processing'),
         ('SENTENCE_GENERATED', 'Sentences Generated'),
         ('AUDIO_GENERATED', 'Audio Generated'),
         ('AUDIO_VERIFIED', 'Audio Verified'),
+        ('DATASET_GENERATED', 'Dataset Generated'),
         ('COMPLETED', 'Completed'),
         ('FAILED', 'Failed'),
     ]

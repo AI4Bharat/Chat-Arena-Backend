@@ -17,6 +17,7 @@ class ChatSession(models.Model):
         ('LLM', 'Large Language Model'),
         ('ASR', 'Automatic Speech Recognition'),
         ('TTS', 'Text to Speech'),
+        ('OCR', 'Optical Character Recognition'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -46,6 +47,7 @@ class ChatSession(models.Model):
     meta_stats_json = models.JSONField(default=dict, blank=True)
     session_type = models.CharField(max_length=100, default='LLM', choices=TYPE_CHOICES)  # e.g., 'llm', 'asr', 'tts
     is_pinned = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True, default=None)
     
     class Meta:
         db_table = 'chat_sessions'
