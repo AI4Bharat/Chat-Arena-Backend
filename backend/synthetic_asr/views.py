@@ -100,9 +100,10 @@ def _ensure_numeric_job_id(config_dict: dict) -> str:
     """
     job_id = str(config_dict.get('job_id') or '').strip()
     if job_id.isdigit():
+        config_dict['job_id'] = int(job_id)
         return job_id
     numeric_job_id = str(int(time.time() * 1000) + random.randint(0, 999))
-    config_dict['job_id'] = numeric_job_id
+    config_dict['job_id'] = int(numeric_job_id)
     return numeric_job_id
 
 
@@ -205,10 +206,17 @@ def _submit_to_pai(job):
     headers = {'Content-Type': 'application/json'}
     payload = {'config': job.payload}
 
+    # Robust path construction
+    base_path = parsed_url.path.rstrip('/')
+    create_path = f"{base_path}/create" if base_path else "/pai/create"
+
+    timeout = 120
     if is_https:
-        result, err = http_utils.make_post_request(host, '/pai/create', headers, payload)
+        result, err = http_utils.make_post_request(host, create_path, headers, payload, timeout=timeout)
     else:
-        result, err = http_utils.make_local_post_request(host, '/pai/create', headers, payload, port=80)
+        # Default to port 80 if not specified
+        port = parsed_url.port or 80
+        result, err = http_utils.make_local_post_request(host, create_path, headers, payload, port=port, timeout=timeout)
 
     if err:
         return None, f'Failed to submit to PAI server: {err}'
@@ -324,9 +332,9 @@ def resubmit_job(request, job_id: str):
     from time import time
     new_pai_job_id = str(int(time() * 1000))
     
-    # Update the payload with the new ID for the PAI server
+    # Update the payload with the new ID for the PAI server (as integer)
     new_payload = dict(job.payload) if job.payload else {}
-    new_payload['job_id'] = new_pai_job_id
+    new_payload['job_id'] = int(new_pai_job_id)
     job.payload = new_payload
 
     # Reset job state
@@ -376,13 +384,19 @@ def _sync_job_status_from_pai(job):
         scheme = parsed_url.scheme or 'https'
         is_https = scheme == 'https'
 
+        # Robust path construction
+        base_path = parsed_url.path.rstrip('/')
+        status_path = f"{base_path}/status/{pai_job_id}" if base_path else f"/pai/status/{pai_job_id}"
+
         # Fetch status from PAI server
+        port = parsed_url.port or (443 if is_https else 80)
+        timeout = 120
         if is_https:
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
             
-        conn.request('GET', f'/pai/status/{pai_job_id}', headers={})
+        conn.request('GET', status_path, headers={})
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -638,19 +652,23 @@ def get_job_dataset(request, job_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
+        base_path = parsed_url.path.rstrip('/')
         
         # Make request to PAI server
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
         
         headers = {}
         
         # Get limit from query params, default to 50
         limit = request.GET.get('limit', '50')
-        path = f'/pai/job/{job_id}?limit={limit}'
-        conn.request('GET', path, headers=headers)
+        # Robust path construction
+        full_path = f"{base_path}/job/{job_id}?limit={limit}" if base_path else f"/pai/job/{job_id}?limit={limit}"
+        conn.request('GET', full_path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -683,17 +701,21 @@ def get_audio_file(request, audio_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
+        base_path = parsed_url.path.rstrip('/')
         
         # Make request to PAI server
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
         
         headers = {}
         
-        path = f'/pai/audio/{audio_id}'
-        conn.request('GET', path, headers=headers)
+        # Robust path construction
+        full_path = f"{base_path}/audio/{audio_id}" if base_path else f"/pai/audio/{audio_id}"
+        conn.request('GET', full_path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -726,15 +748,19 @@ def get_job_metrics(request, job_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
-
+        base_path = parsed_url.path.rstrip('/')
+        
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
-
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
+            
         # Fetch all audio items (PAI requires a limit param)
-        path = f'/pai/job/{job_id}?limit=100000'
-        conn.request('GET', path, headers={})
+        # Robust path construction
+        full_path = f"{base_path}/job/{job_id}?limit=100000" if base_path else f"/pai/job/{job_id}?limit=100000"
+        conn.request('GET', full_path, headers={})
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -791,17 +817,21 @@ def get_download_link(request, job_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
+        base_path = parsed_url.path.rstrip('/')
         
         # Make request to PAI server
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
         
         headers = {}
         
-        path = f'/pai/download/{job_id}'
-        conn.request('GET', path, headers=headers)
+        # Robust path construction
+        full_path = f"{base_path}/download/{job_id}" if base_path else f"/pai/download/{job_id}"
+        conn.request('GET', full_path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
