@@ -90,3 +90,13 @@ class Feedback(models.Model):
     
     def __str__(self):
         return f"{self.feedback_type} by {self.user.display_name}"
+
+class CeilRestrictedUser(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='ceil_restriction')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ceil_restricted_users'
+
+    def __str__(self):
+        return f"Restricted: {self.user.display_name}"
