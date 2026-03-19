@@ -13,7 +13,7 @@ class AIModelSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'provider', 'model_name', 'model_code', 
             'display_name', 'description', 'capabilities',
-            'max_tokens', 'supports_streaming', 'is_active', 'is_thinking_model',
+            'max_tokens', 'supports_streaming', 'is_active', 'is_thinking_model', 'is_fresh_model',
             'release_date', 'created_at', 'win_rate', 'total_usage', 'url'
         ]
         read_only_fields = ['id', 'created_at']
