@@ -116,6 +116,9 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+        
+        # Get web search setting from request
+        search_enabled = request.data.get('search_enabled', False)
 
         model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.random_only
         model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.random_only
@@ -256,6 +259,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         history=history,
                         model=session.model_a.model_code,
                         image_url=image_url,
+                        web_search_enabled=search_enabled,
                         context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
                     ):
                         if chunk:
@@ -358,6 +362,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             history=history,
                             model=session.model_a.model_code,
                             image_url=image_url,
+                            web_search_enabled=search_enabled,
                             context={'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
@@ -464,6 +469,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                             history=history,
                             model=session.model_b.model_code,
                             image_url=image_url,
+                            web_search_enabled=search_enabled,
                             context={'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
                         ):
                             if chunk:
@@ -929,6 +935,9 @@ class MessageViewSet(viewsets.ModelViewSet):
             
             session = assistant_message.session
             
+            # Get web search setting from request
+            search_enabled = request.data.get('search_enabled', False)
+            
             def generate():
                 # Capture database alias from session for explicit routing
                 db_alias = session._state.db
@@ -1004,6 +1013,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         history=history,
                         model=model.model_code,
                         image_url=image_url,
+                        web_search_enabled=search_enabled,
                         context={'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
                     ):
                         if chunk:
