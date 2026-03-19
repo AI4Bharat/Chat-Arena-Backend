@@ -10,6 +10,7 @@ from ai_model.serializers import AIModelListSerializer
 from feedback.services import FeedbackAnalyticsService
 from chat_session.serializers import ChatSessionSerializer
 from academic_prompts.models import AcademicPrompt
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -165,20 +166,20 @@ class FeedbackCreateSerializer(serializers.ModelSerializer):
         is_detailed_feedback = bool(validated_data.get('additional_feedback_json'))
 
         # --- Restriction check for random mode ---
-        if (
-            feedback_type == 'preference'
-            and session.mode == 'random'
-            and CeilRestrictedUser.objects.filter(user=user).exists()
-        ):
-            vote_count = Feedback.objects.filter(
-                user=user,
-                session__mode='random',
-                feedback_type='preference'
-            ).count()
-            if vote_count >= VOTE_LIMIT:
-                raise PermissionDenied(
-                    f"You have reached the maximum limit of {VOTE_LIMIT} votes in random mode."
-                )
+        # if (
+        #     feedback_type == 'preference'
+        #     and session.mode == 'random'
+        #     and CeilRestrictedUser.objects.filter(user=user).exists()
+        # ):
+        #     vote_count = Feedback.objects.filter(
+        #         user=user,
+        #         session__mode='random',
+        #         feedback_type='preference'
+        #     ).count()
+        #     if vote_count >= VOTE_LIMIT:
+        #         raise PermissionDenied(
+        #             f"You have reached the maximum limit of {VOTE_LIMIT} votes in random mode."
+        #         )
 
         if feedback_type == 'preference' and not is_detailed_feedback:
             for modelMessage in userMessage.child_ids:
