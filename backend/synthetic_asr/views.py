@@ -33,7 +33,19 @@ def pai_callback(request):
     """
     Webhook endpoint for PAI server to report job completion or failure.
     Payload: {"pai_job_id": "...", "status": "COMPLETED/FAILED", "message": "..."}
+    Restricted to PAI server IP only.
     """
+    # --- IP Restriction ---
+    pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+    allowed_ip = urlparse(pai_server_url).hostname if pai_server_url else None
+
+    # Get the real client IP (handles reverse proxies)
+    forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    client_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.META.get('REMOTE_ADDR')
+
+    if allowed_ip and client_ip != allowed_ip:
+        return _error(f'Forbidden: access restricted to PAI server only.', 403)
+
     data = _json_body(request)
     pai_job_id = data.get('pai_job_id')
     status = data.get('status', '').upper()
