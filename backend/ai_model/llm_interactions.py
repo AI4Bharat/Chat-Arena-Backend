@@ -137,7 +137,7 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, 
     }
 
     if model.startswith("gpt-5"):
-        if model == "gpt-5-pro":
+        if "pro" in model:
             request_args["reasoning"] = {"effort": "high"}
         else:
             request_args["reasoning"] = {"effort": "medium"}

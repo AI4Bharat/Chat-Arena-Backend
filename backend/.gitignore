@@ -60,3 +60,4 @@ $RECYCLE.BIN/
 # Logs
 **/logs/*
 
+management/

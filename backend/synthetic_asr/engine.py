@@ -20,18 +20,29 @@ def _call_pai_server(endpoint: str, payload: Dict) -> Tuple[Dict, str]:
     Call PAI server (synthetic-benchmarks).
     """
     try:
+        pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+        if not pai_server_url:
+            return {}, "SYNTHETIC_ASR_PAI_SERVER_URL not set"
+            
+        parsed_url = urlparse(pai_server_url)
+        host = parsed_url.netloc
+        scheme = parsed_url.scheme
+        base_path = parsed_url.path.rstrip('/')
+        
         # Use HTTP or HTTPS based on URL scheme
-        if PAI_SCHEME == 'https':
-            conn = http.client.HTTPSConnection(PAI_HOST)
+        timeout = 120 # Increased timeout for slow LLM generation
+        if scheme == 'https':
+            conn = http.client.HTTPSConnection(host, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(PAI_HOST)
+            conn = http.client.HTTPConnection(host, timeout=timeout)
         
         headers = {
             'Content-Type': 'application/json',
         }
         
         body = json.dumps(payload)
-        path = f'{PAI_BASE_PATH}{endpoint}'
+        # Robust path construction
+        path = f'{base_path}{endpoint}' if base_path else f'/pai{endpoint}'
         
         conn.request('POST', path, body=body, headers=headers)
         resp = conn.getresponse()
