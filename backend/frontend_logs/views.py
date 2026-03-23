@@ -1,4 +1,7 @@
+import logging
 from rest_framework import status, permissions, views
+
+logger = logging.getLogger(__name__)
 from rest_framework.response import Response
 from google.cloud import storage
 from django.conf import settings
@@ -50,7 +53,8 @@ class FrontendErrorLogView(views.APIView):
             write_log_to_gcs(entry)
         except Exception as e:
             # Return 503 to indicate the logging service failed
-            return Response({'detail': 'failed to persist log', 'error': str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            logger.error(f"Failed to persist frontend log to GCS: {str(e)}")
+            return Response({'detail': 'failed to persist log'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         return Response({'detail': 'ok'}, status=status.HTTP_201_CREATED)
 

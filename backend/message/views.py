@@ -274,7 +274,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"ad:{json.dumps(error_payload)}\n"
             else:
@@ -377,7 +377,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
                     finally:
@@ -483,7 +483,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
                     finally:
@@ -537,7 +537,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"ad:{json.dumps(error_payload)}\n"
             else:
@@ -565,7 +565,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
                     finally:
@@ -593,7 +593,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
                     finally:
@@ -687,7 +687,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"ad:{json.dumps(error_payload)}\n"
             else:
@@ -715,7 +715,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.save()
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
                     finally:
@@ -743,7 +743,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.save()
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
                     finally:
@@ -897,7 +897,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
@@ -926,7 +926,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
@@ -962,7 +962,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
@@ -1106,7 +1106,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_audio(self, request):
@@ -1233,7 +1233,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 if 'temp_output_path' in locals(): os.remove(temp_output_path)
             except:
                 pass
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_document(self, request):
@@ -1282,7 +1282,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]

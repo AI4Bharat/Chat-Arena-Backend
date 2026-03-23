@@ -1,4 +1,7 @@
+import logging
 from django.shortcuts import render
+
+logger = logging.getLogger(__name__)
 from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -90,13 +93,14 @@ class TopContributorsView(APIView):
             return Response(serializer.data)
         except ValueError as e:
             if str(e) == "Tenant parameter is required":
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Tenant parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
             elif str(e) == "Invalid tenant":
-                 return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"error": "Invalid tenant"}, status=status.HTTP_404_NOT_FOUND)
             else:
-                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid request."}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-             return Response({"error": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Unexpected error in TopContributorsView: {str(e)}")
+            return Response({"error": "An unexpected error occurred."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def get_leaderboard_languages(request, arena_type, sub_arena=None):
