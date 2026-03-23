@@ -243,7 +243,7 @@ class ModelLeaderboardView(views.APIView):
     """Model leaderboard view"""
     permission_classes = [AllowAny]
     
-    @method_decorator(cache_page(60 * 15))
+    @method_decorator(cache_page(60 * 60))
     def get(self, request):
         category = request.query_params.get('category', 'overall')
         period = request.query_params.get('period', 'all_time')

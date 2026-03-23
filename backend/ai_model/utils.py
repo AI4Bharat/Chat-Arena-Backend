@@ -348,7 +348,7 @@ class ModelSelector:
                     leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
                 else:
                     leaderboard_stats = {}
-                cache.set("llm_leaderboard_stats_overall_ai4b", leaderboard_stats, 60 * 15)
+                cache.set("llm_leaderboard_stats_overall_ai4b", leaderboard_stats, 60 * 60)
                 
             return ModelSelector.active_sampling(models, leaderboard_stats)
         
