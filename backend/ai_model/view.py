@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from django.http import StreamingHttpResponse
 from django.db.models import Q, Count, Avg
+from django.views.decorators.cache import cache_page
+from django.utils.decorators import method_decorator
 import json
 import asyncio
 from model_metrics.models import AIModel, ModelMetric
@@ -16,6 +18,8 @@ from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentica
 from message.models import Message
 from feedback.models import Feedback
 
+@method_decorator(cache_page(60 * 15), name='list')
+@method_decorator(cache_page(60 * 15), name='retrieve')
 class AIModelViewSet(viewsets.ModelViewSet):
     """ViewSet for AI Model management"""
     queryset = AIModel.objects.all()
@@ -76,6 +80,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
         
         return queryset.order_by('random_only', '-release_date', 'provider', 'display_name')
     
+    @method_decorator(cache_page(60 * 15))
     @action(detail=False, methods=['get'], url_path='type')
     def filtered_by_type(self, request):
         """
@@ -105,6 +110,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
                 log_context=log_context
             )
 
+    @method_decorator(cache_page(60 * 15))
     @action(detail=False, methods=['get'])
     def providers(self, request):
         """Get list of available providers"""
@@ -124,6 +130,7 @@ class AIModelViewSet(viewsets.ModelViewSet):
         
         return Response(provider_info)
     
+    @method_decorator(cache_page(60 * 15))
     @action(detail=False, methods=['get'])
     def capabilities(self, request):
         """Get all available capabilities"""
@@ -236,6 +243,7 @@ class ModelLeaderboardView(views.APIView):
     """Model leaderboard view"""
     permission_classes = [AllowAny]
     
+    @method_decorator(cache_page(60 * 15))
     def get(self, request):
         category = request.query_params.get('category', 'overall')
         period = request.query_params.get('period', 'all_time')
@@ -302,6 +310,7 @@ class ModelStatsView(views.APIView):
     """Get model statistics"""
     permission_classes = [AllowAny]
     
+    @method_decorator(cache_page(60 * 15))
     def get(self, request, model_id):
         try:
             model = AIModel.objects.get(id=model_id)

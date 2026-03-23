@@ -305,26 +305,33 @@ class ModelSelector:
         mode: Optional[str] = None,
     ) -> tuple:
         """Get two random models for comparison"""
-        queryset = AIModel.objects.filter(is_active=True)
+        exclude_str = '_'.join(str(e) for e in sorted(exclude_ids)) if exclude_ids else 'none'
+        cache_key = f"active_models_{mode}_{category}_{model_type}_{requires_multimodal}_{exclude_str}"
         
-        # Exclude academic-only models unless:
-        # 1. Mode is academic AND
-        if mode != 'academic':
-            queryset = queryset.exclude(model_code__in=ModelSelector.ACADEMIC_ONLY_MODELS)
+        models = cache.get(cache_key)
         
-        if category:
-            queryset = queryset.filter(capabilities__contains=[category])
-        
-        if exclude_ids:
-            queryset = queryset.exclude(id__in=exclude_ids)
+        if models is None:
+            queryset = AIModel.objects.filter(is_active=True)
+            
+            # Exclude academic-only models unless:
+            # 1. Mode is academic AND
+            if mode != 'academic':
+                queryset = queryset.exclude(model_code__in=ModelSelector.ACADEMIC_ONLY_MODELS)
+            
+            if category:
+                queryset = queryset.filter(capabilities__contains=[category])
+            
+            if exclude_ids:
+                queryset = queryset.exclude(id__in=exclude_ids)
 
-        if model_type:
-            queryset = queryset.filter(model_type=model_type)
+            if model_type:
+                queryset = queryset.filter(model_type=model_type)
 
-        if requires_multimodal:
-            queryset = queryset.filter(display_name__in=MULTIMODAL_MODELS_NAMES)
-        
-        models = list(queryset)
+            if requires_multimodal:
+                queryset = queryset.filter(display_name__in=MULTIMODAL_MODELS_NAMES)
+            
+            models = list(queryset)
+            cache.set(cache_key, models, 60 * 15)  # Cache for 15 minutes
         
         if len(models) < 2:
             if requires_multimodal:
@@ -334,9 +341,16 @@ class ModelSelector:
             raise ValueError("Not enough models available for comparison")
         
         if model_type == "LLM":
-            leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall").first()
-            leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
-            return ModelSelector.active_sampling(queryset, leaderboard_stats)
+            leaderboard_stats = cache.get("llm_leaderboard_stats_overall_ai4b")
+            if leaderboard_stats is None:
+                leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall").first()
+                if leaderboard_entry:
+                    leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
+                else:
+                    leaderboard_stats = {}
+                cache.set("llm_leaderboard_stats_overall_ai4b", leaderboard_stats, 60 * 15)
+                
+            return ModelSelector.active_sampling(models, leaderboard_stats)
         
         return random.sample(models, 2)
     
