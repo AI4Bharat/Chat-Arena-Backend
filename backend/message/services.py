@@ -172,11 +172,11 @@ class MessageService:
             assistant_message.status = 'failed'
             assistant_message.failure_reason = str(e)
             assistant_message.save()
-            
+
             yield {
                 'type': 'error',
                 'message_id': str(assistant_message.id),
-                'error': str(e)
+                'error': 'An error occurred while generating the response.'
             }
     
     @staticmethod
