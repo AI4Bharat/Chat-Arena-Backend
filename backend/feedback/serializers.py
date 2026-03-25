@@ -10,6 +10,7 @@ from ai_model.serializers import AIModelListSerializer
 from feedback.services import FeedbackAnalyticsService
 from chat_session.serializers import ChatSessionSerializer
 from academic_prompts.models import AcademicPrompt
+import os
 
 logger = logging.getLogger(__name__)
 
