@@ -51,9 +51,17 @@ def extract_error_details(exception, model_code, provider, log_context=None):
     # Extract request details if available
     if hasattr(exception, 'request'):
         request = exception.request
-        # Convert URL object to string for JSON serialization
         url = getattr(request, 'url', None)
-        error_entry['request_url'] = str(url) if url is not None else None
+        if url is not None:
+            from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+            parsed = urlparse(str(url))
+            clean_params = {k: v for k, v in parse_qs(parsed.query).items()
+                            if k.lower() not in ('key', 'token', 'api_key', 'secret')}
+            error_entry['request_url'] = urlunparse(
+                parsed._replace(query=urlencode(clean_params, doseq=True))
+            )
+        else:
+            error_entry['request_url'] = None
         error_entry['request_method'] = getattr(request, 'method', None)
     
     return error_entry

@@ -51,7 +51,6 @@ def liveness(request):
         logger.error(f"Liveness check failed: {str(e)}")
         return JsonResponse({
             'status': 'dead',
-            'error': str(e),
             'timestamp': time.time()
         }, status=500)
 
@@ -79,7 +78,7 @@ def readiness(request):
             cursor.fetchone()
         checks['database'] = 'ok'
     except Exception as e:
-        checks['database'] = f'failed: {str(e)}'
+        checks['database'] = 'failed'
         all_ready = False
         logger.error(f"Database readiness check failed: {str(e)}")
 
@@ -93,7 +92,7 @@ def readiness(request):
             checks['cache'] = 'failed: cache read/write mismatch'
             all_ready = False
     except Exception as e:
-        checks['cache'] = f'failed: {str(e)}'
+        checks['cache'] = 'failed'
         all_ready = False
         logger.error(f"Cache readiness check failed: {str(e)}")
 
@@ -138,9 +137,9 @@ def detailed_status(request):
             'version': db_version
         }
     except Exception as e:
+        logger.error(f"Detailed status database check failed: {str(e)}")
         checks['database'] = {
-            'status': 'error',
-            'error': str(e)
+            'status': 'error'
         }
 
     # Cache check
@@ -153,9 +152,9 @@ def detailed_status(request):
             'location': settings.CACHES['default']['LOCATION']
         }
     except Exception as e:
+        logger.error(f"Detailed status cache check failed: {str(e)}")
         checks['cache'] = {
-            'status': 'error',
-            'error': str(e)
+            'status': 'error'
         }
 
     return JsonResponse({
