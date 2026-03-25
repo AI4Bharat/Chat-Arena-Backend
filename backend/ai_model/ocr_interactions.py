@@ -24,7 +24,10 @@ Return ONLY a valid JSON array (no markdown, no explanation) where each element 
 Rules:
 - box_2d values must be integers in [0, 1000]; ymin < ymax, xmin < xmax
 - Each box must FULLY encompass all content belonging to that region — do not clip rows or columns of a table, do not split a paragraph mid-sentence
-- A table is any grid of data with rows and columns, even if borders are faint, partial, or absent (whitespace-aligned columns still count)
+- COMPLETENESS IS MANDATORY: every visible piece of content on the page must be covered by exactly one region — nothing may be skipped, even on dense or multi-table pages
+- A table is any grid of data with rows and columns, even if borders are faint, partial, or absent (whitespace-aligned columns still count); even a simple 2-column key/value grid is a table
+- EACH table on the page gets its own separate region — never group multiple tables into one
+- A table caption or label (e.g. "Table 1", "Table 2: ...") is a SEPARATE region from its table — never merge them
 - Detect every distinct content block in natural reading order (top-to-bottom, left-to-right; for multi-column layouts follow column order)
 - Do NOT extract or return any text content"""
 
@@ -42,14 +45,17 @@ Return ONLY a valid JSON array (no markdown, no explanation) where each element 
 General rules:
 - box_2d values must be integers in [0, 1000]; ymin < ymax, xmin < xmax
 - Each box must FULLY encompass all content belonging to that region
+- COMPLETENESS IS MANDATORY: every visible piece of content on the page must be covered by exactly one region — nothing may be skipped, even if the page is dense or has many tables
 - Detect every distinct content block in natural reading order (top-to-bottom, left-to-right; for multi-column layouts follow column order)
 - Transcribe text exactly as it appears — preserve original spelling, punctuation, capitalisation, and abbreviations
 - For unclear or degraded text, transcribe your best reading; never skip a region because it is difficult
 - For figure/image-only regions with no readable text, set "text" to ""
 
 Table rules (type = "table"):
-- Classify any grid of data as a table — borders may be ruled lines, dotted lines, whitespace alignment, or absent entirely
-- The bounding box must cover the ENTIRE table including all header rows and footer rows
+- Classify any grid of data as a table — borders may be ruled lines, dotted lines, whitespace alignment, or absent entirely; even a simple 2-column key/value grid is a table
+- EACH table on the page gets its own separate region — never group multiple tables into a single region
+- A table caption or label (e.g. "Table 1", "Table 2: example of footnotes") is a SEPARATE region of type "caption" or "heading" — never merge a caption into its table's bounding box
+- The bounding box must cover the ENTIRE table grid including all header rows, data rows, and footer rows, but must NOT include the caption/label above or footnotes below (those are separate regions)
 - Represent content as TSV (tab-separated values): columns separated by \t, rows separated by \n
 - Multi-level / stacked headers: flatten into a single header row by combining parent and child labels with a space (e.g. a "Results" group spanning "Accuracy" and "Time to complete" → header cells become "Results Accuracy" and "Results Time to complete")
 - Merged / spanned cells: repeat the cell value in each logical column it spans
