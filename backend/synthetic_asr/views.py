@@ -277,15 +277,17 @@ def create_dataset_job(request):
     except Exception as e:
         return _error(f'Server error occured, {e}', 405)
 
+    wizard_form_data = body.get('wizard_form_data', None)
+    if wizard_form_data:
+        config_dict['_wizard_form_data'] = wizard_form_data
+        job.payload = config_dict
+        job.save(update_fields=['payload', 'updated_at'])
+
     if is_draft:
         wizard_stage = body.get('wizard_stage', 1)
-        wizard_form_data = body.get('wizard_form_data', None)
-        if wizard_form_data:
-            config_dict['_wizard_form_data'] = wizard_form_data
-            job.payload = config_dict
         job.current_step = 'Saved as Draft'
         job.step_details = {**(job.step_details or {}), 'wizard_stage': wizard_stage}
-        job.save(update_fields=['payload', 'current_step', 'step_details', 'updated_at'])
+        job.save(update_fields=['current_step', 'step_details', 'updated_at'])
         return HttpResponse(job_id, status=200, content_type='text/plain')
 
     # Submit to PAI server synchronously
@@ -590,9 +592,9 @@ def list_jobs(request):
             if language_filter and language_filter != 'all':
                 if item['language'] != language_filter:
                     continue
-            # Include full payload for DRAFT jobs so frontend can pre-fill the edit form
+            # Always include payload so frontend can "Review Settings" for any job
+            item['payload'] = payload
             if job.status == 'DRAFT':
-                item['payload'] = payload
                 item['wizardStage'] = (job.step_details or {}).get('wizard_stage', 1)
 
             items.append(item)
