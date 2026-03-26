@@ -892,7 +892,18 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({'error': 'box [x1, y1, x2, y2] is required'}, status=status.HTTP_400_BAD_REQUEST)
 
         session = message.session
-        user_message = session.messages.filter(role='user').order_by('created_at').first()
+
+        # Use the parent user message of this specific assistant message so that
+        # multi-page documents crop from the correct page image, not always page 1.
+        user_message = None
+        if message.parent_message_ids:
+            user_message = Message.objects.filter(
+                id__in=message.parent_message_ids, role='user'
+            ).first()
+        if not user_message:
+            # Fallback for single-page sessions where parent_message_ids may be unset
+            user_message = session.messages.filter(role='user').order_by('created_at').first()
+
         if not user_message or not getattr(user_message, 'image_path', None):
             return Response({'error': 'No image found for this session'}, status=status.HTTP_400_BAD_REQUEST)
 
