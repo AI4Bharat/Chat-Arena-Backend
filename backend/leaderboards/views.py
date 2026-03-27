@@ -5,11 +5,14 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.db.models import Q
+from django.views.decorators.cache import cache_page
+from django.utils.decorators import method_decorator
 from .models import Leaderboard
 from .serializers import UserContributorSerializer
 from ai_model.models import AIModel
 
 # Create your views here.
+@cache_page(60 * 60)
 def get_leaderboard_api(request, arena_type, sub_arena=None):
     org_param = request.GET.get('org', 'ai4b')
     language_param = request.GET.get('language', 'Overall')
@@ -75,6 +78,8 @@ from .services import calculate_top_contributors
 
 class TopContributorsView(APIView):
     permission_classes = [AllowAny]
+    
+    @method_decorator(cache_page(60 * 60))
     def get(self, request):
         tenant_slug = request.query_params.get('tenant')
         language = request.query_params.get('language')
@@ -99,6 +104,7 @@ class TopContributorsView(APIView):
              return Response({"error": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@cache_page(60 * 60)
 def get_leaderboard_languages(request, arena_type, sub_arena=None):
     org_param = request.GET.get('org', 'ai4b')
     filters = {
