@@ -117,9 +117,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
 
-        RESTRICTED_MODELS = os.environ.get('RESTRICTED_MODELS', '').split(',')
-        model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.model_code in RESTRICTED_MODELS
-        model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.model_code in RESTRICTED_MODELS
+        model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.random_only
+        model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.random_only
 
         for message in serializer.validated_data:
             if message['role'] == 'user':
@@ -276,7 +275,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"ad:{json.dumps(error_payload)}\n"
             else:
@@ -379,7 +378,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
                     finally:
@@ -485,7 +484,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
                     finally:
@@ -539,7 +538,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"ad:{json.dumps(error_payload)}\n"
             else:
@@ -567,7 +566,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
                     finally:
@@ -595,7 +594,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.save(using=db_alias)
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
                     finally:
@@ -637,35 +636,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                     model_b__is_active=True
                 )
                 if prompts.exists():
-                    SPECIFIC_MODEL_ID = os.getenv("SPECIFIC_MODEL_ID")
-                    RECENT_DATE_THRESHOLD = datetime.datetime(2026, 2, 8, tzinfo=datetime.timezone.utc)
-
-                    # recent_prompts = prompts.filter(created_at__gt=RECENT_DATE_THRESHOLD)
-                    # recent_specific_model_prompts = recent_prompts.filter(
-                    #     Q(model_a_id=SPECIFIC_MODEL_ID) | Q(model_b_id=SPECIFIC_MODEL_ID)
-                    # )
-                    recent_specific_model_prompts = prompts.filter(
-                        Q(model_a_id=SPECIFIC_MODEL_ID) | Q(model_b_id=SPECIFIC_MODEL_ID)
-                    )
-
-                    rand = random.random()
-                    selected_prompt = None
-
-                    if rand < 0.70:
-                        if recent_specific_model_prompts.exists():
-                            selected_prompt = random.choice(list(recent_specific_model_prompts))
-
-                    # if selected_prompt is None and rand < 0.70:
-                    #     if recent_prompts.exists():
-                    #         min_usage_recent = recent_prompts.aggregate(Min('usage_count'))['usage_count__min']
-                    #         least_used_recent = recent_prompts.filter(usage_count=min_usage_recent)
-                    #         selected_prompt = random.choice(list(least_used_recent))
-
-                    if selected_prompt is None:
-                        # 30%: low usage count from all prompts
-                        min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
-                        least_used_prompts = prompts.filter(usage_count=min_usage_count)
-                        selected_prompt = random.choice(list(least_used_prompts))
+                    min_usage_count = prompts.aggregate(Min('usage_count'))['usage_count__min']
+                    least_used_prompts = prompts.filter(usage_count=min_usage_count)
+                    selected_prompt = random.choice(list(least_used_prompts))
 
                     # Update session's model_a and model_b from the selected prompt
                     session.model_a = selected_prompt.model_a
@@ -715,7 +688,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"ad:{json.dumps(error_payload)}\n"
             else:
@@ -743,7 +716,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.save()
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('a', f"ad:{json.dumps(error_payload)}\n"))
                     finally:
@@ -771,7 +744,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.save()
                         error_payload = {
                             "finishReason": "error",
-                            "error": str(e),
+                            "error": "An error occurred while generating the response.",
                         }
                         chunk_queue.put(('b', f"bd:{json.dumps(error_payload)}\n"))
                     finally:
@@ -919,7 +892,18 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({'error': 'box [x1, y1, x2, y2] is required'}, status=status.HTTP_400_BAD_REQUEST)
 
         session = message.session
-        user_message = session.messages.filter(role='user').order_by('created_at').first()
+
+        # Use the parent user message of this specific assistant message so that
+        # multi-page documents crop from the correct page image, not always page 1.
+        user_message = None
+        if message.parent_message_ids:
+            user_message = Message.objects.filter(
+                id__in=message.parent_message_ids, role='user'
+            ).first()
+        if not user_message:
+            # Fallback for single-page sessions where parent_message_ids may be unset
+            user_message = session.messages.filter(role='user').order_by('created_at').first()
+
         if not user_message or not getattr(user_message, 'image_path', None):
             return Response({'error': 'No image found for this session'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1049,7 +1033,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
@@ -1078,7 +1062,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save(using=db_alias)
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
@@ -1114,7 +1098,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     assistant_message.save()
                     error_payload = {
                         "finishReason": "error",
-                        "error": str(e),
+                        "error": "An error occurred while generating the response.",
                     }
                     yield f"{participant}d:{json.dumps(error_payload)}\n"
 
@@ -1258,7 +1242,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_ocr_image(self, request):
@@ -1460,7 +1444,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 if 'temp_output_path' in locals(): os.remove(temp_output_path)
             except:
                 pass
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_document(self, request):
@@ -1509,7 +1493,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]

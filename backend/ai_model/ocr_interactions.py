@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 # Layout-only prompt — detects regions and bounding boxes without extracting text.
-OCR_LAYOUT_PROMPT = """You are a document layout analysis engine. Detect all text and figure regions in this document image.
+OCR_LAYOUT_PROMPT = """You are a document layout analysis engine. Your task is to detect all content regions in a document image and classify them accurately.
+
+The document may be: machine-printed, typewritten, handwritten, scanned, photographed, a historical manuscript, a form, a table-heavy report, a receipt, a chart, a newspaper, a legal document, or any other format. Handle all of these robustly.
 
 Return ONLY a valid JSON array (no markdown, no explanation) where each element has:
 - "id": a unique string identifier (e.g. "r1", "r2", ...)
@@ -21,25 +23,44 @@ Return ONLY a valid JSON array (no markdown, no explanation) where each element 
 
 Rules:
 - box_2d values must be integers in [0, 1000]; ymin < ymax, xmin < xmax
-- Each box must FULLY encompass all lines belonging to that region
-- Detect every distinct text block and figure in reading order (top-to-bottom, left-to-right)
+- Each box must FULLY encompass all content belonging to that region — do not clip rows or columns of a table, do not split a paragraph mid-sentence
+- COMPLETENESS IS MANDATORY: every visible piece of content on the page must be covered by exactly one region — nothing may be skipped, even on dense or multi-table pages
+- A table is any grid of data with rows and columns, even if borders are faint, partial, or absent (whitespace-aligned columns still count); even a simple 2-column key/value grid is a table
+- EACH table on the page gets its own separate region — never group multiple tables into one
+- A table caption or label (e.g. "Table 1", "Table 2: ...") is a SEPARATE region from its table — never merge them
+- Detect every distinct content block in natural reading order (top-to-bottom, left-to-right; for multi-column layouts follow column order)
 - Do NOT extract or return any text content"""
 
 # Full OCR prompt — detects regions and transcribes text within each region.
-OCR_FULL_PROMPT = """You are a document layout analysis and OCR engine. Detect all text and figure regions in this document image and transcribe the text within each region.
+OCR_FULL_PROMPT = """You are a document layout analysis and OCR engine. Your task is to detect all content regions in a document image, classify them, and transcribe the text within each region.
+
+The document may be: machine-printed, typewritten, handwritten (cursive or print), scanned at any quality, photographed at an angle, a historical transcript, a form, a receipt, a table-heavy report, a newspaper, a legal document, or any other format. Apply robust OCR regardless of font, language script, or document condition.
 
 Return ONLY a valid JSON array (no markdown, no explanation) where each element has:
 - "id": a unique string identifier (e.g. "r1", "r2", ...)
 - "box_2d": [ymin, xmin, ymax, xmax] — values in [0, 1000] where (0,0) is top-left and (1000,1000) is bottom-right
 - "type": one of "title", "heading", "paragraph", "table", "figure", "caption", "list", "other"
-- "text": the exact text content within this region (empty string "" for figures/images with no text)
+- "text": the transcribed text content of this region (empty string "" for figures/images with no readable text)
 
-Rules:
+General rules:
 - box_2d values must be integers in [0, 1000]; ymin < ymax, xmin < xmax
-- Each box must FULLY encompass all lines belonging to that region
-- Detect every distinct text block and figure in reading order (top-to-bottom, left-to-right)
-- Transcribe text exactly as it appears; preserve line breaks within a region using \n
-- For figure/image-only regions with no readable text, set "text" to an empty string"""
+- Each box must FULLY encompass all content belonging to that region
+- COMPLETENESS IS MANDATORY: every visible piece of content on the page must be covered by exactly one region — nothing may be skipped, even if the page is dense or has many tables
+- Detect every distinct content block in natural reading order (top-to-bottom, left-to-right; for multi-column layouts follow column order)
+- Transcribe text exactly as it appears — preserve original spelling, punctuation, capitalisation, and abbreviations
+- For unclear or degraded text, transcribe your best reading; never skip a region because it is difficult
+- For figure/image-only regions with no readable text, set "text" to ""
+
+Table rules (type = "table"):
+- Classify any grid of data as a table — borders may be ruled lines, dotted lines, whitespace alignment, or absent entirely; even a simple 2-column key/value grid is a table
+- EACH table on the page gets its own separate region — never group multiple tables into a single region
+- A table caption or label (e.g. "Table 1", "Table 2: example of footnotes") is a SEPARATE region of type "caption" or "heading" — never merge a caption into its table's bounding box
+- The bounding box must cover the ENTIRE table grid including all header rows, data rows, and footer rows, but must NOT include the caption/label above or footnotes below (those are separate regions)
+- Represent content as TSV (tab-separated values): columns separated by \t, rows separated by \n
+- Multi-level / stacked headers: flatten into a single header row by combining parent and child labels with a space (e.g. a "Results" group spanning "Accuracy" and "Time to complete" → header cells become "Results Accuracy" and "Results Time to complete")
+- Merged / spanned cells: repeat the cell value in each logical column it spans
+- Preserve the exact data values in each cell; do not paraphrase or summarise
+- Row order must match the visual top-to-bottom order of the table"""
 
 
 def _process_ocr_item(item, img_width, img_height, index, generate_text=True):
@@ -220,7 +241,15 @@ def stream_gemini_ocr_output(image_url, model, generate_text=True, log_context=N
                       custom_message=f"Gemini OCR streaming error: {str(e)}", log_context=log_context)
 
 
-REGION_TEXT_PROMPT = """Transcribe all text visible in this image exactly as it appears. Return only the raw text, no explanation. Preserve line breaks using \\n. If there is no text, return an empty string."""
+REGION_TEXT_PROMPT = """You are an OCR engine for a document region crop. Transcribe all readable text in this image exactly as it appears.
+
+Rules:
+- Return ONLY the transcribed text — no explanations, labels, or markdown
+- Preserve original spelling, punctuation, capitalisation, and abbreviations
+- Preserve line breaks using \\n
+- For tables or grid data: use TSV format — columns separated by \\t, rows separated by \\n; flatten multi-level headers by combining parent + child labels (e.g. "Results Accuracy"), repeat merged cell values across spanned columns
+- Handle any input: machine-printed, typewritten, handwritten, scanned, degraded, or historical text
+- If there is no readable text, return an empty string"""
 
 
 def extract_region_text(image_url, box, model="gemini-2.0-flash", log_context=None):
