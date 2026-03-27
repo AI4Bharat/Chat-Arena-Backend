@@ -57,7 +57,7 @@ gcloud==0.18.3
 gevent==25.9.1
 geventhttpclient==2.3.7
 google-api-core==2.25.1
-google-auth==2.41.0
+google-auth==2.47.0
 google-cloud-core==2.4.3
 google-cloud-firestore==2.21.0
 google-cloud-storage==3.4.0
