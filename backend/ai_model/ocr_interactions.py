@@ -20,6 +20,7 @@ Return ONLY a valid JSON array (no markdown, no explanation) where each element 
 - "id": a unique string identifier (e.g. "r1", "r2", ...)
 - "box_2d": [ymin, xmin, ymax, xmax] — values in [0, 1000] where (0,0) is top-left and (1000,1000) is bottom-right
 - "type": one of "title", "heading", "paragraph", "table", "figure", "caption", "list", "other"
+- "confidence": a float in [0.0, 1.0] reflecting your certainty about the region boundary and type classification (1.0 = fully certain, lower for ambiguous or partially obscured regions)
 
 Rules:
 - box_2d values must be integers in [0, 1000]; ymin < ymax, xmin < xmax
@@ -40,6 +41,7 @@ Return ONLY a valid JSON array (no markdown, no explanation) where each element 
 - "id": a unique string identifier (e.g. "r1", "r2", ...)
 - "box_2d": [ymin, xmin, ymax, xmax] — values in [0, 1000] where (0,0) is top-left and (1000,1000) is bottom-right
 - "type": one of "title", "heading", "paragraph", "table", "figure", "caption", "list", "other"
+- "confidence": a float in [0.0, 1.0] reflecting your certainty about the region boundary and type classification (1.0 = fully certain, lower for ambiguous or partially obscured regions)
 - "text": the transcribed text content of this region (empty string "" for figures/images with no readable text)
 
 General rules:
@@ -88,6 +90,7 @@ def _process_ocr_item(item, img_width, img_height, index, generate_text=True):
         'box': box,
         'text': item.get('text', '') if generate_text else '',
         'type': item.get('type', 'paragraph'),
+        'confidence': item.get('confidence'),
         'page': int(item.get('page', 1)),
     }
 
