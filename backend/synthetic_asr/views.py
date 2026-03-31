@@ -1,4 +1,5 @@
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
+from django.db.models import Q
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -552,7 +553,15 @@ def list_jobs(request):
             else:
                 query = query.filter(status=sf)
 
-        # Get total count before pagination
+        # Apply language filter (support comma-separated multiple languages)
+        if language_filter and language_filter != 'all':
+            # Split and clean language names
+            langs = [l.strip().lower() for l in str(language_filter).split(',') if l.strip()]
+            if langs:
+                # Filter by language in payload (supports both nested and top-level language key)
+                query = query.filter(Q(payload__language__in=langs) | Q(payload__config__language__in=langs))
+
+        # Get total count after filtering but before pagination
         total_count = query.count()
 
         # Apply pagination
@@ -588,19 +597,12 @@ def list_jobs(request):
                 'generationAttempts': job.generation_attempts or 0,
             }
             
-            # Apply language filter
-            if language_filter and language_filter != 'all':
-                if item['language'] != language_filter:
-                    continue
             # Always include payload so frontend can "Review Settings" for any job
             item['payload'] = payload
             if job.status == 'DRAFT':
                 item['wizardStage'] = (job.step_details or {}).get('wizard_stage', 1)
 
             items.append(item)
-        
-        # Recount after language filter
-        filtered_count = len(items)
         
         response_data = {
             'items': items,
