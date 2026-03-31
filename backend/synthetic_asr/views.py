@@ -604,12 +604,24 @@ def list_jobs(request):
 
             items.append(item)
         
+        # Get all unique languages for this user to populate filters
+        available_languages = set()
+        # We fetch only payload to minimize data transfer
+        user_jobs_payloads = Job.objects.filter(created_by=request.user).values_list('payload', flat=True)
+        for p in user_jobs_payloads:
+            if isinstance(p, dict):
+                # Check both common payload shapes
+                lang = p.get('language') or p.get('config', {}).get('language')
+                if lang:
+                    available_languages.add(lang)
+
         response_data = {
             'items': items,
             'total': total_count,
             'page': page,
             'limit': limit,
             'hasMore': (offset + limit) < total_count,
+            'availableLanguages': sorted(list(available_languages)),
         }
         
         return JsonResponse(response_data, status=200)
