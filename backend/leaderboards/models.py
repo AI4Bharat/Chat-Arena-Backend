@@ -106,3 +106,14 @@ class Leaderboard(models.Model):
 
     def __str__(self):
         return f"{self.benchmark_name} ({self.language}) - {self.get_arena_type_display()}"
+
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+from django.core.cache import cache
+
+@receiver([post_save, post_delete], sender=Leaderboard)
+def invalidate_leaderboard_cache(sender, instance, **kwargs):
+    if hasattr(cache, 'delete_pattern'):
+        cache.delete_pattern('*views.decorators.cache.cache_*')
+        cache.delete_pattern('*active_models_*')
+        cache.delete_pattern('*llm_leaderboard_stats_*')
