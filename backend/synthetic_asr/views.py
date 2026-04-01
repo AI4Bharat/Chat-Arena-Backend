@@ -599,6 +599,7 @@ def list_jobs(request):
             
             # Always include payload so frontend can "Review Settings" for any job
             item['payload'] = payload
+
             if job.status == 'DRAFT':
                 item['wizardStage'] = (job.step_details or {}).get('wizard_stage', 1)
 
