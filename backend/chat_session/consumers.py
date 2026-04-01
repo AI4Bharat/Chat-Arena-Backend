@@ -92,7 +92,7 @@ class ChatSessionConsumer(AsyncWebsocketConsumer):
             logger.error(f"Error in receive: {e}")
             await self.send(text_data=json.dumps({
                 'type': 'error',
-                'message': str(e)
+                'message': 'An error occurred processing your request.'
             }))
     
     async def typing_indicator(self, event):

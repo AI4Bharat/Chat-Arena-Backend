@@ -2,7 +2,7 @@ from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from django.db.models import Q
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
 
@@ -27,120 +27,61 @@ from django.core.mail import send_mail
 from django.conf import settings as django_settings
 
 
-def job_status_stream(request):
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def pai_callback(request):
     """
-    SSE endpoint that streams job status updates to the frontend.
+    Webhook endpoint for PAI server to report job completion or failure.
+    Payload: {"pai_job_id": "...", "status": "COMPLETED/FAILED", "message": "..."}
+    Restricted to PAI server IP only.
     """
-    print(f"DEBUG: job_status_stream called for user: {request.user}")
-    user = request.user
-    
-    # SSE EventSource doesn't support headers, so we check query params for tokens
-    if not user or user.is_anonymous:
-        token = request.GET.get('token')
-        anonymous_token = request.GET.get('anonymous_token')
-        
-        if token:
-            try:
-                from rest_framework_simplejwt.authentication import JWTAuthentication
-                jwt_auth = JWTAuthentication()
-                validated_token = jwt_auth.get_validated_token(token)
-                user_id = validated_token.get('user_id')
-                if user_id:
-                    user = User.objects.get(id=user_id)
-            except Exception:
-                # Try Firebase if JWT fails
-                try:
-                    firebase_user = UserService.verify_google_token_with_pyrebase(token)
-                    if firebase_user:
-                        user = User.objects.get(firebase_uid=firebase_user['localId'])
-                except Exception:
-                    pass
-        
-        if (not user or user.is_anonymous) and anonymous_token:
-            user = User.objects.filter(is_anonymous=True, preferences__anonymous_token=anonymous_token).first()
+    # --- IP Restriction ---
+    pai_server_url = os.getenv('SYNTHETIC_ASR_PAI_SERVER_URL', '')
+    allowed_ip = urlparse(pai_server_url).hostname if pai_server_url else None
 
-    if not user or user.is_anonymous:
-        # Note: EventSource might not handle 401 well, but standard for SSE
-        return HttpResponse("Unauthorized", status=401)
+    # Get the real client IP (handles reverse proxies)
+    forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    client_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.META.get('REMOTE_ADDR')
 
-    print(f"DEBUG: Authenticated user for SSE stream: {user.email}")
+    if allowed_ip and client_ip != allowed_ip:
+        return _error(f'Forbidden: access restricted to PAI server only.', 403)
 
-    def event_stream():
-        last_known_state = {}
-        first_run = True
-        
-        while True:
-            try:
-                # 1. Heartbeat Ping
-                hb_data = json.dumps({
-                    'type': 'ping', 
-                    'time': time.time()
-                })
-                yield f"data: {hb_data}\n\n"
+    data = _json_body(request)
+    pai_job_id = data.get('pai_job_id')
+    status = data.get('status', '').upper()
+    message = data.get('message', '')
 
-                # 2. Get jobs
-                # We include COMPLETED/FAILED jobs so that the "final" state update can be sent.
-                # The state tracking logic below will ensure we don't spam redundant updates for finished jobs.
-                query = Job.objects.filter(created_by=user).order_by('-created_at').exclude(status='DRAFT')
-                
-                active_jobs = list(query)
+    if not pai_job_id:
+        return _error('Missing pai_job_id', 400)
 
-                all_current_jobs = []
-                for job in active_jobs:
-                    updated_job = _sync_job_status_from_pai(job)
-                    
-                    # Format
-                    payload = updated_job.payload or {}
-                    config = payload if (isinstance(payload, dict) and 'language' in payload) else payload.get('config', payload if isinstance(payload, dict) else {})
-                    sentence_config = config.get('sentence', {})
+    try:
+        # Find the job by its PAI Job ID
+        # Note: pai_job_id is stored in step_details
+        job = Job.objects.filter(step_details__pai_job_id=pai_job_id).first()
+        if not job:
+            return _error(f'Job with PAI ID {pai_job_id} not found.', 404)
 
-                    job_data = {
-                        'jobId': updated_job.job_id,
-                        'language': config.get('language') or payload.get('language') or 'Unknown',
-                        'size': config.get('size') or payload.get('size') or 0,
-                        'status': updated_job.status,
-                        'progress': updated_job.progress_percentage,
-                        'currentStage': updated_job.current_step or 'Pending',
-                        'createdAt': updated_job.created_at.isoformat() if updated_job.created_at else None,
-                        'completedAt': updated_job.updated_at.isoformat() if updated_job.status == 'COMPLETED' and updated_job.updated_at else None,
-                        'category': sentence_config.get('category') or config.get('category') or '',
-                        'generationAttempts': updated_job.generation_attempts or 0,
-                    }
-                    all_current_jobs.append(job_data)
+        if status in ['DATASET_UPLOADED', 'COMPLETED']:
+            if job.status != 'COMPLETED':
+                job.status = 'COMPLETED'
+                job.current_step = 'DATASET READY'
+                job.progress_percentage = 100
+                job.result = {'pai_job_id': pai_job_id, 'status': 'completed'}
+                job.save()
+                _send_dataset_ready_email(job)
+        elif status == 'FAILED':
+            if job.status != 'FAILED':
+                job.status = 'FAILED'
+                job.error = {'message': message or 'PAI server reported failure'}
+                job.save()
+                _send_failure_email(job, message, job.created_by)
 
-                # 3. YIELD UPDATES (Differential)
-                to_send = []
-                for job_data in all_current_jobs:
-                    job_id = job_data['jobId']
-                    last_state = last_known_state.get(job_id)
-                    # Send if it's the first time we see the job OR if status/progress changed
-                    if (first_run or last_state is None or 
-                        job_data['status'] != last_state['status'] or 
-                        job_data['progress'] != last_state['progress']):
-                        to_send.append(job_data)
-                        last_known_state[job_id] = {'status': job_data['status'], 'progress': job_data['progress']}
+        return JsonResponse({'message': 'Callback processed successfully'}, status=200)
 
-                if to_send:
-                    data = json.dumps({
-                        'type': 'jobs_update', 
-                        'jobs': to_send, 
-                        'server_time': time.time()
-                    })
-                    # Use padding to bypass potential proxy buffers
-                    padding = ":" + (" " * 2048) + "\n"
-                    yield f"data: {data}\n{padding}\n\n"
-                
-                first_run = False
-            except Exception as e:
-                data = json.dumps({'type': 'error', 'message': str(e)})
-                yield f"data: {data}\n\n"
-            
-            time.sleep(5)
-
-    response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
-    response['Cache-Control'] = 'no-cache, no-transform'
-    response['X-Accel-Buffering'] = 'no'
-    return response
+    except Exception as e:
+        print(f"Error processing PAI callback for {pai_job_id}: {e}")
+        return _error(str(e), 500)
 
 
 def _json_body(request):
@@ -172,9 +113,10 @@ def _ensure_numeric_job_id(config_dict: dict) -> str:
     """
     job_id = str(config_dict.get('job_id') or '').strip()
     if job_id.isdigit():
+        config_dict['job_id'] = int(job_id)
         return job_id
     numeric_job_id = str(int(time.time() * 1000) + random.randint(0, 999))
-    config_dict['job_id'] = numeric_job_id
+    config_dict['job_id'] = int(numeric_job_id)
     return numeric_job_id
 
 
@@ -277,10 +219,17 @@ def _submit_to_pai(job):
     headers = {'Content-Type': 'application/json'}
     payload = {'config': job.payload}
 
+    # Robust path construction
+    base_path = parsed_url.path.rstrip('/')
+    create_path = f"{base_path}/create" if base_path else "/pai/create"
+
+    timeout = 120
     if is_https:
-        result, err = http_utils.make_post_request(host, '/pai/create', headers, payload)
+        result, err = http_utils.make_post_request(host, create_path, headers, payload, timeout=timeout)
     else:
-        result, err = http_utils.make_local_post_request(host, '/pai/create', headers, payload, port=80)
+        # Default to port 80 if not specified
+        port = parsed_url.port or 80
+        result, err = http_utils.make_local_post_request(host, create_path, headers, payload, port=port, timeout=timeout)
 
     if err:
         return None, f'Failed to submit to PAI server: {err}'
@@ -329,15 +278,17 @@ def create_dataset_job(request):
     except Exception as e:
         return _error(f'Server error occured, {e}', 405)
 
+    wizard_form_data = body.get('wizard_form_data', None)
+    if wizard_form_data:
+        config_dict['_wizard_form_data'] = wizard_form_data
+        job.payload = config_dict
+        job.save(update_fields=['payload', 'updated_at'])
+
     if is_draft:
         wizard_stage = body.get('wizard_stage', 1)
-        wizard_form_data = body.get('wizard_form_data', None)
-        if wizard_form_data:
-            config_dict['_wizard_form_data'] = wizard_form_data
-            job.payload = config_dict
         job.current_step = 'Saved as Draft'
         job.step_details = {**(job.step_details or {}), 'wizard_stage': wizard_stage}
-        job.save(update_fields=['payload', 'current_step', 'step_details', 'updated_at'])
+        job.save(update_fields=['current_step', 'step_details', 'updated_at'])
         return HttpResponse(job_id, status=200, content_type='text/plain')
 
     # Submit to PAI server synchronously
@@ -396,9 +347,9 @@ def resubmit_job(request, job_id: str):
     from time import time
     new_pai_job_id = str(int(time() * 1000))
     
-    # Update the payload with the new ID for the PAI server
+    # Update the payload with the new ID for the PAI server (as integer)
     new_payload = dict(job.payload) if job.payload else {}
-    new_payload['job_id'] = new_pai_job_id
+    new_payload['job_id'] = int(new_pai_job_id)
     job.payload = new_payload
 
     # Reset job state
@@ -448,13 +399,19 @@ def _sync_job_status_from_pai(job):
         scheme = parsed_url.scheme or 'https'
         is_https = scheme == 'https'
 
+        # Robust path construction
+        base_path = parsed_url.path.rstrip('/')
+        status_path = f"{base_path}/status/{pai_job_id}" if base_path else f"/pai/status/{pai_job_id}"
+
         # Fetch status from PAI server
+        port = parsed_url.port or (443 if is_https else 80)
+        timeout = 120
         if is_https:
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
             
-        conn.request('GET', f'/pai/status/{pai_job_id}', headers={})
+        conn.request('GET', status_path, headers={})
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -640,7 +597,6 @@ def list_jobs(request):
                 'generationAttempts': job.generation_attempts or 0,
             }
             
-            
             # Always include payload so frontend can "Review Settings" for any job
             item['payload'] = payload
 
@@ -725,19 +681,23 @@ def get_job_dataset(request, job_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
+        base_path = parsed_url.path.rstrip('/')
         
         # Make request to PAI server
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
         
         headers = {}
         
         # Get limit from query params, default to 50
         limit = request.GET.get('limit', '50')
-        path = f'/pai/job/{job_id}?limit={limit}'
-        conn.request('GET', path, headers=headers)
+        # Robust path construction
+        full_path = f"{base_path}/job/{job_id}?limit={limit}" if base_path else f"/pai/job/{job_id}?limit={limit}"
+        conn.request('GET', full_path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -770,17 +730,21 @@ def get_audio_file(request, audio_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
+        base_path = parsed_url.path.rstrip('/')
         
         # Make request to PAI server
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
         
         headers = {}
         
-        path = f'/pai/audio/{audio_id}'
-        conn.request('GET', path, headers=headers)
+        # Robust path construction
+        full_path = f"{base_path}/audio/{audio_id}" if base_path else f"/pai/audio/{audio_id}"
+        conn.request('GET', full_path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -813,15 +777,19 @@ def get_job_metrics(request, job_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
-
+        base_path = parsed_url.path.rstrip('/')
+        
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
-
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
+            
         # Fetch all audio items (PAI requires a limit param)
-        path = f'/pai/job/{job_id}?limit=100000'
-        conn.request('GET', path, headers={})
+        # Robust path construction
+        full_path = f"{base_path}/job/{job_id}?limit=100000" if base_path else f"/pai/job/{job_id}?limit=100000"
+        conn.request('GET', full_path, headers={})
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -878,17 +846,21 @@ def get_download_link(request, job_id: str):
         parsed_url = urlparse(pai_server_url)
         host = parsed_url.netloc
         scheme = parsed_url.scheme
+        base_path = parsed_url.path.rstrip('/')
         
         # Make request to PAI server
+        port = parsed_url.port or (443 if scheme == 'https' else 80)
+        timeout = 120
         if scheme == 'https':
-            conn = http.client.HTTPSConnection(host)
+            conn = http.client.HTTPSConnection(host, port=port, timeout=timeout)
         else:
-            conn = http.client.HTTPConnection(host)
+            conn = http.client.HTTPConnection(host, port=port, timeout=timeout)
         
         headers = {}
         
-        path = f'/pai/download/{job_id}'
-        conn.request('GET', path, headers=headers)
+        # Robust path construction
+        full_path = f"{base_path}/download/{job_id}" if base_path else f"/pai/download/{job_id}"
+        conn.request('GET', full_path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
@@ -933,37 +905,50 @@ def report_failed_job(request, job_id: str):
 
 
 def _send_failure_email(job, message, user):
-    """Send failure report email notification to admins."""
+    """Send failure report email notification to admins, user and configured recipients."""
     
     recipients = getattr(django_settings, 'FAILURE_REPORT_RECIPIENTS', [])
-    if not recipients:
-        return
+    if isinstance(recipients, str):
+        recipients = [recipients]
+    
+    # Use a set to avoid duplicates
+    final_recipients = set(recipients)
+    if job.created_by and getattr(job.created_by, 'email', None):
+        final_recipients.add(job.created_by.email)
 
-    subject = f'[Arena] Job {job.job_id} Failure Report'
+    subject = f'[Arena] Job {job.job_id} Failure Notification'
     body = (
+        f'Hi,\n\n'
+        f'A synthetic ASR dataset generation job has failed.\n\n'
         f'Job ID: {job.job_id}\n'
         f'Status: {job.status}\n'
         f'Language: {job.payload.get("language", "N/A")}\n'
-        f'Reported by: {user}\n'
+        f'User: {job.created_by.email if job.created_by else "Unknown"}\n'
         f'Message: {message or "No message provided"}\n'
-        f'Error: {job.error}\n'
+        f'Error: {job.error}\n\n'
+        f'— Arena Team'
     )
 
     try:
-        send_mail(subject, body, None, recipients, fail_silently=True)
+        send_mail(subject, body, None, list(final_recipients), fail_silently=True)
     except Exception as e:
         print(f'Failed to send failure email: {e}')
 
 
 def _send_dataset_ready_email(job):
-    """Send email to the job creator when the dataset is ready."""
+    """Send email to the job creator and configured recipients when the dataset is ready."""
     
-    if not job.created_by or not getattr(job.created_by, 'email', None):
-        return
+    dataset_ready_recipients = getattr(django_settings, 'DATASET_READY_RECIPIENTS', [])
+    if isinstance(dataset_ready_recipients, str):
+        dataset_ready_recipients = [dataset_ready_recipients]
+    
+    final_recipients = set(dataset_ready_recipients)
+    if job.created_by and getattr(job.created_by, 'email', None):
+        final_recipients.add(job.created_by.email)
 
     subject = f'[Arena] Your dataset {job.job_id} is ready!'
     body = (
-        f'Hi {job.created_by.username or job.created_by.email},\n\n'
+        f'Hi,\n\n'
         f'Your synthetic ASR dataset is ready for download.\n\n'
         f'Job ID: {job.job_id}\n'
         f'Language: {job.payload.get("language", "N/A")}\n'
@@ -976,7 +961,7 @@ def _send_dataset_ready_email(job):
         send_mail(
             subject, body,
             getattr(django_settings, 'DEFAULT_FROM_EMAIL', None),
-            [job.created_by.email],
+            list(final_recipients),
             fail_silently=True,
         )
     except Exception as e:

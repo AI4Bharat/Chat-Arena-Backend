@@ -21,7 +21,7 @@ class StreamingManager:
                 
             except Exception as e:
                 # Send error event
-                yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'error': 'An error occurred while streaming the response.'})}\n\n"
         
         # # Convert async generator to sync for Django
         # def sync_wrapper():
@@ -67,14 +67,14 @@ class StreamingManager:
                 if retries >= max_retries:
                     yield {
                         'type': 'error',
-                        'error': f'Failed after {max_retries} retries: {str(e)}'
+                        'error': 'An error occurred while streaming the response.'
                     }
                     break
-                
+
                 yield {
                     'type': 'retry',
                     'attempt': retries,
-                    'error': str(e)
+                    'error': 'Retrying due to an error.'
                 }
                 
                 await asyncio.sleep(retry_delay * retries)
