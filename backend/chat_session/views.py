@@ -519,7 +519,7 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
 
         return Response(response_data)
 
-        @action(
+    @action(
         detail=True,
         methods=['post'],
         url_path='continue',
@@ -558,4 +558,4 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
                 'redirect_url': f'/chat/{new_session.id}',
             },
             status=status.HTTP_201_CREATED,
-        )
+        )    

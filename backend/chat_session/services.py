@@ -142,23 +142,23 @@ class ChatSessionService:
                 .order_by("position", "created_at")
             )
 
-            old_ids = [str(msg.id) for msg in original_messages]
+            old_id_to_new_id = {
+                str(old_msg.id): new_msg.id
+                for old_msg, new_msg in zip(original_messages, refreshed_cloned_messages)
+            }
+
 
             for old_msg, new_msg in zip(original_messages, refreshed_cloned_messages):
-                new_parent_ids = [
-                    refreshed_cloned_messages[old_ids.index(str(pid))].id
+                new_msg.parent_message_ids = [
+                    old_id_to_new_id[str(pid)]
                     for pid in (old_msg.parent_message_ids or [])
-                    if str(pid) in old_ids
+                    if str(pid) in old_id_to_new_id
                 ]
-
-                new_child_ids = [
-                    refreshed_cloned_messages[old_ids.index(str(cid))].id
+                new_msg.child_ids = [
+                    old_id_to_new_id[str(cid)]
                     for cid in (old_msg.child_ids or [])
-                    if str(cid) in old_ids
+                    if str(cid) in old_id_to_new_id
                 ]
-
-                new_msg.parent_message_ids = new_parent_ids
-                new_msg.child_ids = new_child_ids
 
             Message.objects.bulk_update(
                 refreshed_cloned_messages,
