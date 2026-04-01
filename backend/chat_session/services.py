@@ -55,71 +55,117 @@ class ChatSessionService:
     
     @staticmethod
     def duplicate_session(
-        session: ChatSession, 
+        session: ChatSession,
         user,
-        include_messages: bool = False,
+        include_messages: bool = True,
         new_title: Optional[str] = None
     ) -> ChatSession:
-        """Duplicate a chat session"""
-        # Create new session
-        new_session = ChatSession.objects.create(
-            user=user,
-            mode=session.mode,
-            title=new_title or f"Copy of {session.title or 'Untitled'}",
-            model_a=session.model_a,
-            model_b=session.model_b,
-            metadata={
-                **session.metadata,
-                'duplicated_from': str(session.id),
-                'duplicated_at': timezone.now().isoformat()
-            }
-        )
-        
-        # Duplicate messages if requested
-        if include_messages:
-            messages = session.messages.order_by('position')
-            
-            # Create a mapping of old IDs to new IDs for parent-child relationships
-            id_mapping = {}
-            
-            for message in messages:
-                old_id = message.id
-                
-                # Create new message
-                new_message = Message(
+        """
+        Duplicate / fork a chat session safely.
+
+        Used for:
+        - user duplication
+        - shared session continuation
+        """
+        with transaction.atomic():
+            if session.deleted_at is not None:
+                raise ValueError("Cannot clone a deleted session.")
+
+            # Create new session
+            new_session = ChatSession.objects.create(
+                user=user,
+                mode=session.mode,
+                title=new_title or session.title or "Continued Chat",
+                model_a=session.model_a,
+                model_b=session.model_b,
+                session_type=session.session_type,
+                metadata={
+                    **(session.metadata or {}),
+                    "duplicated_from": str(session.id),
+                    "duplicated_at": timezone.now().isoformat(),
+                    "fork_type": "shared_continue"
+                },
+                meta_stats_json=session.meta_stats_json,
+                is_public=False,
+                share_token=None,
+                is_pinned=False,
+            )
+
+            if not include_messages:
+                return new_session
+
+            original_messages = list(
+                session.messages.select_related("model")
+                .order_by("position", "created_at")
+            )
+
+            old_to_new_id_map = {}
+            cloned_messages = []
+
+            # First pass → clone messages
+            for msg in original_messages:
+                new_msg = Message(
                     session=new_session,
-                    role=message.role,
-                    content=message.content,
-                    model=message.model,
-                    position=message.position,
-                    participant=message.participant,
-                    status='success',  # Set as success since it's a copy
-                    attachments=message.attachments,
+                    role=msg.role,
+                    content=msg.content,
+                    audio_path=msg.audio_path,
+                    image_path=msg.image_path,
+                    doc_path=msg.doc_path,
+                    model=msg.model,
+                    position=msg.position,
+                    participant=msg.participant,
+                    status="success" if msg.status != "failed" else "failed",
+                    failure_reason=msg.failure_reason,
+                    attachments=msg.attachments,
                     metadata={
-                        **message.metadata,
-                        'duplicated_from': str(old_id)
-                    }
+                        **(msg.metadata or {}),
+                        "duplicated_from": str(msg.id)
+                    },
+                    feedback=msg.feedback,
+                    has_detailed_feedback=msg.has_detailed_feedback,
+                    meta_stats_json=msg.meta_stats_json,
+                    language=msg.language,
+                    latency_ms=msg.latency_ms,
+                    parent_message_ids=[],
+                    child_ids=[]
                 )
-                
-                # Map parent IDs
-                if message.parent_message_ids:
-                    new_message.parent_message_ids = [
-                        id_mapping.get(str(pid), pid) 
-                        for pid in message.parent_message_ids
-                    ]
-                
-                new_message.save()
-                id_mapping[str(old_id)] = new_message.id
-                
-                # Update child IDs for previously saved messages
-                for parent_id in new_message.parent_message_ids:
-                    parent_msg = Message.objects.filter(id=parent_id).first()
-                    if parent_msg and new_message.id not in parent_msg.child_ids:
-                        parent_msg.child_ids.append(new_message.id)
-                        parent_msg.save()
-        
-        return new_session
-    
+
+                cloned_messages.append(new_msg)
+                old_to_new_id_map[str(msg.id)] = new_msg
+
+            # Bulk insert
+            Message.objects.bulk_create(cloned_messages)
+
+            # Second pass → restore parent-child relationships
+            refreshed_cloned_messages = list(
+                Message.objects.filter(session=new_session)
+                .order_by("position", "created_at")
+            )
+
+            old_ids = [str(msg.id) for msg in original_messages]
+
+            for old_msg, new_msg in zip(original_messages, refreshed_cloned_messages):
+                new_parent_ids = [
+                    refreshed_cloned_messages[old_ids.index(str(pid))].id
+                    for pid in (old_msg.parent_message_ids or [])
+                    if str(pid) in old_ids
+                ]
+
+                new_child_ids = [
+                    refreshed_cloned_messages[old_ids.index(str(cid))].id
+                    for cid in (old_msg.child_ids or [])
+                    if str(cid) in old_ids
+                ]
+
+                new_msg.parent_message_ids = new_parent_ids
+                new_msg.child_ids = new_child_ids
+
+            Message.objects.bulk_update(
+                refreshed_cloned_messages,
+                ["parent_message_ids", "child_ids"]
+            )
+
+            return new_session
     @staticmethod
     def export_session(
         session: ChatSession,
