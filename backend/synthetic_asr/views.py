@@ -1,4 +1,5 @@
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
+from django.db.models import Q
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -595,7 +596,15 @@ def list_jobs(request):
             else:
                 query = query.filter(status=sf)
 
-        # Get total count before pagination
+        # Apply language filter (support comma-separated multiple languages)
+        if language_filter and language_filter != 'all':
+            # Split and clean language names
+            langs = [l.strip().lower() for l in str(language_filter).split(',') if l.strip()]
+            if langs:
+                # Filter by language in payload (supports both nested and top-level language key)
+                query = query.filter(Q(payload__language__in=langs) | Q(payload__config__language__in=langs))
+
+        # Get total count after filtering but before pagination
         total_count = query.count()
 
         # Apply pagination
@@ -631,26 +640,33 @@ def list_jobs(request):
                 'generationAttempts': job.generation_attempts or 0,
             }
             
-            # Apply language filter
-            if language_filter and language_filter != 'all':
-                if item['language'] != language_filter:
-                    continue
-            # Include full payload for DRAFT jobs so frontend can pre-fill the edit form
+            
+            # Always include payload so frontend can "Review Settings" for any job
+            item['payload'] = payload
+
             if job.status == 'DRAFT':
-                item['payload'] = payload
                 item['wizardStage'] = (job.step_details or {}).get('wizard_stage', 1)
 
             items.append(item)
         
-        # Recount after language filter
-        filtered_count = len(items)
-        
+        # Get all unique languages for this user to populate filters
+        available_languages = set()
+        # We fetch only payload to minimize data transfer
+        user_jobs_payloads = Job.objects.filter(created_by=request.user).values_list('payload', flat=True)
+        for p in user_jobs_payloads:
+            if isinstance(p, dict):
+                # Check both common payload shapes
+                lang = p.get('language') or p.get('config', {}).get('language')
+                if lang:
+                    available_languages.add(lang)
+
         response_data = {
             'items': items,
             'total': total_count,
             'page': page,
             'limit': limit,
             'hasMore': (offset + limit) < total_count,
+            'availableLanguages': sorted(list(available_languages)),
         }
         
         return JsonResponse(response_data, status=200)
