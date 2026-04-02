@@ -397,12 +397,14 @@ ANONYMOUS_USER_SETTINGS = {
 
 GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME")
 
-# Email settings for failure reports
-EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+# Email settings for Synthetic ASR failure reports and notifications
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND")
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = os.getenv("EMAIL_PORT")
+EMAIL_HOST_USER = os.getenv("SMTP_USERNAME")
+EMAIL_HOST_PASSWORD = os.getenv("SMTP_PASSWORD")
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@arena.ai4bharat.org')
-FAILURE_REPORT_RECIPIENTS = os.getenv('FAILURE_REPORT_RECIPIENTS', 'admin@arena.ai4bharat.org').split(',')
+EMAIL_USE_SSL = False
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+FAILURE_REPORT_RECIPIENTS = os.getenv("FAILURE_REPORT_RECIPIENTS", '').split(',')
+DATASET_READY_RECIPIENTS = os.getenv("DATASET_READY_RECIPIENTS", '').split(',')

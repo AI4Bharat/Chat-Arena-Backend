@@ -109,15 +109,15 @@ def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
-        
+
         err_msg = str(e)
         if "InvalidRequestError" in err_msg or "invalid_argument" in err_msg.lower():
             message = "Prompt violates LLM policy. Please enter a new prompt."
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM."
         else:
-            message = f"An error occurred while interacting with Gemini LLM: {err_msg}"
-        
+            message = "An error occurred while interacting with Gemini LLM."
+
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='google', custom_message=message, log_context=log_context)
 
@@ -168,15 +168,15 @@ def get_gpt5_output(system_prompt, user_prompt, history, model, image_url=None, 
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
-        
+
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM."
         else:
-            message = f"An error occurred while interacting with LLM: {err_msg}"
-        
+            message = "An error occurred while interacting with LLM."
+
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='openai', custom_message=message, log_context=log_context)
 
@@ -221,15 +221,15 @@ def get_gpt4_output(system_prompt, user_prompt, history, model, log_context=None
                         yield content
     except Exception as e:
         from ai_model.error_logging import log_and_raise
-        
+
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
         else:
-            message = f"An error occurred while interacting with LLM: {err_msg}"
-        
+            message = "An error occurred while interacting with LLM."
+
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='openai', custom_message=message, log_context=log_context)
 
@@ -268,15 +268,15 @@ def get_gpt3_output(system_prompt, user_prompt, history, log_context=None):
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
-        
+
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
         else:
-            message = f"An error occurred while interacting with LLM: {err_msg}"
-        
+            message = "An error occurred while interacting with LLM."
+
         # Log to GCS before raising
         log_and_raise(e, model_code='gpt-3.5-turbo', provider='openai', custom_message=message, log_context=log_context)
 
@@ -355,7 +355,7 @@ def get_sarvam_output(system_prompt, conv_history, user_prompt, model, log_conte
     except requests.exceptions.RequestException as e:
         from ai_model.error_logging import log_and_raise
         print(f"An error occurred during the API request: {e}")
-        log_and_raise(e, model_code=model, provider='sarvam', custom_message=f"Sarvam API request failed: {e}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='sarvam', custom_message="Sarvam API request failed.", log_context=log_context)
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
     try:
@@ -393,15 +393,15 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=N
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
-        
+
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
         else:
-            message = f"An error occurred while interacting with LLM: {err_msg}"
-        
+            message = "An error occurred while interacting with LLM."
+
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='deepinfra', custom_message=message, log_context=log_context)
     
@@ -428,15 +428,15 @@ def get_ibm_output(system_prompt, user_prompt, history, model, log_context=None)
 
     except Exception as e:
         from ai_model.error_logging import log_and_raise
-        
+
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
         else:
-            message = f"An error occurred while interacting with LLM: {err_msg}"
-        
+            message = "An error occurred while interacting with LLM."
+
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='ibm', custom_message=message, log_context=log_context)
 
@@ -507,7 +507,7 @@ def get_anthropic_output(system_prompt, user_prompt, history, model, image_url=N
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
         else:
-            message = f"An error occurred while interacting with Anthropic LLM: {err_msg}"
+            message = "An error occurred while interacting with Anthropic LLM."
 
         # Log to GCS before raising
         log_and_raise(e, model_code=model, provider='anthropic', custom_message=message, log_context=log_context)
