@@ -26,4 +26,5 @@ urlpatterns = [
 # POST /api/sessions/{id}/transfer_ownership/ - Transfer ownership
 # GET /api/sessions/shared/ - List public sessions
 # GET /api/sessions/trending/ - Get trending sessions
-# GET /api/shared/{share_token}/ - Access shared session by token
+# GET  /api/shared/{share_token}/          - View shared session (read-only, no auth required)
+# POST /api/shared/{share_token}/continue/ - Fork shared session into caller's account (auth required)

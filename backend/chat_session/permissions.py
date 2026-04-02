@@ -20,9 +20,13 @@ class CanAccessSharedSession(permissions.BasePermission):
     """
     def has_object_permission(self, request, view, obj):
         # Allow if session is public
+        if obj.deleted_at is not None:
+            return False
+
+        # Allow if session is public
         if obj.is_public:
             return True
-        
-        # Check if share token matches
+
+        # Fallback: check raw share token from URL or query param
         share_token = view.kwargs.get('share_token') or request.query_params.get('share_token')
-        return share_token and obj.share_token == share_token
+        return bool(share_token and obj.share_token == share_token)
