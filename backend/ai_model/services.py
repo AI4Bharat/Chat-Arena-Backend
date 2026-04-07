@@ -31,9 +31,12 @@ class AIModelService:
     def _initialize_providers(self):
         """Initialize provider instances with API keys"""
         for provider_name, provider_class in self.PROVIDER_CLASSES.items():
-            api_key = getattr(settings, f'{provider_name.upper()}_API_KEY', None)
-            if api_key:
-                self._providers[provider_name] = provider_class(api_key)
+            try:
+                api_key = getattr(settings, f'{provider_name.upper()}_API_KEY', None)
+                if api_key:
+                    self._providers[provider_name] = provider_class(api_key)
+            except Exception as e:
+                logger.error(f"Failed to initialize provider {provider_name}: {e}")
     
     def get_provider(self, provider_name: str):
         """Get provider instance"""
