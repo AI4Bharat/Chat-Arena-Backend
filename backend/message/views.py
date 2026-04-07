@@ -865,7 +865,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
         elif session.session_type == 'TTS':
             return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
-        elif session.session_type == 'OCR':
+        elif session.session_type in ('OCR', 'EDUVIZ'):
             return StreamingHttpResponse(generate_ocr_output(), content_type='text/plain')
         else:
             return StreamingHttpResponse(generate(), content_type='text/plain')
@@ -880,6 +880,19 @@ class MessageViewSet(viewsets.ModelViewSet):
         message.content = json.dumps(ocr_result)
         message.save(update_fields=['content'])
         return Response({'status': 'saved', 'count': len(ocr_result)})
+
+    @action(detail=True, methods=['post'])
+    def submit_assessment(self, request, pk=None):
+        """Save EduViz teacher assessment for a message."""
+        message = get_object_or_404(Message, id=pk, session__user=request.user)
+        assessment = request.data.get('assessment')
+        if not assessment:
+            return Response({'error': 'assessment is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not message.metadata:
+            message.metadata = {}
+        message.metadata['eduviz_assessment'] = assessment
+        message.save(update_fields=['metadata'])
+        return Response({'status': 'saved'})
 
     @action(detail=True, methods=['post'])
     def extract_region_text(self, request, pk=None):

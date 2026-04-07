@@ -331,6 +331,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                         'language': msg.language,
                         'has_detailed_feedback': msg.has_detailed_feedback,
                         'image_path': msg.image_path,
+                        'metadata': msg.metadata,
                         'parent_message_ids': [str(pid) for pid in (msg.parent_message_ids or [])],
                         **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {}),
                         **({'temp_image_url': generate_signed_url(msg.image_path, 900)} if msg.image_path else {}),
