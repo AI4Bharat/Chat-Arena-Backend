@@ -71,6 +71,9 @@ def process_history(history):
 def get_gemini_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):
     client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
+    if model.startswith("google/"):
+        model = model.replace("google/", "")
+
     contents = []
     for msg in history:
         role = msg.get("role", "user")
@@ -525,7 +528,7 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini, image
         out = get_llama2_output(system_prompt, history, user_prompt, log_context=log_context)
     elif model.lower().startswith("sarvam"):
         out = get_sarvam_output(system_prompt, history, user_prompt, model, log_context=log_context)
-    elif model.startswith("gemini"):
+    elif model.startswith("gemini") or "gemma" in model.lower():
         out = get_gemini_output(system_prompt, user_prompt, history, model, image_url=image_url, log_context=log_context)
     elif model.startswith("ibm"):
         out = get_ibm_output(system_prompt, user_prompt, history, model, log_context=log_context)
