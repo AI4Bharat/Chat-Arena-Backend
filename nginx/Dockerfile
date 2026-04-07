@@ -11,9 +11,10 @@ COPY 00-log-formats.conf /etc/nginx/conf.d/
 
 # Copy main configuration files
 COPY default.conf /etc/nginx/conf.d/
-COPY gzip.conf options-ssl-nginx.conf hsts.conf /etc/nginx/includes/
+COPY gzip.conf options-ssl-nginx.conf hsts.conf cors-error.conf /etc/nginx/includes/
 COPY site.conf.tpl /customization/
 COPY nginx.sh /customization/
+COPY 50x.html /usr/share/nginx/html/50x.html
 
 # Copy load balancer configurations
 COPY load-balancer.conf /etc/nginx/conf.d/
