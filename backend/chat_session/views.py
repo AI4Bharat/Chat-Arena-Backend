@@ -458,7 +458,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
 
 class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
     """View for accessing shared sessions via share token"""
-    authentication_classes = []  # No authentication required
+    authentication_classes = [FirebaseAuthentication, AnonymousTokenAuthentication]  # No authentication required
     permission_classes = [CanAccessSharedSession]
     serializer_class = ChatSessionSerializer
     lookup_field = 'share_token'
@@ -483,15 +483,16 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
         session = self.get_object()
         
         # Fetch messages for this session
-        messages = Message.objects.filter(
-            session=session
-        ).order_by('position')
+        messages = (
+            Message.objects
+            .filter(session=session)
+            .select_related('model')
+            .order_by('position')
+        )
         
         response_data = {
-            'session': ChatSessionSerializer(
-                session, 
-                context={'request': request}
-            ).data,
+            'session': ChatSessionSerializer(session, context={'request': request}).data,
+            'is_owner': request.user.is_authenticated and session.user == request.user,
             'messages': [
                 {
                     'id': str(msg.id),
@@ -503,11 +504,59 @@ class SharedChatSessionView(viewsets.ReadOnlyModelViewSet):
                     'feedback': msg.feedback,
                     'created_at': msg.created_at.isoformat(),
                     'audio_path': msg.audio_path,
+                    'image_path': msg.image_path,
+                    'doc_path': msg.doc_path,
                     'language': msg.language,
-                    'temp_audio_url': generate_signed_url(msg.audio_path)
+                    'attachments': msg.attachments,
+                    'metadata': msg.metadata,
+                    'parent_message_ids': [str(pid) for pid in (msg.parent_message_ids or [])],
+                    'child_ids': [str(cid) for cid in (msg.child_ids or [])],
+                    **({'temp_audio_url': generate_signed_url(msg.audio_path)} if msg.audio_path else {}),
+                    **({'temp_image_url': generate_signed_url(msg.image_path, 900)} if msg.image_path else {}),
                 }
                 for msg in messages
-            ]
+            ],
         }
-        
+
         return Response(response_data)
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='continue',
+        authentication_classes=[FirebaseAuthentication, AnonymousTokenAuthentication],
+        permission_classes=[IsAuthenticated],
+    )
+    def continue_chat(self, request, *args, **kwargs):
+        """
+        Fork a shared session into the requesting user's account.
+        POST /api/shared/<share_token>/continue/
+        """
+        session = self.get_object()
+
+        if session.deleted_at is not None:
+            return Response(
+                {'error': 'The original session has been deleted.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if session.user == request.user:
+            return Response(
+                {'error': 'You already own this session. Use the duplicate action instead.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        new_session = ChatSessionService.duplicate_session(
+            session=session,
+            user=request.user,
+            include_messages=True,
+            new_title=f"Fork of: {session.title or 'Untitled'}",
+        )
+
+        return Response(
+            {
+                'new_session_id': str(new_session.id),
+                'redirect_url': f'/chat/{new_session.id}',
+            },
+            status=status.HTTP_201_CREATED,
+        )    
