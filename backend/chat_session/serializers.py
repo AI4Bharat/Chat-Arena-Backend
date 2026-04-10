@@ -72,11 +72,17 @@ class ChatSessionCreateSerializer(serializers.ModelSerializer):
         mode = attrs.get('mode')
         
         if mode == 'direct':
-            if not attrs.get('model_a_id'):
+            # EduViz sessions don't require a model (manual annotation)
+            session_type = attrs.get('session_type', 'LLM')
+            if session_type == 'EDUVIZ':
+                attrs['model_a_id'] = None
+                attrs['model_b_id'] = None
+            elif not attrs.get('model_a_id'):
                 raise serializers.ValidationError(
                     "model_a_id is required for direct mode"
                 )
-            attrs['model_b_id'] = None
+            else:
+                attrs['model_b_id'] = None
             
         elif mode == 'compare':
             if not attrs.get('model_a_id') or not attrs.get('model_b_id'):
@@ -193,7 +199,7 @@ class ChatSessionRetrieveSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatSession
         fields = [
-            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b', 'session_type'
+            'id', 'mode', 'title', 'created_at', 'model_a', 'model_b', 'session_type', 'metadata'
         ]
 
     def to_representation(self, instance):
