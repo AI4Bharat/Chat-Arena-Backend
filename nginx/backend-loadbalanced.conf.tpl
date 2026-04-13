@@ -5,6 +5,10 @@
 access_log /var/log/nginx/${domain}.access.log load_balanced;
 error_log /var/log/nginx/${domain}.error.log warn;
 
+# JSON error response served when backend is down (502/503/504)
+# Returns CORS headers so browser doesn't block the response
+include /etc/nginx/includes/cors-error.conf;
+
 # Client configuration
 client_max_body_size 100M;
 client_body_timeout 300s;
@@ -50,6 +54,18 @@ location ~ ^/(messages/(stream|[^/]+/regenerate/?)|chat/stream|models/([^/]+/tes
     limit_req zone=streaming_limit burst=5000 nodelay;
     limit_conn conn_limit 5000;
 
+    # CORS Preflight Intercept — guarantees success even if backend is down
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Allow-Methods'     'DELETE, GET, OPTIONS, PATCH, POST, PUT' always;
+        add_header 'Access-Control-Allow-Headers'     'accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-anonymous-token' always;
+        add_header 'Access-Control-Max-Age'           1728000;
+        add_header 'Content-Type'                     'text/plain; charset=utf-8';
+        add_header 'Content-Length'                   0;
+        return 204;
+    }
+
     # Route to streaming-optimized upstream
     proxy_pass http://django_streaming;
 
@@ -85,6 +101,10 @@ location ~ ^/(messages/(stream|[^/]+/regenerate/?)|chat/stream|models/([^/]+/tes
     proxy_next_upstream error timeout http_502 http_503 http_504;
     proxy_next_upstream_tries 3;
     proxy_next_upstream_timeout 10s;
+
+    # Intercept upstream 5xx — return JSON 503 with CORS headers
+    proxy_intercept_errors on;
+    error_page 502 503 504 =503 /50x.json;
 }
 
 # WebSocket endpoints
@@ -120,6 +140,18 @@ location ~ ^/(auth|login|logout|register)/ {
     limit_req zone=auth_limit burst=1000 nodelay;
     limit_conn conn_limit 5000;
 
+    # CORS Preflight Intercept — guarantees success even if backend is down
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Allow-Methods'     'DELETE, GET, OPTIONS, PATCH, POST, PUT' always;
+        add_header 'Access-Control-Allow-Headers'     'accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-anonymous-token' always;
+        add_header 'Access-Control-Max-Age'           1728000;
+        add_header 'Content-Type'                     'text/plain; charset=utf-8';
+        add_header 'Content-Length'                   0;
+        return 204;
+    }
+
     proxy_pass http://django_backend;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -143,6 +175,10 @@ location ~ ^/(auth|login|logout|register)/ {
     # Retry on failure
     proxy_next_upstream error timeout http_502 http_503;
     proxy_next_upstream_tries 2;
+
+    # Intercept upstream 5xx — return JSON 503 with CORS headers
+    proxy_intercept_errors on;
+    error_page 502 503 504 =503 /50x.json;
 }
 
 # Static files
@@ -178,6 +214,18 @@ location / {
     limit_req zone=general_limit burst=1000 nodelay;
     limit_conn conn_limit 5000;
 
+    # CORS Preflight Intercept — guarantees success even if backend is down
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Allow-Methods'     'DELETE, GET, OPTIONS, PATCH, POST, PUT' always;
+        add_header 'Access-Control-Allow-Headers'     'accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-anonymous-token' always;
+        add_header 'Access-Control-Max-Age'           1728000;
+        add_header 'Content-Type'                     'text/plain; charset=utf-8';
+        add_header 'Content-Length'                   0;
+        return 204;
+    }
+
     # Pass to load-balanced backend
     proxy_pass http://django_backend;
 
@@ -208,6 +256,10 @@ location / {
     proxy_next_upstream_tries 3;
     proxy_next_upstream_timeout 30s;
 
+    # Intercept upstream 5xx — return JSON 503 with CORS headers
+    proxy_intercept_errors on;
+    error_page 502 503 504 =503 /50x.json;
+
     # Add response headers
     add_header X-Backend-Server $upstream_addr always;
     add_header X-Request-ID $request_id always;
@@ -218,4 +270,8 @@ error_page 502 503 504 /50x.html;
 location = /50x.html {
     root /usr/share/nginx/html;
     internal;
+
+    # CORS headers so the frontend JS can read the 50x body and fire backend-down
+    add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+    add_header 'Access-Control-Allow-Credentials' 'true' always;
 }

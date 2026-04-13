@@ -58,6 +58,18 @@ location ~ ^/(messages/(stream|[^/]+/regenerate/?)|chat/stream|models/([^/]+/tes
     limit_req zone=streaming_limit burst=20 nodelay;
     limit_conn conn_limit 100;
 
+    # CORS preflight — handled here before proxy_pass so it succeeds even when backend is down
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Allow-Methods'     'DELETE, GET, OPTIONS, PATCH, POST, PUT' always;
+        add_header 'Access-Control-Allow-Headers'     'accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-anonymous-token' always;
+        add_header 'Access-Control-Max-Age'           1728000;
+        add_header 'Content-Type'                     'text/plain; charset=utf-8';
+        add_header 'Content-Length'                   0;
+        return 204;
+    }
+
     proxy_pass http://django_streaming;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -119,6 +131,18 @@ location ~ ^/(auth|login|logout|register|api/auth)/ {
     limit_req zone=auth_limit burst=10 nodelay;
     limit_conn conn_limit 20;
 
+    # CORS preflight — handled here before proxy_pass so it succeeds even when backend is down
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Allow-Methods'     'DELETE, GET, OPTIONS, PATCH, POST, PUT' always;
+        add_header 'Access-Control-Allow-Headers'     'accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-anonymous-token' always;
+        add_header 'Access-Control-Max-Age'           1728000;
+        add_header 'Content-Type'                     'text/plain; charset=utf-8';
+        add_header 'Content-Length'                   0;
+        return 204;
+    }
+
     proxy_pass http://django_backend;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -151,6 +175,18 @@ location ~ ^/api/(messages/(upload|audio|document)|upload)/ {
 
     client_max_body_size 100M;
     client_body_timeout 300s;
+
+    # CORS preflight — handled here before proxy_pass so it succeeds even when backend is down
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Allow-Methods'     'DELETE, GET, OPTIONS, PATCH, POST, PUT' always;
+        add_header 'Access-Control-Allow-Headers'     'accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-anonymous-token' always;
+        add_header 'Access-Control-Max-Age'           1728000;
+        add_header 'Content-Type'                     'text/plain; charset=utf-8';
+        add_header 'Content-Length'                   0;
+        return 204;
+    }
 
     proxy_pass http://django_backend;
     proxy_http_version 1.1;
@@ -214,6 +250,18 @@ location / {
     limit_req zone=general_limit burst=100 nodelay;
     limit_conn conn_limit 200;
 
+    # CORS preflight — handled here before proxy_pass so it succeeds even when backend is down
+    if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Allow-Methods'     'DELETE, GET, OPTIONS, PATCH, POST, PUT' always;
+        add_header 'Access-Control-Allow-Headers'     'accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-anonymous-token' always;
+        add_header 'Access-Control-Max-Age'           1728000;
+        add_header 'Content-Type'                     'text/plain; charset=utf-8';
+        add_header 'Content-Length'                   0;
+        return 204;
+    }
+
     proxy_pass http://django_backend;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -250,10 +298,16 @@ location / {
 # -----------------------------------------------------------------------------
 # ERROR PAGES
 # -----------------------------------------------------------------------------
+# CORS preflight OPTIONS requests are intercepted by the location blocks above
+# and never reach here, so we only need CORS headers for real (non-preflight) requests.
 error_page 502 503 504 /50x.html;
 location = /50x.html {
     root /usr/share/nginx/html;
     internal;
+
+    # CORS headers so the frontend can read the 502 body and fire backend-down
+    add_header 'Access-Control-Allow-Origin'      '$cors_origin' always;
+    add_header 'Access-Control-Allow-Credentials' 'true' always;
 }
 
 # Custom 429 (rate limit) response
