@@ -98,7 +98,7 @@ jwcrypto==1.5.6
 kombu==5.5.4
 lazy_loader==0.4
 librosa==0.11.0
-litellm==1.80.7
+litellm>=1.83.0
 llvmlite==0.46.0
 locust==2.29.0
 Markdown==3.9
