@@ -299,11 +299,22 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         session.metadata['transferred_at'] = timezone.now().isoformat()
         session.save()
         
-        return Response({
-            'status': 'transferred',
-            'session_id': str(session.id)
-        })
-    
+    def partial_update(self, request, *args, **kwargs):
+        """Override to implement secure metadata merging for EduViz only"""
+        instance = self.get_object()
+        
+        # Guards against "shallow" frontend syncs deleting image paths.
+        if getattr(instance, 'session_type', '').upper() == 'EDUVIZ' and 'metadata' in request.data:
+            new_metadata = request.data['metadata']
+            if isinstance(new_metadata, dict):
+                # We merge with what's CURRENTLY in the database
+                old_metadata = instance.metadata or {}
+                # Merging ensures image_path/url are NEVER lost unless explicitly removed
+                merged = {**old_metadata, **new_metadata}
+                request.data['metadata'] = merged
+                
+        return super().partial_update(request, *args, **kwargs)
+
     def retrieve(self, request, *args, **kwargs):
         """Get session details with messages"""
         try:
@@ -314,6 +325,30 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             ).order_by('-position')[:50]
             
             session_data = ChatSessionRetrieveSerializer(session, context={'request': request}).data
+            
+            # REGENERATION LOGIC FOR EDUVIZ HISTORIC IMAGES
+            if getattr(session, 'session_type', '').upper() == 'EDUVIZ' and session_data.get('metadata'):
+                metadata = session_data['metadata']
+                
+                # Handle metadata arriving as a string
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                        session_data['metadata'] = metadata
+                    except:
+                        pass
+                
+                if isinstance(metadata, dict):
+                    ref_path = metadata.get('reference_image_path')
+                    stu_path = metadata.get('student_image_path')
+                    
+                    if ref_path:
+                        metadata['reference_image_url'] = generate_signed_url(ref_path, 3600)
+                    if stu_path:
+                        metadata['student_image_url'] = generate_signed_url(stu_path, 3600)
+                
+                # If these are manual sessions (no messages), the frontend relies strictly 
+                # on these URLs in metadata to show the images.
             
             response_data = {
                 'session': session_data,
