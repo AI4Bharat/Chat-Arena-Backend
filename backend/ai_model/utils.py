@@ -146,7 +146,7 @@ class ModelCostCalculator:
 
 # Models that support multimodal inputs (images, documents, audio)
 MULTIMODAL_MODELS_NAMES = [
-  'GPT 5', 'GPT 5.2', 'GPT 5 Pro', 'GPT 4o'
+    'gemini-2.5-pro', 'gpt-5.4'
 ]
 
 class ModelSelector:
@@ -322,7 +322,7 @@ class ModelSelector:
             queryset = queryset.filter(model_type=model_type)
 
         if requires_multimodal:
-            queryset = queryset.filter(display_name__in=MULTIMODAL_MODELS_NAMES)
+            queryset = queryset.filter(model_code__in=MULTIMODAL_MODELS_NAMES)
         
         models = list(queryset)
         
