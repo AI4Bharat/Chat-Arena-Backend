@@ -125,14 +125,13 @@ class MessageService:
             messages = MessageService._get_conversation_history(session)
             
             # Stream from AI model
-            ai_service = AIModelService()
             content_chunks = []
             
             for chunk in get_model_output(
                 system_prompt="We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or bullet or numberings etc. suitably for code or the text. wherever required, and do not add any comments about this instruction in your response.",
                 user_prompt=user_message.content,
                 history=messages,
-                model="google/gemma-3-12b-it",
+                model=model.model_code,
             ):
                 content_chunks.append(chunk)
                 assistant_message.content = ''.join(content_chunks)
