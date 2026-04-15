@@ -40,6 +40,8 @@ from message.utlis import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
 from django.db.models import Min, Q
+from common.security_utils import sanitize_error_message
+from common.throttles import AIGenerationThrottle
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -100,7 +102,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
     
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], throttle_classes=[AIGenerationThrottle])
     def stream(self, request):
         """Stream a message response"""
         serializer = MessageStreamSerializer(data=request.data.get('messages'), many=True)
@@ -200,7 +202,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # Generate signed URL for image if present
                     image_url = None
                     if hasattr(user_message, 'image_path') and user_message.image_path:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                     
                     # Document logic
                     prompt_content = user_message.content
@@ -303,7 +305,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Generate signed URL for image if present
                         image_url = None
                         if hasattr(user_message, 'image_path') and user_message.image_path:
-                            image_url = generate_signed_url(user_message.image_path, 900)
+                            image_url = generate_signed_url(user_message.image_path, 300)
                         
                         # Document logic
                         prompt_content = user_message.content
@@ -406,7 +408,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Generate signed URL for image if present
                         image_url = None
                         if hasattr(user_message, 'image_path') and user_message.image_path:
-                            image_url = generate_signed_url(user_message.image_path, 900)
+                            image_url = generate_signed_url(user_message.image_path, 300)
                         
                         # Document logic
                         prompt_content = user_message.content
@@ -770,6 +772,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_a.join()
                 thread_b.join()
     
+
+
         if session.session_type == 'ASR':
             return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
         elif session.session_type == 'TTS':
@@ -825,7 +829,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # Generate signed URL for image if present
                     image_url = None
                     if hasattr(user_message, 'image_path') and user_message.image_path:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                     
                     # Document logic
                     prompt_content = user_message.content
@@ -1066,12 +1070,19 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            start_message = Message.objects.get(id=start_id)
-            end_message = Message.objects.get(id=end_id)
+            start_message = Message.objects.get(id=start_id, session__user=request.user)
+            end_message = Message.objects.get(id=end_id, session__user=request.user)
         except Message.DoesNotExist:
             return Response(
                 {'error': 'Message not found'},
                 status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify both messages belong to the same session
+        if start_message.session_id != end_message.session_id:
+            return Response(
+                {'error': 'Messages must be in the same session'},
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         # Find path between messages
