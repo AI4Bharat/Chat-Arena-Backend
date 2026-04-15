@@ -41,6 +41,8 @@ from message.utlis import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
 from django.db.models import Min, Q
+from common.security_utils import sanitize_error_message
+from common.throttles import AIGenerationThrottle
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -101,7 +103,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
     
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], throttle_classes=[AIGenerationThrottle])
     def stream(self, request):
         """Stream a message response"""
         serializer = MessageStreamSerializer(data=request.data.get('messages'), many=True)
@@ -201,7 +203,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # Generate signed URL for image if present
                     image_url = None
                     if hasattr(user_message, 'image_path') and user_message.image_path:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                     
                     # Document logic
                     prompt_content = user_message.content
@@ -304,7 +306,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Generate signed URL for image if present
                         image_url = None
                         if hasattr(user_message, 'image_path') and user_message.image_path:
-                            image_url = generate_signed_url(user_message.image_path, 900)
+                            image_url = generate_signed_url(user_message.image_path, 300)
                         
                         # Document logic
                         prompt_content = user_message.content
@@ -407,7 +409,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Generate signed URL for image if present
                         image_url = None
                         if hasattr(user_message, 'image_path') and user_message.image_path:
-                            image_url = generate_signed_url(user_message.image_path, 900)
+                            image_url = generate_signed_url(user_message.image_path, 300)
                         
                         # Document logic
                         prompt_content = user_message.content
@@ -777,7 +779,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
             if session.mode == 'direct':
                 start_time = time.time()
-                image_url = generate_signed_url(user_message.image_path, 900)
+                image_url = generate_signed_url(user_message.image_path, 300)
                 context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
 
                 ocr_result = []
@@ -797,7 +799,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 def stream_model_a():
                     start_time_a = time.time()
                     try:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
                         ocr_result_a = []
                         for annotation in stream_ocr_output(image_url, model=session.model_a.model_code, generate_text=generate_text, log_context=context):
@@ -814,14 +816,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.status = 'error'
                         assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
-                        chunk_queue.put(('a', f'ad:{json.dumps({"finishReason": "error", "error": str(e)})}\n'))
+                        chunk_queue.put(('a', f'ad:{json.dumps({"finishReason": "error", "error": sanitize_error_message(e)})}\n'))
                     finally:
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
                     start_time_b = time.time()
                     try:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
                         ocr_result_b = []
                         for annotation in stream_ocr_output(image_url, model=session.model_b.model_code, generate_text=generate_text, log_context=context):
@@ -838,7 +840,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.status = 'error'
                         assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
-                        chunk_queue.put(('b', f'bd:{json.dumps({"finishReason": "error", "error": str(e)})}\n'))
+                        
+                        chunk_queue.put(('b', f'bd:{json.dumps({"finishReason": "error", "error": sanitize_error_message(e)})}\n'))
                     finally:
                         chunk_queue.put(('b', None))
 
@@ -974,7 +977,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # Generate signed URL for image if present
                     image_url = None
                     if hasattr(user_message, 'image_path') and user_message.image_path:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                     
                     # Document logic
                     prompt_content = user_message.content
@@ -1215,12 +1218,19 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            start_message = Message.objects.get(id=start_id)
-            end_message = Message.objects.get(id=end_id)
+            start_message = Message.objects.get(id=start_id, session__user=request.user)
+            end_message = Message.objects.get(id=end_id, session__user=request.user)
         except Message.DoesNotExist:
             return Response(
                 {'error': 'Message not found'},
                 status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify both messages belong to the same session
+        if start_message.session_id != end_message.session_id:
+            return Response(
+                {'error': 'Messages must be in the same session'},
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         # Find path between messages
@@ -1330,7 +1340,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({'pages': pages}, status=status.HTTP_200_OK)
 
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': sanitize_error_message(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_audio(self, request):

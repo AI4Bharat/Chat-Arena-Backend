@@ -8,6 +8,7 @@ from google.cloud import texttospeech
 from google.api_core.client_options import ClientOptions
 import base64
 from ai_model.error_logging import log_and_raise
+from common.security_utils import sanitize_error_message
 from cartesia import Cartesia
 from elevenlabs.client import ElevenLabs
 import tritonclient.http as http_client
@@ -186,7 +187,7 @@ def get_elevenlabs_output(tts_input, lang, gender, voice=None, log_context=None)
         return audio
         
     except Exception as e:
-        log_and_raise(e, model_code='elevenlabs', provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code='elevenlabs', provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {sanitize_error_message(e)}", log_context=log_context)
 
 def get_elevenlabs_tts_output(tts_input, model, gender, voice=None, log_context=None):
     ELEVENLABS_VOICE_MAP = {
@@ -224,7 +225,7 @@ def get_elevenlabs_tts_output(tts_input, model, gender, voice=None, log_context=
         return upload_tts_audio(audio_base64)
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='elevenlabs', custom_message=f"ElevenLabs TTS error: {sanitize_error_message(e)}", log_context=log_context)
 
 def get_parler_output(tts_input, lang, gender, voice=None, log_context=None):
     """
@@ -261,7 +262,7 @@ def get_parler_output(tts_input, lang, gender, voice=None, log_context=None):
         return audio
         
     except Exception as e:
-        log_and_raise(e, model_code='indicparlertts', provider='ai4bharat', custom_message=f"IndicParlerTTS error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code='indicparlertts', provider='ai4bharat', custom_message=f"IndicParlerTTS error: {sanitize_error_message(e)}", log_context=log_context)
 
 def get_openai_tts_output(tts_input, model, gender, voice=None, log_context=None):
     OPENAI_VOICE_MAP = {
@@ -304,7 +305,7 @@ def get_openai_tts_output(tts_input, model, gender, voice=None, log_context=None
         return audio
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='openai', custom_message=f"OpenAI TTS error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='openai', custom_message=f"OpenAI TTS error: {sanitize_error_message(e)}", log_context=log_context)
 
 def get_minimax_tts_output(tts_input, lang, model, gender, voice=None, log_context=None):
     """
@@ -369,7 +370,7 @@ def get_minimax_tts_output(tts_input, lang, model, gender, voice=None, log_conte
         return audio
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='minimax', custom_message=f"MiniMax TTS error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='minimax', custom_message=f"MiniMax TTS error: {sanitize_error_message(e)}", log_context=log_context)
 
 def get_cartesia_tts_output(tts_input, model, gender, voice=None, log_context=None):
     CARTESIA_VOICE_MAP = {
@@ -410,7 +411,7 @@ def get_cartesia_tts_output(tts_input, model, gender, voice=None, log_context=No
         return audio
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='cartesia', custom_message=f"Cartesia TTS error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='cartesia', custom_message=f"Cartesia TTS error: {sanitize_error_message(e)}", log_context=log_context)
 
 def get_indicf5_tts_output(tts_input, lang, model, gender, voice=None, log_context=None):
     import json
@@ -491,7 +492,7 @@ def get_indicf5_tts_output(tts_input, lang, model, gender, voice=None, log_conte
         return upload_tts_audio(audio_base64)
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='ai4bharat', custom_message=f"IndicF5 TTS error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='ai4bharat', custom_message=f"IndicF5 TTS error: {sanitize_error_message(e)}", log_context=log_context)
 
 def get_tts_output(tts_input, lang, model, gender=None, voice=None, **kwargs):
     log_context = kwargs.get('context')

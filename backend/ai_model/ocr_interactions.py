@@ -7,6 +7,7 @@ import requests
 from PIL import Image as PILImage
 from openai import OpenAI
 from ai_model.error_logging import log_and_raise
+from common.security_utils import sanitize_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ def get_gemini_ocr_output(image_url, model, generate_text=True, log_context=None
 
     except Exception as e:
         log_and_raise(e, model_code=model, provider='google',
-                      custom_message=f"Gemini OCR error: {str(e)}", log_context=log_context)
+                      custom_message=f"Gemini OCR error: {sanitize_error_message(e)}", log_context=log_context)
 
 
 def stream_gemini_ocr_output(image_url, model, generate_text=True, log_context=None):
@@ -238,7 +239,7 @@ def stream_gemini_ocr_output(image_url, model, generate_text=True, log_context=N
 
     except Exception as e:
         log_and_raise(e, model_code=model, provider='google',
-                      custom_message=f"Gemini OCR streaming error: {str(e)}", log_context=log_context)
+                      custom_message=f"Gemini OCR streaming error: {sanitize_error_message(e)}", log_context=log_context)
 
 
 REGION_TEXT_PROMPT = """You are an OCR engine for a document region crop. Transcribe all readable text in this image exactly as it appears.
@@ -294,7 +295,7 @@ def extract_region_text(image_url, box, model="gemini-2.0-flash", log_context=No
 
     except Exception as e:
         log_and_raise(e, model_code=model, provider='google',
-                      custom_message=f"Region text extraction error: {str(e)}", log_context=log_context)
+                      custom_message=f"Region text extraction error: {sanitize_error_message(e)}", log_context=log_context)
 
 
 def get_ocr_output(image_url, model="google-ocr/gemini-2.5-pro", generate_text=True, log_context=None):

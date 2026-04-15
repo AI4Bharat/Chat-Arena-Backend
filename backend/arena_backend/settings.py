@@ -26,12 +26,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#"
+# In production, set DJANGO_SECRET_KEY in your .env file
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("CRITICAL: SECRET_KEY environment variable is not set!")
 
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 ALLOWED_HOSTS = ['34.131.31.84','localhost', '98.70.28.77', '35.200.149.142', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.co', 'https://backend.dev.arena.ai4bharat.co', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org', 'https://backend.arena.ai4bharat.co', 'backend.arena.ai4bharat.co']
 
@@ -111,7 +114,7 @@ MIDDLEWARE = [
 
 CORS_ORIGIN_ALLOW_ALL = True
 
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False  
 
 ROOT_URLCONF = "arena_backend.urls"
 
@@ -145,6 +148,17 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'EXCEPTION_HANDLER': 'common.exception_handler.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/minute',         # Unauthenticated requests
+        'user': '200/minute',        # Authenticated requests (general)
+        'ai_generation': '30/minute', # AI model generation (streaming)
+        'auth': '10/minute',         # Login/register attempts per IP
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -250,6 +264,21 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 # https://docs.djangoproject.com/en/4.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Security headers
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = "DENY"
+
+# HTTPS enforcement — only in production (when DEBUG=False)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Redis configuration - use environment variable for host to support both dev and prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 'redis' for Docker, '127.0.0.1' for local dev
