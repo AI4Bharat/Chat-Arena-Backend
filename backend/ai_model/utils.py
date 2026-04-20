@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 from django.core.cache import cache
-from django.db.models import F
+from django.db.models import F, Q, Count
 import math
 import logging
 from django.http import JsonResponse
@@ -144,10 +144,7 @@ class ModelCostCalculator:
 
 
 
-# Models that support multimodal inputs (images, documents, audio)
-MULTIMODAL_MODELS_NAMES = [
-  'GPT 5', 'GPT 5.2', 'GPT 5 Pro', 'GPT 4o'
-]
+# Models that support multimodal inputs are now determined dynamically by their capabilities.
 
 class ModelSelector:
     """Select models based on various criteria"""
@@ -294,14 +291,17 @@ class ModelSelector:
         return tuple(random.sample(models_list, 2))
     
     # Academic-only models that should only be used in academic mode
-    ACADEMIC_ONLY_MODELS = ['elevenlabs', 'indicparlertts']
+    ACADEMIC_ONLY_MODELS = [
+        'elevenlabs', 'indicparlertts', 'indicf5', 'eleven_v3', 
+        'sonic-3', 'speech-2.8-hd'
+    ]
     
     @staticmethod
     def get_random_models_for_comparison(
         exclude_ids: List[str] = None,
         category: Optional[str] = None,
         model_type: Optional[str] = None,
-        requires_multimodal: bool = False,
+        required_capabilities: List[str] = None,
         mode: Optional[str] = None,
     ) -> tuple:
         """Get two random models for comparison"""
@@ -321,16 +321,19 @@ class ModelSelector:
         if model_type:
             queryset = queryset.filter(model_type=model_type)
 
-        if requires_multimodal:
-            queryset = queryset.filter(display_name__in=MULTIMODAL_MODELS_NAMES)
+        if required_capabilities:
+            for cap in required_capabilities:
+                if cap == 'image':
+                    # Support both 'image' and 'vision' as synonyms
+                    queryset = queryset.filter(Q(capabilities__contains=['image']) | Q(capabilities__contains=['vision']))
+                else:
+                    queryset = queryset.filter(capabilities__contains=[cap])
         
         models = list(queryset)
         
         if len(models) < 2:
-            if requires_multimodal:
-                 # If explicit multimodal required but not enough found, log a warning and fall back (soft fail) or raise error?
-                 # Raising error is safer to prevent sending image to a blind model
-                 raise ValueError("Not enough multimodal models available for comparison")
+            if required_capabilities:
+                 raise ValueError(f"Not enough models available that support {required_capabilities}")
             raise ValueError("Not enough models available for comparison")
         
         if model_type == "LLM":

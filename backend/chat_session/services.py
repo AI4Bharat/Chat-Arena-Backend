@@ -21,15 +21,20 @@ class ChatSessionService:
     def create_session_with_random_models(user, mode: str = 'random', metadata: Dict = None, session_type: str = None) -> ChatSession:
         """Create a session with randomly selected models"""
         
-        # Check metadata for multimodal requirements
-        requires_multimodal = False
+        # Extract specific capability requirements from metadata
+        required_capabilities = []
         if metadata:
-            requires_multimodal = metadata.get('has_image', False) or metadata.get('has_audio', False) or metadata.get('has_document', False)
+            if metadata.get('has_image'):
+                required_capabilities.append('image')
+            if metadata.get('has_audio'):
+                required_capabilities.append('audio')
+            if metadata.get('has_document'):
+                required_capabilities.append('document')
 
         try:
             model_a, model_b = ModelSelector.get_random_models_for_comparison(
                 model_type=session_type,
-                requires_multimodal=requires_multimodal,
+                required_capabilities=required_capabilities if required_capabilities else None,
                 mode=mode,
             )
         except ValueError as e:
