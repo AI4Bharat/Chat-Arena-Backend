@@ -24,6 +24,7 @@ class AIModel(models.Model):
         ('deepgram', 'Deepgram'),
         ('assemblyai', 'AssemblyAI'),
         ('aquarium', 'Aquarium'),
+        ('nvidia', 'NVIDIA'),
     ]
 
     TYPE_CHOICES = [
