@@ -18,6 +18,7 @@ class AIModel(models.Model):
         ('minimax', 'MiniMax'),
         ('cartesia', 'Cartesia'),
         ('murf', 'MurfAI'),
+        ('nvidia', 'NVIDIA'),
     ]
 
     TYPE_CHOICES = [
