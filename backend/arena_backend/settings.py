@@ -155,10 +155,11 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '60/minute',
-        'user': '200/minute',
-        'expensive_ai': '30/minute',
-        'auth': '10/minute',
+        'anon': '60/minute',         # Unauthenticated requests
+        'user': '200/minute',        # Authenticated requests (general)
+        'ai_generation': '30/minute', # AI model generation (streaming)
+        'auth': '10/minute',         # Login/register attempts per IP
+        'expensive_ai': '30/minute', # Expensive AI endpoints (uploads)
     },
 }
 
