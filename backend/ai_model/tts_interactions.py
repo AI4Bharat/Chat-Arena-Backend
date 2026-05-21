@@ -2,7 +2,7 @@ import os
 import requests
 from rest_framework.response import Response
 from rest_framework import status
-from message.utlis import upload_tts_audio
+from message.utils import upload_tts_audio
 import random
 from google.cloud import texttospeech
 from google.api_core.client_options import ClientOptions

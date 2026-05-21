@@ -6,6 +6,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.throttling import ScopedRateThrottle
 from django.shortcuts import get_object_or_404
 import asyncio
 from message.models import Message
@@ -36,7 +37,7 @@ from django.conf import settings
 import datetime
 import uuid
 import tempfile
-from message.utlis import generate_signed_url
+from message.utils import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
 from django.db.models import Min, Q
@@ -1069,8 +1070,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                 {'error': 'Message not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+            
+    stream.throttle_scope = 'expensive_ai'
 
-        
     @action(detail=True, methods=['get'])
     def tree(self, request, pk=None):
         """Get message tree starting from this message"""
@@ -1182,17 +1184,24 @@ class MessageViewSet(viewsets.ModelViewSet):
 
 
 
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser], throttle_classes=[ScopedRateThrottle])
     def upload_image(self, request):
         if 'image' not in request.FILES:
             return Response({'error': 'No image provided'}, status=status.HTTP_400_BAD_REQUEST)
             
         image_file = request.FILES['image']
+        
+        # Validate size (max 5MB)
+        if image_file.size > 5 * 1024 * 1024:
+            return Response({
+                'error': 'Image size must be less than 5MB'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
         try:
             client = storage.Client()
             bucket = client.bucket(settings.GS_BUCKET_NAME)
             ext = os.path.splitext(image_file.name)[1]
-            blob_name = f"llm-images-input/{uuid.uuid4()}{ext}"
+            blob_name = f"llm-images-input/{request.user.id}/{uuid.uuid4()}{ext}"
             blob = bucket.blob(blob_name)
             blob.upload_from_file(image_file, content_type=image_file.content_type)
             
@@ -1205,8 +1214,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    upload_image.throttle_scope = 'expensive_ai'
     
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser], throttle_classes=[ScopedRateThrottle])
     def upload_audio(self, request):
         if 'audio' not in request.FILES:
             return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1307,7 +1318,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             bucket = client.bucket(settings.GS_BUCKET_NAME)
 
             # Use asr-audios folder as it seems preferred for ASR
-            blob_name = f"asr-audios/{uuid.uuid4()}.wav"
+            blob_name = f"asr-audios/{request.user.id}/{uuid.uuid4()}.wav"
             blob = bucket.blob(blob_name)
 
             with open(temp_output_path, "rb") as f:
@@ -1332,8 +1343,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             except:
                 pass
             return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    upload_audio.throttle_scope = 'expensive_ai'
     
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser], throttle_classes=[ScopedRateThrottle])
     def upload_document(self, request):
         if 'document' not in request.FILES:
             return Response({'error': 'No document provided'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1368,7 +1381,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             client = storage.Client()
             bucket = client.bucket(settings.GS_BUCKET_NAME)
             ext = os.path.splitext(doc_file.name)[1]
-            blob_name = f"llm-documents-input/{uuid.uuid4()}{ext}"
+            blob_name = f"llm-documents-input/{request.user.id}/{uuid.uuid4()}{ext}"
             blob = bucket.blob(blob_name)
             blob.upload_from_file(doc_file, content_type=doc_file.content_type)
             
@@ -1381,6 +1394,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    upload_document.throttle_scope = 'expensive_ai'
 
 class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]
