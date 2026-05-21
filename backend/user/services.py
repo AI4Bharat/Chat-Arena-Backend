@@ -15,22 +15,21 @@ logger = logging.getLogger(__name__)
 # Initialize Firebase Admin SDK
 if not firebase_admin._apps:
     try:
-        # Path to service account key
-        cred_path = os.path.join(settings.BASE_DIR, 'arena_backend/serviceAccountKey.json')
-
-        # Log the path for debugging
-        logger.info(f"Loading Firebase credentials from: {cred_path}")
+        # Path to service account key — configurable via environment variable
+        cred_path = os.getenv(
+            'FIREBASE_CREDENTIALS_PATH',
+            os.path.join(settings.BASE_DIR, 'arena_backend/serviceAccountKey.json')
+        )
 
         # Check if file exists
         if not os.path.exists(cred_path):
-            logger.error(f"Firebase credentials file not found at: {cred_path}")
-            raise FileNotFoundError(f"Firebase credentials not found at: {cred_path}")
+            raise FileNotFoundError("Firebase credentials file not found. Set FIREBASE_CREDENTIALS_PATH env var.")
 
         cred = credentials.Certificate(cred_path)
         firebase_admin.initialize_app(cred)
         logger.info("Firebase Admin SDK initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
+        logger.error(f"Failed to initialize Firebase Admin SDK: {type(e).__name__}")
         raise
 
 

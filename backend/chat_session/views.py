@@ -25,7 +25,7 @@ from chat_session.permissions import IsSessionOwner, CanAccessSharedSession
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
 from ai_model.llm_interactions import get_model_output
 import re
-from message.utlis import generate_signed_url
+from message.utils import generate_signed_url
 
 
 class ChatSessionViewSet(viewsets.ModelViewSet):
@@ -96,6 +96,22 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         elif self.action == 'filtered_by_type':
             return ChatSessionListSerializer
         return ChatSessionSerializer
+        
+    def get_permissions(self):
+        if self.action == 'transfer_ownership':
+            from rest_framework.permissions import IsAuthenticated
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def get_object(self):
+        if self.action == 'transfer_ownership':
+            # Bypass the self.get_queryset() user filter to find anonymous sessions
+            queryset = ChatSession.objects.select_related('model_a', 'model_b', 'user')
+            filter_kwargs = {self.lookup_field: self.kwargs[self.lookup_url_kwarg or self.lookup_field]}
+            obj = get_object_or_404(queryset, **filter_kwargs)
+            self.check_object_permissions(self.request, obj)
+            return obj
+        return super().get_object()
     
     def _get_academic_tts_votes_count(self, user):
         """Get count of detailed votes submitted in TTS Academic mode"""
@@ -117,6 +133,15 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
 
             mode = serializer.validated_data['mode']
             session_type = serializer.validated_data.get('session_type')
+
+            if mode in {'direct', 'compare'} and getattr(request.user, 'is_anonymous', False):
+                return Response(
+                    {
+                        'error': 'authentication_required',
+                        'message': 'You must be signed in to create a direct or compare mode session.'
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
             if mode == 'academic' and session_type == 'TTS':
                 if not request.user.is_anonymous:
@@ -283,6 +308,18 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
             return Response(
                 {'error': 'Can only transfer sessions from anonymous users'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Security validation: Ensure the request provides the correct anonymous token 
+        # that matches the anonymous user who owns the session.
+        anon_token = request.META.get('HTTP_X_ANONYMOUS_TOKEN')
+        if not anon_token:
+            anon_token = request.data.get('anonymous_token')
+            
+        if not anon_token or session.user.preferences.get('anonymous_token') != anon_token:
+            return Response(
+                {'error': 'Invalid or missing anonymous token. Unauthorized to transfer this session.'},
+                status=status.HTTP_403_FORBIDDEN
             )
         
         if request.user.is_anonymous:

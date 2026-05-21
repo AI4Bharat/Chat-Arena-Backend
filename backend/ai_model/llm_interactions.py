@@ -50,6 +50,7 @@ from litellm import completion
 import json
 from google import genai
 from google.genai import types
+from common.security_utils import sanitize_error_message
 
 GPT35 = "GPT3.5"
 GPT4 = "GPT4"
@@ -354,7 +355,7 @@ def get_sarvam_output(system_prompt, conv_history, user_prompt, model, log_conte
                     continue
     except requests.exceptions.RequestException as e:
         from ai_model.error_logging import log_and_raise
-        print(f"An error occurred during the API request: {e}")
+        print(f"An error occurred during the API request: {sanitize_error_message(e)}")
         log_and_raise(e, model_code=model, provider='sarvam', custom_message="Sarvam API request failed.", log_context=log_context)
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model, image_url=None, log_context=None):

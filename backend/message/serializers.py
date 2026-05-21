@@ -43,7 +43,8 @@ class MessageCreateSerializer(serializers.ModelSerializer):
         model = Message
         fields = [
             'session', 'role', 'content', 'model_id',
-            'parent_message_ids', 'participant', 'attachments'
+            'parent_message_ids', 'participant', 'attachments',
+            'doc_path', 'image_path', 'audio_path'
         ]
     
     def validate_model_id(self, value):
@@ -66,6 +67,36 @@ class MessageCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Parent messages not found: {missing_ids}"
                 )
+        return value
+        
+    def validate_doc_path(self, value):
+        if value:
+            import os
+            normalized_path = os.path.normpath(value).replace('\\', '/')
+            if not normalized_path.startswith('llm-documents-input/'):
+                raise serializers.ValidationError("Unauthorized document path prefix")
+            if '../' in normalized_path or '..' in normalized_path:
+                raise serializers.ValidationError("Path traversal is not allowed")
+        return value
+
+    def validate_image_path(self, value):
+        if value:
+            import os
+            normalized_path = os.path.normpath(value).replace('\\', '/')
+            if not normalized_path.startswith('llm-images-input/'):
+                raise serializers.ValidationError("Unauthorized image path prefix")
+            if '../' in normalized_path or '..' in normalized_path:
+                raise serializers.ValidationError("Path traversal is not allowed")
+        return value
+
+    def validate_audio_path(self, value):
+        if value:
+            import os
+            normalized_path = os.path.normpath(value).replace('\\', '/')
+            if not normalized_path.startswith('asr-audios/'):
+                raise serializers.ValidationError("Unauthorized audio path prefix")
+            if '../' in normalized_path or '..' in normalized_path:
+                raise serializers.ValidationError("Path traversal is not allowed")
         return value
     
     def validate(self, attrs):
@@ -143,6 +174,36 @@ class MessageStreamSerializer(serializers.Serializer):
     image_path = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     doc_path = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     temp_doc_url = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+    def validate_doc_path(self, value):
+        if value:
+            import os
+            normalized_path = os.path.normpath(value).replace('\\', '/')
+            if not normalized_path.startswith('llm-documents-input/'):
+                raise serializers.ValidationError("Unauthorized document path prefix")
+            if '../' in normalized_path or '..' in normalized_path:
+                raise serializers.ValidationError("Path traversal is not allowed")
+        return value
+
+    def validate_image_path(self, value):
+        if value:
+            import os
+            normalized_path = os.path.normpath(value).replace('\\', '/')
+            if not normalized_path.startswith('llm-images-input/'):
+                raise serializers.ValidationError("Unauthorized image path prefix")
+            if '../' in normalized_path or '..' in normalized_path:
+                raise serializers.ValidationError("Path traversal is not allowed")
+        return value
+
+    def validate_audio_path(self, value):
+        if value:
+            import os
+            normalized_path = os.path.normpath(value).replace('\\', '/')
+            if not normalized_path.startswith('asr-audios/'):
+                raise serializers.ValidationError("Unauthorized audio path prefix")
+            if '../' in normalized_path or '..' in normalized_path:
+                raise serializers.ValidationError("Path traversal is not allowed")
+        return value
 
     def validate(self, attrs):
         role = attrs.get('role')

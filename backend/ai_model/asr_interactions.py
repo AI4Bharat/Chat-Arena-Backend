@@ -6,6 +6,7 @@ from openai import OpenAI
 from rest_framework.response import Response
 from rest_framework import status
 from ai_model.error_logging import log_and_raise
+from common.security_utils import sanitize_error_message
 
 LANG_CODE_TO_NAME = {
     "hi": "Hindi", "mr": "Marathi", "ta": "Tamil", "te": "Telugu",
@@ -47,7 +48,7 @@ def get_gemini_asr_output(audio_url, lang, model, log_context=None):
         return transcript
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='google', custom_message=f"Gemini ASR error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='google', custom_message=f"Gemini ASR error: {sanitize_error_message(e)}", log_context=log_context)
 
 
 def get_openai_asr_output(audio_url, lang, model, log_context=None):
@@ -73,7 +74,7 @@ def get_openai_asr_output(audio_url, lang, model, log_context=None):
         return transcription.strip() if isinstance(transcription, str) else transcription.text.strip()
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='openai', custom_message=f"OpenAI ASR error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='openai', custom_message=f"OpenAI ASR error: {sanitize_error_message(e)}", log_context=log_context)
 
 
 def get_sarvam_asr_output(audio_url, lang, model, log_context=None):
@@ -108,7 +109,7 @@ def get_sarvam_asr_output(audio_url, lang, model, log_context=None):
         return transcript
 
     except Exception as e:
-        log_and_raise(e, model_code=model, provider='sarvam', custom_message=f"Sarvam ASR error: {str(e)}", log_context=log_context)
+        log_and_raise(e, model_code=model, provider='sarvam', custom_message=f"Sarvam ASR error: {sanitize_error_message(e)}", log_context=log_context)
 
 
 def get_dhruva_output(audio_url, lang, log_context=None):

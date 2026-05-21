@@ -8,6 +8,8 @@ from django.utils import timezone
 from django.db import transaction
 import logging
 
+from common.throttles import AuthRateThrottle
+
 from .models import User
 from .serializers import (
     UserSerializer, UserCreateSerializer, UserPreferencesSerializer,
@@ -20,7 +22,8 @@ from django.db.models import Count
 from message.models import Message
 from django.db.models.functions import TruncDate
 from datetime import datetime, timedelta
-
+from common.security_utils import sanitize_error_message
+                
 logger = logging.getLogger(__name__)
 
 
@@ -70,6 +73,7 @@ class GoogleAuthView(views.APIView):
     """Handle Google authentication"""
     permission_classes = [AllowAny]
     serializer_class = GoogleAuthSerializer
+    throttle_classes = [AuthRateThrottle]
     
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
@@ -117,6 +121,7 @@ class PhoneAuthView(views.APIView):
     """Handle Phone authentication"""
     permission_classes = [AllowAny]
     serializer_class = PhoneAuthSerializer
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
@@ -142,7 +147,7 @@ class PhoneAuthView(views.APIView):
                 )
             except ValueError as e:
                 return Response(
-                    {"error": str(e)},
+                    {"error": sanitize_error_message(e)},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -173,6 +178,7 @@ class AnonymousAuthView(views.APIView):
     """Handle anonymous authentication"""
     permission_classes = [AllowAny]
     serializer_class = AnonymousAuthSerializer
+    throttle_classes = [AuthRateThrottle]
     
     def post(self, request):
         serializer = self.serializer_class(data=request.data)

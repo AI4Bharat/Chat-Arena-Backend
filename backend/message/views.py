@@ -7,6 +7,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.throttling import ScopedRateThrottle
 from django.shortcuts import get_object_or_404
 import asyncio
 from message.models import Message
@@ -37,10 +38,56 @@ from django.conf import settings
 import datetime
 import uuid
 import tempfile
-from message.utlis import generate_signed_url
+from message.utils import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
 from django.db.models import Min, Q
+from common.security_utils import sanitize_error_message
+from common.throttles import AIGenerationThrottle
+from django.db import transaction
+
+
+DAILY_MESSAGE_LIMIT = 15
+RATE_LIMITED_MODES = {'direct', 'compare'}
+
+
+class _DailyLimitExceeded(Exception):
+    """Sentinel raised when a user hits the daily message cap."""
+    pass
+
+
+def _check_daily_message_limit(user, session):
+    """
+    Raises _DailyLimitExceeded if the user has sent DAILY_MESSAGE_LIMIT
+    or more user-role messages today across all direct/compare sessions.
+    Uses select_for_update() inside an atomic block so the read and the
+    subsequent insert are serialised at the DB level (no TOCTOU race).
+    """
+    if session.mode not in RATE_LIMITED_MODES:
+        return
+
+    today_start = datetime.datetime.combine(
+        datetime.datetime.now(datetime.timezone.utc).date(),
+        datetime.time.min,
+        tzinfo=datetime.timezone.utc
+    )
+
+    with transaction.atomic():
+        count = (
+            Message.objects
+            .select_for_update()
+            .filter(
+                session__user=user,
+                session__mode__in=RATE_LIMITED_MODES,
+                role='user',
+                created_at__gte=today_start,
+            )
+            .count()
+        )
+
+        if count >= DAILY_MESSAGE_LIMIT:
+            raise _DailyLimitExceeded()
+
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -93,6 +140,28 @@ class MessageViewSet(viewsets.ModelViewSet):
                 {'error': 'You do not own this session'},
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        if session.mode in RATE_LIMITED_MODES and getattr(request.user, 'is_anonymous', False):
+            return Response(
+                {
+                    'error': 'authentication_required',
+                    'message': 'You must be signed in to use direct or compare mode.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if serializer.validated_data.get('role', 'user') == 'user':
+            try:
+                _check_daily_message_limit(request.user, session)
+            except _DailyLimitExceeded:
+                return Response(
+                    {
+                        'error': 'daily_limit_reached',
+                        'message': f'You have reached the daily limit of {DAILY_MESSAGE_LIMIT} messages '
+                                f'in direct and compare modes. Your limit resets at midnight.'
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         message = serializer.save()
         
@@ -101,7 +170,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
     
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], throttle_classes=[AIGenerationThrottle])
     def stream(self, request):
         """Stream a message response"""
         serializer = MessageStreamSerializer(data=request.data.get('messages'), many=True)
@@ -116,6 +185,27 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+
+        if session.mode in RATE_LIMITED_MODES and getattr(request.user, 'is_anonymous', False):
+            return Response(
+                {
+                    'error': 'authentication_required',
+                    'message': 'You must be signed in to use direct or compare mode.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            _check_daily_message_limit(request.user, session)
+        except _DailyLimitExceeded:
+            return Response(
+                {
+                    'error': 'daily_limit_reached',
+                    'message': f'You have reached the daily limit of {DAILY_MESSAGE_LIMIT} messages '
+                            f'in direct and compare modes. Your limit resets at midnight.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         model_a_restricted = session.mode in ['direct', 'compare'] and session.model_a and session.model_a.random_only
         model_b_restricted = session.mode == 'compare' and session.model_b and session.model_b.random_only
@@ -201,7 +291,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # Generate signed URL for image if present
                     image_url = None
                     if hasattr(user_message, 'image_path') and user_message.image_path:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                     
                     # Document logic
                     prompt_content = user_message.content
@@ -304,7 +394,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Generate signed URL for image if present
                         image_url = None
                         if hasattr(user_message, 'image_path') and user_message.image_path:
-                            image_url = generate_signed_url(user_message.image_path, 900)
+                            image_url = generate_signed_url(user_message.image_path, 300)
                         
                         # Document logic
                         prompt_content = user_message.content
@@ -407,7 +497,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                         # Generate signed URL for image if present
                         image_url = None
                         if hasattr(user_message, 'image_path') and user_message.image_path:
-                            image_url = generate_signed_url(user_message.image_path, 900)
+                            image_url = generate_signed_url(user_message.image_path, 300)
                         
                         # Document logic
                         prompt_content = user_message.content
@@ -777,7 +867,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
             if session.mode == 'direct':
                 start_time = time.time()
-                image_url = generate_signed_url(user_message.image_path, 900)
+                image_url = generate_signed_url(user_message.image_path, 300)
                 context = {'session_id': str(session.id), 'message_id': str(assistant_message.id), 'user_email': getattr(request.user, 'email', None)}
 
                 ocr_result = []
@@ -797,7 +887,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 def stream_model_a():
                     start_time_a = time.time()
                     try:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_a.id), 'user_email': getattr(request.user, 'email', None)}
                         ocr_result_a = []
                         for annotation in stream_ocr_output(image_url, model=session.model_a.model_code, generate_text=generate_text, log_context=context):
@@ -814,14 +904,14 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_a.status = 'error'
                         assistant_message_a.latency_ms = round((time.time() - start_time_a) * 1000, 2)
                         assistant_message_a.save(using=db_alias)
-                        chunk_queue.put(('a', f'ad:{json.dumps({"finishReason": "error", "error": str(e)})}\n'))
+                        chunk_queue.put(('a', f'ad:{json.dumps({"finishReason": "error", "error": sanitize_error_message(e)})}\n'))
                     finally:
                         chunk_queue.put(('a', None))
 
                 def stream_model_b():
                     start_time_b = time.time()
                     try:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                         context = {'session_id': str(session.id), 'message_id': str(assistant_message_b.id), 'user_email': getattr(request.user, 'email', None)}
                         ocr_result_b = []
                         for annotation in stream_ocr_output(image_url, model=session.model_b.model_code, generate_text=generate_text, log_context=context):
@@ -838,7 +928,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                         assistant_message_b.status = 'error'
                         assistant_message_b.latency_ms = round((time.time() - start_time_b) * 1000, 2)
                         assistant_message_b.save(using=db_alias)
-                        chunk_queue.put(('b', f'bd:{json.dumps({"finishReason": "error", "error": str(e)})}\n'))
+                        
+                        chunk_queue.put(('b', f'bd:{json.dumps({"finishReason": "error", "error": sanitize_error_message(e)})}\n'))
                     finally:
                         chunk_queue.put(('b', None))
 
@@ -974,7 +1065,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                     # Generate signed URL for image if present
                     image_url = None
                     if hasattr(user_message, 'image_path') and user_message.image_path:
-                        image_url = generate_signed_url(user_message.image_path, 900)
+                        image_url = generate_signed_url(user_message.image_path, 300)
                     
                     # Document logic
                     prompt_content = user_message.content
@@ -1127,8 +1218,9 @@ class MessageViewSet(viewsets.ModelViewSet):
                 {'error': 'Message not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+            
+    stream.throttle_scope = 'expensive_ai'
 
-        
     @action(detail=True, methods=['get'])
     def tree(self, request, pk=None):
         """Get message tree starting from this message"""
@@ -1215,12 +1307,19 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            start_message = Message.objects.get(id=start_id)
-            end_message = Message.objects.get(id=end_id)
+            start_message = Message.objects.get(id=start_id, session__user=request.user)
+            end_message = Message.objects.get(id=end_id, session__user=request.user)
         except Message.DoesNotExist:
             return Response(
                 {'error': 'Message not found'},
                 status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify both messages belong to the same session
+        if start_message.session_id != end_message.session_id:
+            return Response(
+                {'error': 'Messages must be in the same session'},
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         # Find path between messages
@@ -1233,17 +1332,24 @@ class MessageViewSet(viewsets.ModelViewSet):
 
 
 
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser], throttle_classes=[ScopedRateThrottle])
     def upload_image(self, request):
         if 'image' not in request.FILES:
             return Response({'error': 'No image provided'}, status=status.HTTP_400_BAD_REQUEST)
             
         image_file = request.FILES['image']
+        
+        # Validate size (max 5MB)
+        if image_file.size > 5 * 1024 * 1024:
+            return Response({
+                'error': 'Image size must be less than 5MB'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
         try:
             client = storage.Client()
             bucket = client.bucket(settings.GS_BUCKET_NAME)
             ext = os.path.splitext(image_file.name)[1]
-            blob_name = f"llm-images-input/{uuid.uuid4()}{ext}"
+            blob_name = f"llm-images-input/{request.user.id}/{uuid.uuid4()}{ext}"
             blob = bucket.blob(blob_name)
             blob.upload_from_file(image_file, content_type=image_file.content_type)
             
@@ -1256,6 +1362,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    upload_image.throttle_scope = 'expensive_ai'
     
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_ocr_image(self, request):
@@ -1330,9 +1438,9 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({'pages': pages}, status=status.HTTP_200_OK)
 
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': sanitize_error_message(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser], throttle_classes=[ScopedRateThrottle])
     def upload_audio(self, request):
         if 'audio' not in request.FILES:
             return Response({'error': 'No audio provided'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1433,7 +1541,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             bucket = client.bucket(settings.GS_BUCKET_NAME)
 
             # Use asr-audios folder as it seems preferred for ASR
-            blob_name = f"asr-audios/{uuid.uuid4()}.wav"
+            blob_name = f"asr-audios/{request.user.id}/{uuid.uuid4()}.wav"
             blob = bucket.blob(blob_name)
 
             with open(temp_output_path, "rb") as f:
@@ -1458,8 +1566,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             except:
                 pass
             return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    upload_audio.throttle_scope = 'expensive_ai'
     
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser], throttle_classes=[ScopedRateThrottle])
     def upload_document(self, request):
         if 'document' not in request.FILES:
             return Response({'error': 'No document provided'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1494,7 +1604,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             client = storage.Client()
             bucket = client.bucket(settings.GS_BUCKET_NAME)
             ext = os.path.splitext(doc_file.name)[1]
-            blob_name = f"llm-documents-input/{uuid.uuid4()}{ext}"
+            blob_name = f"llm-documents-input/{request.user.id}/{uuid.uuid4()}{ext}"
             blob = bucket.blob(blob_name)
             blob.upload_from_file(doc_file, content_type=doc_file.content_type)
             
@@ -1507,6 +1617,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({'error': 'An internal server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    upload_document.throttle_scope = 'expensive_ai'
 
 class TransliterationAPIView(APIView):
     permission_classes = [AllowAny]
