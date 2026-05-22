@@ -1,7 +1,8 @@
 """Utility for logging AI model errors to GCS"""
 from django.utils import timezone
 import json
-
+from common.security_utils import sanitize_error_message
+                
 
 def extract_error_details(exception, model_code, provider, log_context=None):
     """
@@ -23,7 +24,7 @@ def extract_error_details(exception, model_code, provider, log_context=None):
         'model': model_code,
         'provider': provider,
         'timestamp': timezone.now().isoformat(),
-        'error_message': str(exception),
+        'error_message': sanitize_error_message(exception),
         'session_id': log_context.get('session_id'),
         'message_id': log_context.get('message_id'),
         'user_email': log_context.get('user_email'),

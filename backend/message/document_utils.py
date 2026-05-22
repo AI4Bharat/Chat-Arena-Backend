@@ -35,6 +35,18 @@ def extract_text_from_document(file_path):
     if not file_path:
         return None
         
+    # Enforce no path traversal
+    if '..' in file_path or '../' in file_path:
+        return "[Security Error: Invalid document path path-traversal detected]"
+        
+    import os
+    # Normalize path and replace backslashes with forward slashes
+    normalized_path = os.path.normpath(file_path).replace('\\', '/')
+    
+    # Enforce safe prefix
+    if not normalized_path.startswith('llm-documents-input/'):
+        return "[Security Error: Unauthorized document path prefix]"
+        
     content = get_file_content(file_path)
     if not content:
         return "[Error: Could not retrieve document content]"

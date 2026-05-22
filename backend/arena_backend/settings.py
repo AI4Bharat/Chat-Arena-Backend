@@ -26,12 +26,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#"
+SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#")
 
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "True").lower() == "true"
+
+# Raise error if running in production (DEBUG=False) with default secret key
+if not DEBUG and SECRET_KEY == "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#":
+    raise ValueError("Production SECRET_KEY must not be the insecure default value!")
 
 ALLOWED_HOSTS = ['34.131.31.84','localhost', '98.70.28.77', '35.200.149.142', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.co', 'https://backend.dev.arena.ai4bharat.co', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org', 'https://backend.arena.ai4bharat.co', 'backend.arena.ai4bharat.co']
 
@@ -109,9 +113,9 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-CORS_ORIGIN_ALLOW_ALL = True
+CORS_ORIGIN_ALLOW_ALL = False
 
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False  
 
 ROOT_URLCONF = "arena_backend.urls"
 
@@ -145,6 +149,18 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'EXCEPTION_HANDLER': 'common.exception_handler.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/minute',         # Unauthenticated requests
+        'user': '200/minute',        # Authenticated requests (general)
+        'ai_generation': '30/minute', # AI model generation (streaming)
+        'auth': '10/minute',         # Login/register attempts per IP
+        'expensive_ai': '30/minute', # Expensive AI endpoints (uploads)
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -156,6 +172,12 @@ CORS_ALLOWED_ORIGINS = [
     "https://backend.arena.ai4bharat.co",
     "https://backend.dev.arena.ai4bharat.co"
 ]
+
+if DEBUG:
+    CORS_ALLOWED_ORIGINS += [
+        "http://localhost:3000",
+        "http://localhost:8000",
+    ]
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -238,6 +260,21 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Security headers
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = "DENY"
+
+# HTTPS enforcement — only in production (when DEBUG=False)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 # Redis configuration - use environment variable for host to support both dev and prod
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')  # 'redis' for Docker, '127.0.0.1' for local dev
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
@@ -271,6 +308,14 @@ CACHES = {
         'TIMEOUT': 300,  # 5 minutes default
     }
 }
+
+# Celery Configuration Options
+CELERY_BROKER_URL = f'{REDIS_URL}/0'
+CELERY_RESULT_BACKEND = f'{REDIS_URL}/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
 
 CELERY_BEAT_SCHEDULE = {
     'cleanup-anonymous-users': {

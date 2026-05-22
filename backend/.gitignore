@@ -25,6 +25,12 @@ venv/
 env/
 postgres_data/
 
+# Security-sensitive files (explicit, even if covered by *.json)
+serviceAccountKey*.json
+gcp-key*.json
+*.pem
+*.p12
+
 # Database
 db.sqlite3
 *.sql
