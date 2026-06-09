@@ -6,6 +6,13 @@ import uuid
 
 class UserSerializer(serializers.ModelSerializer):
     """Full user serializer for authenticated requests"""
+
+    # Preference keys that must never be serialized into API responses.
+    # `anonymous_token` is the credential AnonymousTokenAuthentication accepts.
+    _SENSITIVE_PREFERENCE_KEYS = {'anonymous_token'}
+
+    preferences = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
@@ -17,6 +24,17 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'auth_provider', 'is_anonymous',
             'created_at', 'updated_at', 'firebase_uid'
         ]
+
+    def get_preferences(self, obj):
+        """Return preferences with sensitive keys stripped out."""
+        prefs = obj.preferences or {}
+        if not isinstance(prefs, dict):
+            return prefs
+        return {
+            key: value
+            for key, value in prefs.items()
+            if key not in self._SENSITIVE_PREFERENCE_KEYS
+        }
 
 
 class UserPublicSerializer(serializers.ModelSerializer):

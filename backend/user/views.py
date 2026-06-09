@@ -32,7 +32,20 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.filter(is_active=True)
     authentication_classes = [FirebaseAuthentication, AnonymousTokenAuthentication]
     permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
-    
+
+    def get_queryset(self):
+        """Scope user records to the requesting user only.
+
+        Without this, `GET /users/` and `GET /users/{id}/` exposed every
+        user's record (IDOR) — including `preferences.anonymous_token`, the
+        sole credential for anonymous auth — enabling account takeover and
+        PII disclosure. `create` does not use this queryset.
+        """
+        user = getattr(self.request, 'user', None)
+        if not user or not user.is_authenticated:
+            return User.objects.none()
+        return User.objects.filter(id=user.id, is_active=True)
+
     def get_serializer_class(self):
         if self.action == 'create':
             return UserCreateSerializer

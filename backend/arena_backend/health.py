@@ -124,17 +124,16 @@ def detailed_status(request):
 
     checks = {}
 
-    # Database check
+    # Database check.
+    # NOTE: This endpoint is publicly reachable, so it must NOT leak
+    # infrastructure details (DB host/name/version) or connection strings.
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT version()")
-            db_version = cursor.fetchone()[0]
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
         checks['database'] = {
             'status': 'connected',
             'engine': settings.DATABASES['default']['ENGINE'],
-            'name': settings.DATABASES['default']['NAME'],
-            'host': settings.DATABASES['default'].get('HOST', 'localhost'),
-            'version': db_version
         }
     except Exception as e:
         logger.error(f"Detailed status database check failed: {str(e)}")
@@ -142,14 +141,15 @@ def detailed_status(request):
             'status': 'error'
         }
 
-    # Cache check
+    # Cache check.
+    # The cache LOCATION contains the Redis connection string (incl. password),
+    # so it is deliberately omitted from the response.
     try:
         cache.set('status_check', 'test', timeout=10)
         result = cache.get('status_check')
         checks['cache'] = {
             'status': 'connected' if result == 'test' else 'error',
             'backend': settings.CACHES['default']['BACKEND'],
-            'location': settings.CACHES['default']['LOCATION']
         }
     except Exception as e:
         logger.error(f"Detailed status cache check failed: {str(e)}")

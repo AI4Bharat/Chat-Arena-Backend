@@ -109,7 +109,16 @@ class MessageViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         queryset = super().get_queryset()
-        
+
+        # Scope to the requesting user's own sessions to prevent IDOR.
+        # Anonymous users own their sessions too (session.user is the
+        # anonymous User), so this filter applies uniformly. Shared-session
+        # viewing does NOT go through this viewset (see SharedSessionView).
+        if getattr(self.request, 'user', None) and self.request.user.is_authenticated:
+            queryset = queryset.filter(session__user=self.request.user)
+        else:
+            queryset = queryset.none()
+
         # Filter by session
         session_id = self.request.query_params.get('session_id')
         if session_id:
