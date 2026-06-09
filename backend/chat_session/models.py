@@ -4,6 +4,9 @@ import secrets
 from ai_model.models import AIModel
 from user.models import User
 
+def _default_revision_loop_count():
+    return {"review_count": 0, "super_check_count": 0}
+
 
 class ChatSession(models.Model):
     MODE_CHOICES = [
@@ -49,7 +52,76 @@ class ChatSession(models.Model):
     session_type = models.CharField(max_length=100, default='LLM', choices=TYPE_CHOICES)  # e.g., 'llm', 'asr', 'tts
     is_pinned = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True, default=None)
-    
+    # ------------------------------------------------------------------
+    # OCR Annotation Workflow Fields
+    # These fields are only relevant when session_type == 'OCR'.
+    # ------------------------------------------------------------------
+
+    annotation_users = models.ManyToManyField(
+        User,
+        related_name="assigned_annotation_sessions",
+        blank=True,
+        help_text="OCR annotators assigned to correct regions in this session.",
+    )
+
+    review_user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_review_sessions",
+        help_text="Reviewer assigned to evaluate annotator corrections for this session.",
+    )
+
+    super_check_user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_supercheck_sessions",
+        help_text="Super-checker assigned to validate reviewer decisions for this session.",
+    )
+
+    correct_annotation = models.ForeignKey(
+        "annotation.OCRAnnotation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ground_truth_sessions",
+        help_text="The annotation designated as ground truth for this OCR session.",
+    )
+
+    annotation_status = models.CharField(
+        max_length=50,
+        choices=[
+            ("unannotated", "Unannotated"),
+            ("annotated", "Annotated"),
+            ("reviewed", "Reviewed"),
+            ("super_checked", "Super Checked"),
+            ("incomplete", "Incomplete"),
+        ],
+        default="unannotated",
+        help_text="Session-level OCR annotation workflow state.",
+    )
+
+    revision_loop_count = models.JSONField(
+        default=_default_revision_loop_count,
+        blank=True,
+        help_text=(
+            "Tracks how many revision cycles have occurred. "
+            "Schema: {\"review_count\": 0, \"super_check_count\": 0}"
+        ),
+    )
+
+    required_annotators = models.PositiveSmallIntegerField(
+        default=1,
+        help_text="Number of independent annotators required before this session can be reviewed.",
+    )
+
+    revision_loop_limit = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="Maximum number of revision cycles allowed before escalation.",
+    )
     class Meta:
         db_table = 'chat_sessions'
         indexes = [

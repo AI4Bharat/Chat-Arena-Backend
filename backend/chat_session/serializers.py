@@ -41,23 +41,34 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         return None
     
     def to_representation(self, instance):
-        """Conditionally hide model names for random and academic modes."""
         data = super().to_representation(instance)
         if (instance.mode == 'random' or instance.mode == 'academic') and not instance.has_feedback:
             data['model_a'] = {
                 'id': None,
                 'display_name': 'Model A',
-                'provider': 'Random',
                 'is_thinking_model': instance.model_a.is_thinking_model if instance.model_a else False
             }
             data['model_b'] = {
                 'id': None,
                 'display_name': 'Model B',
-                'provider': 'Random',
                 'is_thinking_model': instance.model_b.is_thinking_model if instance.model_b else False
             }
+        if instance.session_type == "OCR":
+            data['annotation_status'] = instance.annotation_status
+            data['correct_annotation_id'] = (
+                str(instance.correct_annotation_id) if instance.correct_annotation_id else None
+            )
+            data['has_annotation'] = instance.correct_annotation_id is not None
+            data['assigned_annotators'] = list(
+                instance.annotation_users.values_list("email", flat=True)
+            )
+            data['review_user'] = (
+                instance.review_user.email if instance.review_user_id else None
+            )
+            data['super_check_user'] = (
+                instance.super_check_user.email if instance.super_check_user_id else None
+            )
         return data
-
 class ChatSessionCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating chat sessions"""
     model_a_id = serializers.UUIDField(required=False, allow_null=True)
