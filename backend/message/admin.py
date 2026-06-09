@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html, escape
 from django.utils.safestring import mark_safe
-from message.utlis import MessageAnalyzer
+from message.utils import MessageAnalyzer
 from message.models import Message, MessageRelation
 
 

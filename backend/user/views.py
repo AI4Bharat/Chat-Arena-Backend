@@ -8,6 +8,8 @@ from django.utils import timezone
 from django.db import transaction
 import logging
 
+from common.throttles import AuthRateThrottle
+
 from .models import User
 from .serializers import (
     UserSerializer, UserCreateSerializer, UserPreferencesSerializer,
@@ -20,7 +22,8 @@ from django.db.models import Count
 from message.models import Message
 from django.db.models.functions import TruncDate
 from datetime import datetime, timedelta
-
+from common.security_utils import sanitize_error_message
+                
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +32,20 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.filter(is_active=True)
     authentication_classes = [FirebaseAuthentication, AnonymousTokenAuthentication]
     permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
-    
+
+    def get_queryset(self):
+        """Scope user records to the requesting user only.
+
+        Without this, `GET /users/` and `GET /users/{id}/` exposed every
+        user's record (IDOR) — including `preferences.anonymous_token`, the
+        sole credential for anonymous auth — enabling account takeover and
+        PII disclosure. `create` does not use this queryset.
+        """
+        user = getattr(self.request, 'user', None)
+        if not user or not user.is_authenticated:
+            return User.objects.none()
+        return User.objects.filter(id=user.id, is_active=True)
+
     def get_serializer_class(self):
         if self.action == 'create':
             return UserCreateSerializer
@@ -70,6 +86,7 @@ class GoogleAuthView(views.APIView):
     """Handle Google authentication"""
     permission_classes = [AllowAny]
     serializer_class = GoogleAuthSerializer
+    throttle_classes = [AuthRateThrottle]
     
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
@@ -117,6 +134,7 @@ class PhoneAuthView(views.APIView):
     """Handle Phone authentication"""
     permission_classes = [AllowAny]
     serializer_class = PhoneAuthSerializer
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
@@ -142,7 +160,7 @@ class PhoneAuthView(views.APIView):
                 )
             except ValueError as e:
                 return Response(
-                    {"error": str(e)},
+                    {"error": sanitize_error_message(e)},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -173,6 +191,7 @@ class AnonymousAuthView(views.APIView):
     """Handle anonymous authentication"""
     permission_classes = [AllowAny]
     serializer_class = AnonymousAuthSerializer
+    throttle_classes = [AuthRateThrottle]
     
     def post(self, request):
         serializer = self.serializer_class(data=request.data)

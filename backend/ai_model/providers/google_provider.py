@@ -23,6 +23,7 @@ class GoogleAIProvider(BaseAIProvider):
     ) -> AsyncGenerator[str, None]:
         headers = {
             "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
         }
         
         # Convert messages to Gemini format
@@ -42,7 +43,7 @@ class GoogleAIProvider(BaseAIProvider):
         }
         
         async with self.session.post(
-            f"{self.API_URL}/models/{model}:streamGenerateContent?key={self.api_key}",
+            f"{self.API_URL}/models/{model}:streamGenerateContent",
             headers=headers,
             json=data
         ) as response:

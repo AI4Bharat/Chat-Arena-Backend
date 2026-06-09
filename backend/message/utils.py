@@ -268,7 +268,7 @@ def format_message_for_export(message: 'Message', format_type: str = 'plain') ->
     
     return message.content
 
-def generate_signed_url(blob_name, expiration=900):
+def generate_signed_url(blob_name, expiration=300):
     """
     Generates a v4 signed URL for a blob.
     """
@@ -287,7 +287,8 @@ def generate_signed_url(blob_name, expiration=900):
         )
         return url
     except Exception as e:
-        print(f"Error generating signed URL: {e}")
+        from common.security_utils import sanitize_error_message
+        print(f"Error generating signed URL: {sanitize_error_message(e)}")
         return None
 
 def upload_tts_audio(audio_base64, folder='tts-audios'):

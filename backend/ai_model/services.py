@@ -4,6 +4,8 @@ from django.conf import settings
 from django.core.cache import cache
 import logging
 
+from common.security_utils import sanitize_error_message
+
 from ai_model.models import AIModel
 from ai_model.providers.anthropic_provider import AnthropicProvider
 from ai_model.providers.google_provider import GoogleAIProvider
@@ -60,7 +62,7 @@ class AIModelService:
                     yield chunk
         except Exception as e:
             logger.error(f"Error streaming from {model.model_code}: {e}")
-            yield f"Error: {str(e)}"
+            yield f"Error: {sanitize_error_message(e)}"
     
     async def get_completion(
         self,
@@ -80,7 +82,7 @@ class AIModelService:
                 )
         except Exception as e:
             logger.error(f"Error getting completion from {model.model_code}: {e}")
-            return f"Error: {str(e)}"
+            return f"Error: {sanitize_error_message(e)}"
     
     def validate_model_configuration(self, model: AIModel) -> Dict[str, any]:
         """Validate model configuration"""
@@ -139,7 +141,7 @@ class AIModelService:
                     async for item in stream:
                         await queue.put(item)
                 except Exception as e:
-                    await queue.put({'label': label, 'error': str(e)})
+                    await queue.put({'label': label, 'error': sanitize_error_message(e)})
                 finally:
                     await queue.put(None)
             
