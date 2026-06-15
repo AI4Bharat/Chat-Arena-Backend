@@ -39,6 +39,8 @@ services:
   web:
     build: ./backend
     command: gunicorn --bind 0.0.0.0:8000 --workers 16 arena_backend.wsgi --timeout 300
+    env_file:
+      - ./backend/.env
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static
