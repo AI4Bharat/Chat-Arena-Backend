@@ -322,7 +322,7 @@ flowchart TD
 
     D --> G{user signs in}
     G -->|Google popup / Phone OTP| H[Firebase idToken]
-    H --> I[POST /auth/google|phone/<br/>X-Anonymous-Token merges guest data]
+    H --> I["POST /auth/google or /auth/phone<br/>X-Anonymous-Token merges guest data"]
     I --> D
 ```
 
