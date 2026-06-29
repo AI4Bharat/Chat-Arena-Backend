@@ -19,7 +19,7 @@ class MessageSerializer(serializers.ModelSerializer):
             'parent_message_ids', 'child_ids', 'position',
             'participant', 'status', 'failure_reason',
             'attachments', 'metadata', 'created_at',
-            'children_count', 'has_feedback'
+            'children_count', 'has_feedback', 'has_detailed_feedback'
         ]
         read_only_fields = ['id', 'child_ids', 'created_at']
     
