@@ -333,14 +333,14 @@ class ModelSelector:
                  raise ValueError("Not enough multimodal models available for comparison")
             raise ValueError("Not enough models available for comparison")
         
-        if model_type == "LLM":
-            leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall", is_active=True).first()
-            if leaderboard_entry:
-                leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
-            else:
-                logger.warning("active_sampling: no leaderboard entry found; all models will use default stats")
-                leaderboard_stats = {}
-            return ModelSelector.active_sampling(queryset, leaderboard_stats)
+        # if model_type == "LLM":
+        #     leaderboard_entry = Leaderboard.objects.filter(arena_type="llm",organization="ai4b",language="Overall", is_active=True).first()
+        #     if leaderboard_entry:
+        #         leaderboard_stats = {entry['model']: entry for entry in leaderboard_entry.leaderboard_json}
+        #     else:
+        #         logger.warning("active_sampling: no leaderboard entry found; all models will use default stats")
+        #         leaderboard_stats = {}
+        #     return ModelSelector.active_sampling(queryset, leaderboard_stats)
         
         return random.sample(models, 2)
     
