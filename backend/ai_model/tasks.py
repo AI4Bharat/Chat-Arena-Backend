@@ -8,8 +8,10 @@ from django.db.models import Count, Avg, Q
 logger = logging.getLogger(__name__)
 from ai_model.utils import EloRatingCalculator
 from ai_model.services import AIModelService
+from tenants.context import tenant_aware_task
 
 @shared_task
+@tenant_aware_task
 def calculate_model_metrics(period='daily'):
     """Calculate model metrics for the specified period"""
     
@@ -76,6 +78,7 @@ def calculate_model_metrics(period='daily'):
 
 
 @shared_task
+@tenant_aware_task
 def update_model_elo_ratings():
     """Update ELO ratings based on recent comparisons"""
     
@@ -113,6 +116,7 @@ def update_model_elo_ratings():
 
 
 @shared_task
+@tenant_aware_task
 def validate_all_models():
     """Validate all active models and update their status"""
     
@@ -141,6 +145,7 @@ def validate_all_models():
 
 
 @shared_task
+@tenant_aware_task
 def cleanup_old_metrics():
     """Clean up old metrics to prevent database bloat"""
     

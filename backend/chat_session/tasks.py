@@ -11,10 +11,13 @@ from django.core.cache import cache
 import zipfile
 import io
 
+from tenants.context import tenant_aware_task
+
 logger = logging.getLogger(__name__)
 
 
 @shared_task
+@tenant_aware_task
 def cleanup_expired_sessions():
     """Clean up expired anonymous sessions"""
     
@@ -24,6 +27,7 @@ def cleanup_expired_sessions():
 
 
 @shared_task
+@tenant_aware_task
 def generate_session_titles():
     """Generate titles for untitled sessions based on content"""
     
@@ -52,6 +56,7 @@ def generate_session_titles():
 
 
 @shared_task
+@tenant_aware_task
 def calculate_session_analytics():
     """Calculate analytics for active sessions"""
     
@@ -71,43 +76,54 @@ def calculate_session_analytics():
 
 
 @shared_task
-def export_session_batch(session_ids: list, user_email: str, format: str = 'json'):
+def export_session_batch(session_ids: list, user_email: str, format: str = 'json', tenant_slug: str = None):
     """Export multiple sessions and send to user"""
-    
-    sessions = ChatSession.objects.filter(id__in=session_ids)
-    
-    if not sessions:
-        return "No sessions found"
-    
-    # Create zip file in memory
-    zip_buffer = io.BytesIO()
-    
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for session in sessions:
-            content, _ = ChatSessionService.export_session(
-                session=session,
-                format=format,
-                include_metadata=True,
-                include_timestamps=True
-            )
-            
-            filename = f"{session.title or 'untitled'}_{session.id}.{format}"
-            zip_file.writestr(filename, content)
-    
-    # Send email with attachment
-    email = EmailMessage(
-        subject='Your Chat Sessions Export',
-        body=f'Please find attached your exported {len(sessions)} chat sessions.',
-        to=[user_email]
-    )
-    
-    zip_buffer.seek(0)
-    email.attach(
-        f'chat_sessions_export_{timezone.now().strftime("%Y%m%d")}.zip',
-        zip_buffer.read(),
-        'application/zip'
-    )
-    
-    email.send()
-    
-    return f"Exported {len(sessions)} sessions and sent to {user_email}"
+    if tenant_slug:
+        from tenants.config import get_tenant_by_slug
+        from tenants.context import set_current_tenant
+        tenant = get_tenant_by_slug(tenant_slug)
+        if tenant:
+            set_current_tenant(tenant)
+
+    try:
+        sessions = ChatSession.objects.filter(id__in=session_ids)
+
+        if not sessions:
+            return "No sessions found"
+
+        # Create zip file in memory
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for session in sessions:
+                content, _ = ChatSessionService.export_session(
+                    session=session,
+                    format=format,
+                    include_metadata=True,
+                    include_timestamps=True
+                )
+
+                filename = f"{session.title or 'untitled'}_{session.id}.{format}"
+                zip_file.writestr(filename, content)
+
+        # Send email with attachment
+        email = EmailMessage(
+            subject='Your Chat Sessions Export',
+            body=f'Please find attached your exported {len(sessions)} chat sessions.',
+            to=[user_email]
+        )
+
+        zip_buffer.seek(0)
+        email.attach(
+            f'chat_sessions_export_{timezone.now().strftime("%Y%m%d")}.zip',
+            zip_buffer.read(),
+            'application/zip'
+        )
+
+        email.send()
+
+        return f"Exported {len(sessions)} sessions and sent to {user_email}"
+    finally:
+        if tenant_slug:
+            from tenants.context import clear_current_tenant
+            clear_current_tenant()

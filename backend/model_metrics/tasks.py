@@ -12,9 +12,10 @@ from django.core.mail import send_mail
 from django.conf import settings
 from model_metrics.aggregators import MetricsAggregator
 logger = logging.getLogger(__name__)
-
+from tenants.context import tenant_aware_task
 
 @shared_task
+@tenant_aware_task
 def calculate_daily_metrics():
     """Calculate daily metrics for all active models"""
     
@@ -38,6 +39,7 @@ def calculate_daily_metrics():
 
 
 @shared_task
+@tenant_aware_task
 def calculate_weekly_metrics():
     """Calculate weekly metrics for all active models"""
     
@@ -54,6 +56,7 @@ def calculate_weekly_metrics():
 
 
 @shared_task
+@tenant_aware_task
 def update_leaderboard_cache():
     """Pre-calculate and cache leaderboard data"""
     
@@ -74,6 +77,7 @@ def update_leaderboard_cache():
 
 
 @shared_task
+@tenant_aware_task
 def detect_anomalous_metrics():
     """Detect anomalous metric changes"""
     
@@ -111,6 +115,7 @@ def detect_anomalous_metrics():
     return anomalies
 
 @shared_task
+@tenant_aware_task
 def generate_metric_report():
     """Generate comprehensive metrics report"""
     
@@ -212,6 +217,7 @@ def generate_metric_report():
 
 
 @shared_task
+@tenant_aware_task
 def cleanup_old_metrics():
     """Clean up old metrics to save space"""
     

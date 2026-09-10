@@ -6,9 +6,11 @@ from message.models import Message
 from message.utils import MessageCache, MessageAnalyzer
 from django.core.cache import cache
 logger = logging.getLogger(__name__)
+from tenants.context import tenant_aware_task
 
 
 @shared_task
+@tenant_aware_task
 def cleanup_orphaned_messages():
     """Clean up messages with broken relationships"""
     
@@ -32,6 +34,7 @@ def cleanup_orphaned_messages():
 
 
 @shared_task
+@tenant_aware_task
 def analyze_failed_messages():
     """Analyze failed messages and attempt to categorize failures"""
     
@@ -68,6 +71,7 @@ def analyze_failed_messages():
 
 
 @shared_task
+@tenant_aware_task
 def calculate_message_metrics():
     """Calculate and cache message metrics"""
     
@@ -114,6 +118,7 @@ def calculate_message_metrics():
 
 
 @shared_task
+@tenant_aware_task
 def detect_conversation_loops():
     """Detect potential conversation loops or repetitive patterns"""
     

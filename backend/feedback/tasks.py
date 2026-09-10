@@ -11,8 +11,10 @@ from user.models import User
 from feedback.analytics import FeedbackAnalyzer
 from django.core.mail import send_mail
 from django.conf import settings
+from tenants.context import tenant_aware_task
 
 @shared_task
+@tenant_aware_task
 def update_model_metrics_from_feedback():
     """Update model metrics based on recent feedback"""
     
@@ -87,6 +89,7 @@ def update_model_metrics_from_feedback():
 
 
 @shared_task
+@tenant_aware_task
 def detect_feedback_anomalies():
     """Detect unusual feedback patterns"""
     
@@ -138,6 +141,7 @@ def detect_feedback_anomalies():
 
 
 @shared_task
+@tenant_aware_task
 def generate_weekly_feedback_digest():
     """Generate weekly feedback digest for admin"""
     
@@ -189,6 +193,7 @@ def generate_weekly_feedback_digest():
 
 
 @shared_task
+@tenant_aware_task
 def cleanup_old_feedback():
     """Clean up old feedback data based on retention policy"""
     from .models import Feedback
@@ -209,6 +214,7 @@ def cleanup_old_feedback():
 
 
 @shared_task
+@tenant_aware_task
 def calculate_feedback_consistency_scores():
     """Calculate consistency scores for users"""
     
