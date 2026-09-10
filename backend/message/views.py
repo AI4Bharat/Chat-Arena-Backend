@@ -37,6 +37,7 @@ from django.conf import settings
 import datetime
 import uuid
 import tempfile
+import urllib.parse
 from message.utils import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
@@ -1411,8 +1412,10 @@ class TransliterationAPIView(APIView):
 
     def get(self, request, target_language, data, *args, **kwargs):
         target_language = "hi" if target_language == 'bhi' else target_language
+        encoded_language = urllib.parse.quote(target_language, safe='')
+        encoded_data = urllib.parse.quote(data, safe='')
         response_transliteration = requests.get(
-            os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
+            os.getenv("TRANSLITERATION_URL") + encoded_language + "/" + encoded_data,
             headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
         )
 
