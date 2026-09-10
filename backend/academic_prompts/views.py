@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAdminUser, AllowAny
 from django.db.models import Min, Q, Sum, Count
 from .models import AcademicPrompt
 from .serializers import AcademicPromptSerializer, AcademicPromptBulkCreateSerializer
@@ -11,7 +11,11 @@ import random
 class AcademicPromptViewSet(viewsets.ModelViewSet):
     queryset = AcademicPrompt.objects.select_related('model_a', 'model_b').all()
     serializer_class = AcademicPromptSerializer
-    permission_classes = []
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'bulk_create', 'reset_usage']:
+            return [IsAdminUser()]
+        return [AllowAny()]
 
     def get_queryset(self):
         """Apply filters from query parameters."""
