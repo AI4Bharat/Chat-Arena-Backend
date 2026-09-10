@@ -37,7 +37,18 @@ DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 if not DEBUG and SECRET_KEY == "django-insecure-@r7r$^v&pkqi*%plz(obg#2yt0hie(^-*3t1@j28v+o0fly@-#":
     raise ValueError("Production SECRET_KEY must not be the insecure default value!")
 
-ALLOWED_HOSTS = ['34.131.31.84','localhost', '98.70.28.77', '35.200.149.142', '35.207.237.8', 'https://backend.dev.arena.ai4bharat.org', 'backend.dev.arena.ai4bharat.co', 'https://backend.dev.arena.ai4bharat.co', '98.70.28.77:443', "ai4bharat.github.io", 'https://backend.arena.ai4bharat.org', 'backend.arena.ai4bharat.org', 'https://backend.arena.ai4bharat.co', 'backend.arena.ai4bharat.co']
+ALLOWED_HOSTS = [
+    '34.131.31.84',
+    'localhost',
+    '98.70.28.77',
+    '35.200.149.142',
+    '35.207.237.8',
+    'backend.dev.arena.ai4bharat.org',
+    'backend.dev.arena.ai4bharat.co',
+    'backend.arena.ai4bharat.org',
+    'backend.arena.ai4bharat.co',
+    'ai4bharat.github.io'
+]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://backend.dev.arena.ai4bharat.org",
