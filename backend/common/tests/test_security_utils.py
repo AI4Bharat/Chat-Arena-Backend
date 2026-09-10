@@ -4,7 +4,10 @@ Tests for common.security_utils — sanitize_error_message().
 Verifies that API keys, Bearer tokens, hex secrets, and long base64 tokens
 are redacted from error messages before they reach the client.
 """
-from django.test import TestCase
+try:
+    from django.test import TestCase
+except ImportError:
+    from unittest import TestCase
 from common.security_utils import sanitize_error_message
 
 
@@ -24,6 +27,14 @@ class SanitizeErrorMessageTests(TestCase):
         result = sanitize_error_message(exc)
         self.assertNotIn("sk-abc123DEF456", result)
         self.assertIn("sk-***REDACTED***", result)
+
+    # ── Google API keys (AIza...) ──────────────────────────────────
+    def test_redacts_google_api_key(self):
+        google_key = "AIzaSyD" + "A" * 32
+        exc = Exception(f"Gemini API error: invalid key {google_key}")
+        result = sanitize_error_message(exc)
+        self.assertNotIn(google_key, result)
+        self.assertIn("AIza***REDACTED***", result)
 
     # ── Hex strings (Azure-style keys) ─────────────────────────────
     def test_redacts_hex_key(self):

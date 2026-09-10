@@ -43,9 +43,13 @@ def extract_error_details(exception, model_code, provider, log_context=None):
         # Try to parse JSON error body
         try:
             if hasattr(response, 'json') and callable(response.json):
-                error_entry['response_body'] = response.json()
+                raw_json = response.json()
+                if isinstance(raw_json, (dict, list)):
+                    error_entry['response_body'] = json.loads(sanitize_error_message(json.dumps(raw_json)))
+                else:
+                    error_entry['response_body'] = sanitize_error_message(str(raw_json))
             elif hasattr(response, 'text'):
-                error_entry['response_body'] = response.text
+                error_entry['response_body'] = sanitize_error_message(response.text)
         except Exception:
             pass
     

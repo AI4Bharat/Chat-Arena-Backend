@@ -10,6 +10,8 @@ _SENSITIVE_PATTERNS = [
     (re.compile(r'Bearer\s+[A-Za-z0-9\-._~+/]+=*', re.IGNORECASE), 'Bearer ***REDACTED***'),
     # OpenAI-style keys (sk-...)
     (re.compile(r'sk-[A-Za-z0-9_\-]{20,}'), 'sk-***REDACTED***'),
+    # Google API keys (AIza...)
+    (re.compile(r'AIza[0-9A-Za-z\-_]{30,}'), 'AIza***REDACTED***'),
     # Azure-style keys (hex, 32+ chars)
     (re.compile(r'[0-9a-f]{32,}', re.IGNORECASE), '***REDACTED_HEX***'),
     # Generic long base64-ish tokens (40+ chars of alphanumeric + symbols)

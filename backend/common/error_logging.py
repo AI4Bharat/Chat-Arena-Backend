@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status as http_status
 import traceback
 import logging
+from common.security_utils import sanitize_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +56,9 @@ def extract_endpoint_error_details(exception, endpoint, log_context=None):
         'error_type': categorize_error(exception),
         'endpoint': endpoint,
         'timestamp': timezone.now().isoformat(),
-        'error_message': str(exception),
+        'error_message': sanitize_error_message(exception),
         'error_class': type(exception).__name__,
-        'traceback': traceback.format_exc(),
+        'traceback': sanitize_error_message(traceback.format_exc()),
         
         # User context
         'user_email': log_context.get('user_email'),
