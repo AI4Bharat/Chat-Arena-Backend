@@ -21,7 +21,7 @@ from message.streaming import StreamingManager
 from message.permissions import IsMessageOwner
 from chat_session.models import ChatSession
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
-from django.db import connections, transaction
+from django.db import transaction
 from django.utils import timezone
 from django.http import StreamingHttpResponse
 import threading
@@ -63,7 +63,24 @@ def _eval_reference_paths(session_metadata):
     ][:evaluation_interactions.MAX_REFERENCE_PAGES]
 
 
-# Re-evaluations kept per page message; only the latest few keep the content needed to undo them.
+def _eval_sheet_pages(session, page_messages):
+    """SheetPage list for an EVAL session, numbered from 1 in upload order.
+
+    Sizes come from the answer_pages recorded at upload (the size the browser draws
+    boxes against); a page without one is measured when its image is loaded.
+    """
+    recorded = {p.get('path'): p for p in ((session.metadata or {}).get('answer_pages') or []) if isinstance(p, dict)}
+    pages = []
+    for number, page_message in enumerate(page_messages, start=1):
+        size = recorded.get(page_message.image_path) or {}
+        pages.append(evaluation_interactions.SheetPage(
+            number=number, url=generate_signed_url(page_message.image_path, 900),
+            width=size.get('width'), height=size.get('height'),
+        ))
+    return pages
+
+
+# Re-evaluations kept on the evaluation message; only the latest few keep the content needed to undo them.
 MAX_EVAL_REVISIONS = 30
 UNDOABLE_EVAL_REVISIONS = 10
 
@@ -893,80 +910,8 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_a.join()
                 thread_b.join()
 
-        def generate_eval_output():
-            """Stream answer/finding annotations for one student answer-sheet page.
-
-            Same wire format as OCR: 'aa:'/'ab:' lines carry one annotation for
-            model A/B, 'ad:'/'bd:' end each model's stream.
-            """
-            db_alias = session._state.db
-            meta = session.metadata or {}
-            reference_paths = _eval_reference_paths(meta)
-            instructions = meta.get('instructions') or ''
-            max_marks = evaluation_interactions.clamp_max_marks(meta.get('max_marks'))
-
-            if session.mode == 'direct':
-                jobs = [('a', assistant_message, session.model_a)]
-            else:
-                jobs = [('a', assistant_message_a, session.model_a), ('b', assistant_message_b, session.model_b)]
-
-            chunk_queue = queue.Queue()
-
-            def run(participant, message, model):
-                start = time.time()
-                results = []
-                try:
-                    if not model:
-                        raise evaluation_interactions.EvaluationError('No evaluation model selected for this session.')
-                    if not _is_ocr_upload_path(user_message.image_path):
-                        raise evaluation_interactions.EvaluationError('Answer sheet image is missing or invalid.')
-                    image_url = generate_signed_url(user_message.image_path, 900)
-                    reference_urls = [u for u in (generate_signed_url(p, 900) for p in reference_paths) if u]
-                    context = {'session_id': str(session.id), 'message_id': str(message.id),
-                               'user_email': getattr(request.user, 'email', None)}
-                    for item in evaluation_interactions.stream_evaluation(
-                        image_url, model.model_code, reference_urls=reference_urls,
-                        instructions=instructions, max_marks=max_marks, log_context=context,
-                    ):
-                        results.append(item)
-                        chunk_queue.put(f'a{participant}:{json.dumps(item)}\n')
-                    message.content = json.dumps(results)
-                    message.status = 'success'
-                    chunk_queue.put(f'{participant}d:{json.dumps({"finishReason": "stop"})}\n')
-                except Exception as e:
-                    logger.exception('Answer evaluation failed for message %s', message.id)
-                    message.content = json.dumps(results)
-                    message.status = 'error'
-                    # Provider errors can carry request details; only our own messages are shown.
-                    error = str(e) if isinstance(e, evaluation_interactions.EvaluationError) \
-                        else 'Evaluation failed. Please try again.'
-                    chunk_queue.put(f'{participant}d:{json.dumps({"finishReason": "error", "error": error})}\n')
-                finally:
-                    message.latency_ms = round((time.time() - start) * 1000, 2)
-                    message.save(using=db_alias)
-                    connections.close_all()  # this worker thread's own DB connections
-                    chunk_queue.put(None)
-
-            threads = [threading.Thread(target=run, args=job) for job in jobs]
-            for thread in threads:
-                thread.start()
-            remaining = len(threads)
-            while remaining:
-                try:
-                    chunk = chunk_queue.get(timeout=0.1)
-                except queue.Empty:
-                    continue
-                if chunk is None:
-                    remaining -= 1
-                else:
-                    yield chunk
-            for thread in threads:
-                thread.join()
-
         if session.session_type == 'ASR':
             return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
-        elif session.session_type == 'EVAL':
-            return StreamingHttpResponse(generate_eval_output(), content_type='text/plain')
         elif session.session_type == 'TTS':
             return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
         elif session.session_type in ('OCR', 'EDUVIZ'):
@@ -985,15 +930,92 @@ class MessageViewSet(viewsets.ModelViewSet):
         message.save(update_fields=['content'])
         return Response({'status': 'saved', 'count': len(ocr_result)})
 
+    @action(detail=False, methods=['post'])
+    def evaluate_document(self, request):
+        """Evaluate a whole answer sheet (all pages in one model call) for an EVAL session.
+
+        Body: session_id. The pages are the session's metadata.answer_pages (uploaded with
+        upload_ocr_image). Creates one user message per page and one assistant message
+        holding the evaluation of the whole sheet, then streams 'aa:' (one answer or
+        finding per line) and 'ad:' to finish.
+        """
+        session = get_object_or_404(ChatSession, id=request.data.get('session_id'), user=request.user)
+        if session.session_type != 'EVAL':
+            return Response({'error': 'Not an evaluation session'}, status=status.HTTP_400_BAD_REQUEST)
+        meta = session.metadata or {}
+        answer_pages = [p for p in (meta.get('answer_pages') or []) if isinstance(p, dict)]
+        if not answer_pages or not all(_is_ocr_upload_path(p.get('path')) for p in answer_pages):
+            return Response({'error': 'The session has no valid answer sheet pages'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(answer_pages) > evaluation_interactions.MAX_DOCUMENT_PAGES:
+            return Response({'error': f'Answer sheets can have at most {evaluation_interactions.MAX_DOCUMENT_PAGES} pages'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not session.model_a:
+            return Response({'error': 'No evaluation model selected for this session'}, status=status.HTTP_400_BAD_REQUEST)
+
+        evaluation = session.messages.filter(role='assistant').first()
+        if evaluation and evaluation.status == 'success':
+            return Response({'error': 'This sheet is already evaluated; use reevaluate to change it'},
+                            status=status.HTTP_409_CONFLICT)
+        page_messages = list(session.messages.filter(role='user').order_by('created_at'))
+        if not page_messages:
+            page_messages = [
+                MessageService.create_message(session=session, message_obj={
+                    'id': uuid.uuid4(), 'role': 'user', 'content': '', 'parent_message_ids': [],
+                    'image_path': page['path'],
+                })
+                for page in answer_pages
+            ]
+        if evaluation is None:
+            evaluation = MessageService.create_message(session=session, message_obj={
+                'id': uuid.uuid4(), 'role': 'assistant', 'content': '', 'participant': 'a',
+                'modelId': str(session.model_a_id), 'parent_message_ids': [m.id for m in page_messages],
+            })
+
+        db_alias = session._state.db
+        model_code = session.model_a.model_code
+        context = {'session_id': str(session.id), 'message_id': str(evaluation.id),
+                   'user_email': getattr(request.user, 'email', None)}
+
+        def generate():
+            start = time.time()
+            results = []
+            yield f'am:{json.dumps({"message_id": str(evaluation.id)})}\n'
+            try:
+                pages = _eval_sheet_pages(session, page_messages)
+                reference_urls = [u for u in (generate_signed_url(p, 900) for p in _eval_reference_paths(meta)) if u]
+                for item in evaluation_interactions.stream_evaluation(
+                    pages, model_code, reference_urls=reference_urls,
+                    instructions=meta.get('instructions') or '', max_marks=meta.get('max_marks'),
+                    log_context=context,
+                ):
+                    results.append(item)
+                    yield f'aa:{json.dumps(item)}\n'
+                evaluation.status = 'success'
+                yield f'ad:{json.dumps({"finishReason": "stop"})}\n'
+            except Exception as e:
+                logger.exception('Answer evaluation failed for message %s', evaluation.id)
+                evaluation.status = 'error'
+                # Provider errors can carry request details; only our own messages are shown.
+                error = str(e) if isinstance(e, evaluation_interactions.EvaluationError) \
+                    else 'Evaluation failed. Please try again.'
+                yield f'ad:{json.dumps({"finishReason": "error", "error": error})}\n'
+            finally:
+                evaluation.content = json.dumps(results)
+                evaluation.latency_ms = round((time.time() - start) * 1000, 2)
+                evaluation.save(using=db_alias)
+
+        return StreamingHttpResponse(generate(), content_type='text/plain')
+
     @action(detail=True, methods=['post'])
     def reevaluate(self, request, pk=None):
-        """Re-run an evaluation with the teacher's feedback, for one answer or the whole page.
+        """Re-run an evaluation with the teacher's feedback.
 
-        Body: prompt, scope ('answer' | 'page' | 'document' — a page of a whole-document
-        request), answer_id (answer scope), current_annotations (the page as the teacher
-        sees it, including unsaved edits), batch_id (groups the pages of one request).
-        Streams 'ar:' (the model's reply to the teacher), 'aa:' (each revised item),
-        then 'af:' with the merged page and the revision record, and 'ad:' to finish.
+        ``pk`` is the session's evaluation (assistant) message. Body: prompt; scope —
+        'answer' (one question, across all its pages), 'page' (the answers with a box on
+        ``page``, 1-based) or 'document'; answer_id / page as the scope needs;
+        current_annotations (the sheet as the teacher sees it, including unsaved edits).
+        Streams 'ar:' (the model's reply to the teacher), 'aa:' (each revised item), then
+        'af:' with the merged sheet and the revision record, and 'ad:' to finish.
         """
         message = get_object_or_404(Message, id=pk, session__user=request.user, role='assistant')
         session = message.session
@@ -1001,8 +1023,9 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Only evaluation sessions can be re-evaluated'}, status=status.HTTP_400_BAD_REQUEST)
 
         feedback = (request.data.get('prompt') or '').strip()
-        scope = request.data.get('scope') or 'page'
+        scope = request.data.get('scope') or 'document'
         answer_id = request.data.get('answer_id')
+        page = request.data.get('page')
         if not feedback:
             return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
         if len(feedback) > evaluation_interactions.MAX_FEEDBACK_CHARS:
@@ -1016,24 +1039,26 @@ class MessageViewSet(viewsets.ModelViewSet):
                 current = json.loads(message.content or '[]')
             except ValueError:
                 current = []
-        if not isinstance(current, list) or len(current) > 500 or not all(isinstance(i, dict) for i in current):
+        if not isinstance(current, list) or len(current) > 1000 or not all(isinstance(i, dict) for i in current):
             return Response({'error': 'current_annotations must be a list of annotations'}, status=status.HTTP_400_BAD_REQUEST)
         if scope == 'answer' and not any(i.get('kind') == 'answer' and i.get('id') == answer_id for i in current):
-            return Response({'error': 'answer_id is not an answer on this page'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'answer_id is not an answer on this sheet'}, status=status.HTTP_400_BAD_REQUEST)
 
-        user_message = Message.objects.filter(id__in=message.parent_message_ids, role='user').first()
+        page_messages = list(Message.objects.filter(id__in=message.parent_message_ids, role='user').order_by('created_at'))
+        if scope == 'page' and not (isinstance(page, int) and 1 <= page <= len(page_messages)):
+            return Response({'error': 'page must be a page number of this sheet'}, status=status.HTTP_400_BAD_REQUEST)
         model = message.model or session.model_a
-        if not user_message or not _is_ocr_upload_path(user_message.image_path) or not model:
-            return Response({'error': 'This page has no answer sheet image or model'}, status=status.HTTP_400_BAD_REQUEST)
+        if not page_messages or not all(_is_ocr_upload_path(m.image_path) for m in page_messages) or not model:
+            return Response({'error': 'This evaluation has no answer sheet pages or model'}, status=status.HTTP_400_BAD_REQUEST)
 
         revisions = list((message.metadata or {}).get('eval_revisions') or [])
         revision = evaluation_interactions.Revision(
-            feedback=feedback, scope=scope, answer_id=answer_id, previous=current,
+            feedback=feedback, scope=scope, answer_id=answer_id, page=page if scope == 'page' else None,
+            previous=current,
             history=[{'feedback': r.get('prompt'), 'reply': r.get('reply')}
                      for r in revisions if r.get('status') == 'applied'],
         )
         meta = session.metadata or {}
-        batch_id = str(request.data.get('batch_id') or '')[:64] or None
         db_alias = message._state.db
         context = {'session_id': str(session.id), 'message_id': str(message.id),
                    'user_email': getattr(request.user, 'email', None)}
@@ -1042,10 +1067,11 @@ class MessageViewSet(viewsets.ModelViewSet):
             reply = ''
             revised = []
             try:
-                image_url = generate_signed_url(user_message.image_path, 900)
+                targets = revision.target_ids
+                pages = _eval_sheet_pages(session, page_messages)
                 reference_urls = [u for u in (generate_signed_url(p, 900) for p in _eval_reference_paths(meta)) if u]
                 for obj in evaluation_interactions.stream_reevaluation(
-                    image_url, model.model_code, revision, reference_urls=reference_urls,
+                    pages, model.model_code, revision, reference_urls=reference_urls,
                     instructions=meta.get('instructions') or '', max_marks=meta.get('max_marks'),
                     log_context=context,
                 ):
@@ -1056,20 +1082,21 @@ class MessageViewSet(viewsets.ModelViewSet):
                         revised.append(obj)
                         yield f'aa:{json.dumps(obj)}\n'
 
-                merged = evaluation_interactions.merge_revision(current, revised, scope, answer_id)
+                merged = evaluation_interactions.merge_revision(current, revised, revision)
+                after_ids = targets | {i['id'] for i in revised if i.get('kind') == 'answer'}
                 target = revision.target or {}
                 record = {
                     'id': str(uuid.uuid4()),
                     'created_at': timezone.now().isoformat(),
                     'scope': scope,
                     'answer_id': answer_id if scope == 'answer' else None,
+                    'page': revision.page,
                     'question': target.get('question'),
                     'prompt': feedback,
                     'reply': reply,
-                    'batch_id': batch_id,
                     'status': 'applied',
-                    'score_before': evaluation_interactions.scope_score(current, scope, answer_id),
-                    'score_after': evaluation_interactions.scope_score(merged, scope, answer_id),
+                    'score_before': evaluation_interactions.scope_score(current, targets),
+                    'score_after': evaluation_interactions.scope_score(merged, after_ids),
                     'previous_content': current,
                 }
                 revisions.append(record)
