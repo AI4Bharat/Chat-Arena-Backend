@@ -1,8 +1,10 @@
+import logging
 import time
 from ai_model.llm_interactions import get_model_output
 from ai_model.asr_interactions import get_asr_output
 from ai_model.tts_interactions import get_tts_output
 from ai_model.ocr_interactions import get_ocr_output, stream_ocr_output
+from ai_model import evaluation_interactions
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -19,7 +21,7 @@ from message.streaming import StreamingManager
 from message.permissions import IsMessageOwner
 from chat_session.models import ChatSession
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
-from django.db import transaction
+from django.db import connections, transaction
 from django.http import StreamingHttpResponse
 import threading
 import queue
@@ -41,6 +43,16 @@ from message.utlis import generate_signed_url
 import random
 from academic_prompts.models import AcademicPrompt
 from django.db.models import Min, Q
+
+logger = logging.getLogger(__name__)
+
+# Uploads made through upload_ocr_image; evaluation only reads images under this prefix.
+OCR_UPLOAD_PREFIX = 'ocr-inputs/'
+
+
+def _is_ocr_upload_path(path):
+    return isinstance(path, str) and path.startswith(OCR_UPLOAD_PREFIX) and '..' not in path
+
 
 class MessageViewSet(viewsets.ModelViewSet):
     """ViewSet for message management"""
@@ -861,8 +873,83 @@ class MessageViewSet(viewsets.ModelViewSet):
                 thread_a.join()
                 thread_b.join()
 
+        def generate_eval_output():
+            """Stream answer/finding annotations for one student answer-sheet page.
+
+            Same wire format as OCR: 'aa:'/'ab:' lines carry one annotation for
+            model A/B, 'ad:'/'bd:' end each model's stream.
+            """
+            db_alias = session._state.db
+            meta = session.metadata or {}
+            reference_paths = [
+                p.get('path') for p in (meta.get('reference_pages') or [])
+                if isinstance(p, dict) and _is_ocr_upload_path(p.get('path'))
+            ][:evaluation_interactions.MAX_REFERENCE_PAGES]
+            instructions = meta.get('instructions') or ''
+            max_marks = evaluation_interactions.clamp_max_marks(meta.get('max_marks'))
+
+            if session.mode == 'direct':
+                jobs = [('a', assistant_message, session.model_a)]
+            else:
+                jobs = [('a', assistant_message_a, session.model_a), ('b', assistant_message_b, session.model_b)]
+
+            chunk_queue = queue.Queue()
+
+            def run(participant, message, model):
+                start = time.time()
+                results = []
+                try:
+                    if not model:
+                        raise evaluation_interactions.EvaluationError('No evaluation model selected for this session.')
+                    if not _is_ocr_upload_path(user_message.image_path):
+                        raise evaluation_interactions.EvaluationError('Answer sheet image is missing or invalid.')
+                    image_url = generate_signed_url(user_message.image_path, 900)
+                    reference_urls = [u for u in (generate_signed_url(p, 900) for p in reference_paths) if u]
+                    context = {'session_id': str(session.id), 'message_id': str(message.id),
+                               'user_email': getattr(request.user, 'email', None)}
+                    for item in evaluation_interactions.stream_evaluation(
+                        image_url, model.model_code, reference_urls=reference_urls,
+                        instructions=instructions, max_marks=max_marks, log_context=context,
+                    ):
+                        results.append(item)
+                        chunk_queue.put(f'a{participant}:{json.dumps(item)}\n')
+                    message.content = json.dumps(results)
+                    message.status = 'success'
+                    chunk_queue.put(f'{participant}d:{json.dumps({"finishReason": "stop"})}\n')
+                except Exception as e:
+                    logger.exception('Answer evaluation failed for message %s', message.id)
+                    message.content = json.dumps(results)
+                    message.status = 'error'
+                    # Provider errors can carry request details; only our own messages are shown.
+                    error = str(e) if isinstance(e, evaluation_interactions.EvaluationError) \
+                        else 'Evaluation failed. Please try again.'
+                    chunk_queue.put(f'{participant}d:{json.dumps({"finishReason": "error", "error": error})}\n')
+                finally:
+                    message.latency_ms = round((time.time() - start) * 1000, 2)
+                    message.save(using=db_alias)
+                    connections.close_all()  # this worker thread's own DB connections
+                    chunk_queue.put(None)
+
+            threads = [threading.Thread(target=run, args=job) for job in jobs]
+            for thread in threads:
+                thread.start()
+            remaining = len(threads)
+            while remaining:
+                try:
+                    chunk = chunk_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+                if chunk is None:
+                    remaining -= 1
+                else:
+                    yield chunk
+            for thread in threads:
+                thread.join()
+
         if session.session_type == 'ASR':
             return StreamingHttpResponse(generate_asr_output(), content_type='text/plain')
+        elif session.session_type == 'EVAL':
+            return StreamingHttpResponse(generate_eval_output(), content_type='text/plain')
         elif session.session_type == 'TTS':
             return StreamingHttpResponse(generate_tts_output(), content_type='text/plain')
         elif session.session_type in ('OCR', 'EDUVIZ'):

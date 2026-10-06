@@ -31,6 +31,7 @@ class AIModel(models.Model):
         ('ASR', 'Automatic Speech Recognition'),
         ('TTS', 'Text to Speech'),
         ('OCR', 'Optical Character Recognition'),
+        ('EVAL', 'Answer Evaluation'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

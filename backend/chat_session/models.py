@@ -19,6 +19,7 @@ class ChatSession(models.Model):
         ('TTS', 'Text to Speech'),
         ('OCR', 'Optical Character Recognition'),
         ('EDUVIZ', 'EduViz Benchmark'),
+        ('EVAL', 'Answer Evaluation'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from django.utils import timezone
 from rest_framework import viewsets, status
@@ -414,6 +415,16 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'No text in OCR result'}, status=400)
             raw = source['text'].strip().splitlines()[0]  # first line only
             generated_title = raw[:47] + '...' if len(raw) > 50 else raw
+            session.title = generated_title
+            session.save(update_fields=['title'])
+            return Response({'title': generated_title})
+
+        # EVAL: name the session after the uploaded answer sheet — no AI call needed
+        if session.session_type == "EVAL":
+            filename = (session.metadata or {}).get('source_filename') or ''
+            stem = os.path.splitext(os.path.basename(filename))[0].replace('_', ' ').strip()
+            generated_title = f"Evaluation: {stem}" if stem else "Answer evaluation"
+            generated_title = generated_title[:47] + '...' if len(generated_title) > 50 else generated_title
             session.title = generated_title
             session.save(update_fields=['title'])
             return Response({'title': generated_title})
