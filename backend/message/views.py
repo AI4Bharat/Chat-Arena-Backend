@@ -939,7 +939,11 @@ class MessageViewSet(viewsets.ModelViewSet):
         holding the evaluation of the whole sheet, then streams 'aa:' (one answer or
         finding per line) and 'ad:' to finish.
         """
-        session = get_object_or_404(ChatSession, id=request.data.get('session_id'), user=request.user)
+        try:
+            session_id = uuid.UUID(str(request.data.get('session_id')))
+        except ValueError:
+            return Response({'error': 'session_id must be a session id'}, status=status.HTTP_400_BAD_REQUEST)
+        session = get_object_or_404(ChatSession, id=session_id, user=request.user)
         if session.session_type != 'EVAL':
             return Response({'error': 'Not an evaluation session'}, status=status.HTTP_400_BAD_REQUEST)
         meta = session.metadata or {}

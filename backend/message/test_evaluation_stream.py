@@ -106,6 +106,8 @@ class EvaluateDocumentTests(EvaluationTestCase):
         too_long = ChatSession.objects.create(user=self.user, mode="direct", session_type="EVAL", model_a=self.model,
                                               metadata={"answer_pages": [PAGES[0]] * 21})
         self.assertEqual(self._evaluate(too_long)[0].status_code, 400)
+        for missing in ({}, {"session_id": ""}, {"session_id": "not-a-uuid"}):
+            self.assertEqual(self.client.post("/messages/evaluate_document/", missing, format="json").status_code, 400)
         other = APIClient()
         other.force_authenticate(User.objects.create(email="other@example.com", display_name="Other"))
         response = other.post("/messages/evaluate_document/", {"session_id": str(self.session.id)}, format="json")
