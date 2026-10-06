@@ -22,6 +22,7 @@ from message.permissions import IsMessageOwner
 from chat_session.models import ChatSession
 from user.authentication import FirebaseAuthentication, AnonymousTokenAuthentication
 from django.db import connections, transaction
+from django.utils import timezone
 from django.http import StreamingHttpResponse
 import threading
 import queue
@@ -52,6 +53,25 @@ OCR_UPLOAD_PREFIX = 'ocr-inputs/'
 
 def _is_ocr_upload_path(path):
     return isinstance(path, str) and path.startswith(OCR_UPLOAD_PREFIX) and '..' not in path
+
+
+def _eval_reference_paths(session_metadata):
+    """Question paper / answer key pages recorded on an EVAL session."""
+    return [
+        p.get('path') for p in ((session_metadata or {}).get('reference_pages') or [])
+        if isinstance(p, dict) and _is_ocr_upload_path(p.get('path'))
+    ][:evaluation_interactions.MAX_REFERENCE_PAGES]
+
+
+# Re-evaluations kept per page message; only the latest few keep the content needed to undo them.
+MAX_EVAL_REVISIONS = 30
+UNDOABLE_EVAL_REVISIONS = 10
+
+
+def _trim_eval_revisions(revisions):
+    revisions[:] = revisions[-MAX_EVAL_REVISIONS:]
+    for record in revisions[:-UNDOABLE_EVAL_REVISIONS]:
+        record.pop('previous_content', None)
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -881,10 +901,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             """
             db_alias = session._state.db
             meta = session.metadata or {}
-            reference_paths = [
-                p.get('path') for p in (meta.get('reference_pages') or [])
-                if isinstance(p, dict) and _is_ocr_upload_path(p.get('path'))
-            ][:evaluation_interactions.MAX_REFERENCE_PAGES]
+            reference_paths = _eval_reference_paths(meta)
             instructions = meta.get('instructions') or ''
             max_marks = evaluation_interactions.clamp_max_marks(meta.get('max_marks'))
 
@@ -967,6 +984,130 @@ class MessageViewSet(viewsets.ModelViewSet):
         message.content = json.dumps(ocr_result)
         message.save(update_fields=['content'])
         return Response({'status': 'saved', 'count': len(ocr_result)})
+
+    @action(detail=True, methods=['post'])
+    def reevaluate(self, request, pk=None):
+        """Re-run an evaluation with the teacher's feedback, for one answer or the whole page.
+
+        Body: prompt, scope ('answer' | 'page' | 'document' — a page of a whole-document
+        request), answer_id (answer scope), current_annotations (the page as the teacher
+        sees it, including unsaved edits), batch_id (groups the pages of one request).
+        Streams 'ar:' (the model's reply to the teacher), 'aa:' (each revised item),
+        then 'af:' with the merged page and the revision record, and 'ad:' to finish.
+        """
+        message = get_object_or_404(Message, id=pk, session__user=request.user, role='assistant')
+        session = message.session
+        if session.session_type != 'EVAL':
+            return Response({'error': 'Only evaluation sessions can be re-evaluated'}, status=status.HTTP_400_BAD_REQUEST)
+
+        feedback = (request.data.get('prompt') or '').strip()
+        scope = request.data.get('scope') or 'page'
+        answer_id = request.data.get('answer_id')
+        if not feedback:
+            return Response({'error': 'prompt is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(feedback) > evaluation_interactions.MAX_FEEDBACK_CHARS:
+            return Response({'error': 'prompt is too long'}, status=status.HTTP_400_BAD_REQUEST)
+        if scope not in evaluation_interactions.REVISION_SCOPES:
+            return Response({'error': 'scope must be answer, page or document'}, status=status.HTTP_400_BAD_REQUEST)
+
+        current = request.data.get('current_annotations')
+        if current is None:
+            try:
+                current = json.loads(message.content or '[]')
+            except ValueError:
+                current = []
+        if not isinstance(current, list) or len(current) > 500 or not all(isinstance(i, dict) for i in current):
+            return Response({'error': 'current_annotations must be a list of annotations'}, status=status.HTTP_400_BAD_REQUEST)
+        if scope == 'answer' and not any(i.get('kind') == 'answer' and i.get('id') == answer_id for i in current):
+            return Response({'error': 'answer_id is not an answer on this page'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user_message = Message.objects.filter(id__in=message.parent_message_ids, role='user').first()
+        model = message.model or session.model_a
+        if not user_message or not _is_ocr_upload_path(user_message.image_path) or not model:
+            return Response({'error': 'This page has no answer sheet image or model'}, status=status.HTTP_400_BAD_REQUEST)
+
+        revisions = list((message.metadata or {}).get('eval_revisions') or [])
+        revision = evaluation_interactions.Revision(
+            feedback=feedback, scope=scope, answer_id=answer_id, previous=current,
+            history=[{'feedback': r.get('prompt'), 'reply': r.get('reply')}
+                     for r in revisions if r.get('status') == 'applied'],
+        )
+        meta = session.metadata or {}
+        batch_id = str(request.data.get('batch_id') or '')[:64] or None
+        db_alias = message._state.db
+        context = {'session_id': str(session.id), 'message_id': str(message.id),
+                   'user_email': getattr(request.user, 'email', None)}
+
+        def generate():
+            reply = ''
+            revised = []
+            try:
+                image_url = generate_signed_url(user_message.image_path, 900)
+                reference_urls = [u for u in (generate_signed_url(p, 900) for p in _eval_reference_paths(meta)) if u]
+                for obj in evaluation_interactions.stream_reevaluation(
+                    image_url, model.model_code, revision, reference_urls=reference_urls,
+                    instructions=meta.get('instructions') or '', max_marks=meta.get('max_marks'),
+                    log_context=context,
+                ):
+                    if obj.get('kind') == 'reply':
+                        reply = obj['text']
+                        yield f'ar:{json.dumps({"text": reply})}\n'
+                    else:
+                        revised.append(obj)
+                        yield f'aa:{json.dumps(obj)}\n'
+
+                merged = evaluation_interactions.merge_revision(current, revised, scope, answer_id)
+                target = revision.target or {}
+                record = {
+                    'id': str(uuid.uuid4()),
+                    'created_at': timezone.now().isoformat(),
+                    'scope': scope,
+                    'answer_id': answer_id if scope == 'answer' else None,
+                    'question': target.get('question'),
+                    'prompt': feedback,
+                    'reply': reply,
+                    'batch_id': batch_id,
+                    'status': 'applied',
+                    'score_before': evaluation_interactions.scope_score(current, scope, answer_id),
+                    'score_after': evaluation_interactions.scope_score(merged, scope, answer_id),
+                    'previous_content': current,
+                }
+                revisions.append(record)
+                _trim_eval_revisions(revisions)
+                message.content = json.dumps(merged)
+                message.metadata = {**(message.metadata or {}), 'eval_revisions': revisions}
+                message.save(using=db_alias, update_fields=['content', 'metadata'])
+
+                public = {k: v for k, v in record.items() if k != 'previous_content'}
+                yield f'af:{json.dumps({"annotations": merged, "revision": public})}\n'
+                yield f'ad:{json.dumps({"finishReason": "stop"})}\n'
+            except Exception as e:
+                logger.exception('Answer re-evaluation failed for message %s', message.id)
+                error = str(e) if isinstance(e, evaluation_interactions.EvaluationError) \
+                    else 'Re-evaluation failed. The evaluation was not changed.'
+                yield f'ad:{json.dumps({"finishReason": "error", "error": error})}\n'
+
+        return StreamingHttpResponse(generate(), content_type='text/plain')
+
+    @action(detail=True, methods=['post'])
+    def revert_revision(self, request, pk=None):
+        """Undo the latest re-evaluation of a page, restoring the annotations it replaced."""
+        message = get_object_or_404(Message, id=pk, session__user=request.user, role='assistant')
+        revisions = list((message.metadata or {}).get('eval_revisions') or [])
+        applied = [r for r in revisions if r.get('status') == 'applied']
+        latest = applied[-1] if applied else None
+        if not latest or latest.get('id') != request.data.get('revision_id'):
+            return Response({'error': 'Only the latest re-evaluation of a page can be undone'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if 'previous_content' not in latest:
+            return Response({'error': 'This re-evaluation is too old to undo'}, status=status.HTTP_400_BAD_REQUEST)
+
+        restored = latest.pop('previous_content')
+        latest['status'] = 'reverted'
+        message.content = json.dumps(restored)
+        message.metadata = {**(message.metadata or {}), 'eval_revisions': revisions}
+        message.save(update_fields=['content', 'metadata'])
+        return Response({'annotations': restored, 'revision_id': latest['id']})
 
     @action(detail=True, methods=['post'])
     def submit_assessment(self, request, pk=None):

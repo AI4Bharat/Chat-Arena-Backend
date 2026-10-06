@@ -12,6 +12,14 @@ from ai_model.evaluation_interactions import (
 )
 
 
+def png_bytes(width, height):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), "white").save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def chunked(text, size):
     return [text[i:i + size] for i in range(0, len(text), size)]
 
@@ -117,13 +125,6 @@ class PromptTests(SimpleTestCase):
 class GeminiStreamTests(SimpleTestCase):
     """The OpenAI-compatible streaming call, with the network replaced by fakes."""
 
-    def _png(self, width=400, height=800):
-        import io
-        from PIL import Image
-        buf = io.BytesIO()
-        Image.new("RGB", (width, height), "white").save(buf, format="PNG")
-        return buf.getvalue()
-
     def test_streamed_tokens_become_normalized_annotations(self):
         from types import SimpleNamespace
         from unittest import mock
@@ -134,7 +135,7 @@ class GeminiStreamTests(SimpleTestCase):
                   for piece in chunked(text, 7)] + [SimpleNamespace(choices=[])]
         create = mock.Mock(return_value=iter(chunks))
         fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-        response = mock.Mock(content=self._png(), headers={"Content-Type": "image/png"})
+        response = mock.Mock(content=png_bytes(400, 800), headers={"Content-Type": "image/png"})
         response.raise_for_status = mock.Mock()
 
         with mock.patch.object(ev, "OpenAI", return_value=fake_client), \
@@ -163,3 +164,78 @@ class GeminiStreamTests(SimpleTestCase):
         from ai_model import evaluation_interactions as ev
         with self.assertRaises(ev.EvaluationError):
             ev.stream_evaluation("https://img/x.png", "openai/gpt-4o")
+
+
+class RevisionTests(SimpleTestCase):
+    def setUp(self):
+        from ai_model import evaluation_interactions as ev
+        self.ev = ev
+        norm = EvaluationNormalizer(img_width=1000, img_height=2000, max_marks=10)
+        self.page = [norm.add(ANSWER), norm.add(FINDING),
+                     norm.add(dict(ANSWER, id="q2", question="Q2", box_2d=[400, 50, 600, 950])),
+                     norm.add(dict(FINDING, id="q2-f1", answer_id="q2", box_2d=[450, 60, 480, 400]))]
+
+    def test_model_format_round_trips_boxes(self):
+        raw = self.ev.to_model_format(self.page, 1000, 2000)
+        self.assertNotIn("box", raw[0])
+        again = EvaluationNormalizer(1000, 2000).add(raw[0])
+        self.assertEqual(again["box"], self.page[0]["box"])
+
+    def test_answer_merge_replaces_only_that_answer_and_its_findings(self):
+        revised_answer = dict(self.page[2], id="q2-x", box=None, marks_awarded=9, category="minor_mistake")
+        revised_finding = dict(self.page[3], id="q2-f9", answer_id="q2-x", comment="unit should be cm")
+        merged = self.ev.merge_revision(self.page, [revised_answer, revised_finding], "answer", "q2")
+        self.assertEqual([i["id"] for i in merged], ["q1", "q1-f1", "q2", "q2-f9"])
+        self.assertEqual(merged[2]["marks_awarded"], 9)
+        self.assertEqual(merged[2]["box"], self.page[2]["box"])  # model gave no box: keep the old one
+        self.assertEqual(merged[3]["answer_id"], "q2")
+        self.assertIs(merged[0], self.page[0])
+
+    def test_answer_merge_without_a_revised_answer_is_an_error(self):
+        with self.assertRaises(self.ev.EvaluationError):
+            self.ev.merge_revision(self.page, [self.page[3]], "answer", "q2")
+
+    def test_page_merge_is_a_replacement(self):
+        self.assertEqual(self.ev.merge_revision(self.page, self.page[:2], "page"), self.page[:2])
+
+    def test_revise_objects_keeps_one_reply_and_unique_ids(self):
+        revision = self.ev.Revision(feedback="x", scope="answer", answer_id="q2", previous=self.page)
+        raw = [{"kind": "reply", "text": "Changed Q2."}, {"kind": "reply", "text": "again"},
+               dict(ANSWER, id="q2"), dict(FINDING, id="q1-f1", answer_id="q2")]
+        out = list(self.ev.revise_objects(iter(raw), 1000, 2000, 10, revision))
+        self.assertEqual(out[0], {"kind": "reply", "text": "Changed Q2."})
+        self.assertEqual([o.get("id") for o in out[1:]], ["q2", "q1-f1-2"])  # q1-f1 belongs to Q1
+
+    def test_scope_score(self):
+        self.assertEqual(self.ev.scope_score(self.page, "page"), (15, 20))
+        self.assertEqual(self.ev.scope_score(self.page, "answer", "q2"), (7.5, 10))
+
+    def test_gemini_revision_prompt_carries_previous_evaluation_and_feedback(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        text = json.dumps([{"kind": "reply", "text": "Deducted a mark for units."}, dict(ANSWER, id="q2")])
+        chunks = [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=p))]) for p in chunked(text, 9)]
+        create = mock.Mock(return_value=iter(chunks))
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        response = mock.Mock(content=png_bytes(1000, 2000), headers={"Content-Type": "image/png"})
+        revision = self.ev.Revision(feedback="Q2 perimeter unit is cm", scope="answer", answer_id="q2",
+                                    previous=self.page, history=[{"feedback": "be strict", "reply": "ok"}])
+        with mock.patch.object(self.ev, "OpenAI", return_value=client), \
+                mock.patch.object(self.ev.requests, "get", return_value=response), \
+                mock.patch.dict("os.environ", {"GOOGLE_API_KEY": "k"}):
+            out = list(self.ev.stream_reevaluation("https://img/p.png", "google-eval/gemini-2.5-pro", revision))
+
+        self.assertEqual(out[0]["text"], "Deducted a mark for units.")
+        self.assertEqual(out[1]["kind"], "answer")
+        messages = create.call_args.kwargs["messages"]
+        self.assertIn("REVISING", messages[0]["content"])
+        self.assertIn('ONLY the revised answer with id "q2"', messages[0]["content"])
+        texts = "\n".join(c.get("text", "") for c in messages[1]["content"])
+        self.assertIn('"box_2d": [400, 50, 600, 950]', texts)
+        self.assertIn("Q2 perimeter unit is cm", texts)
+        self.assertIn("Teacher: be strict", texts)
+
+    def test_answer_scope_needs_an_existing_answer(self):
+        revision = self.ev.Revision(feedback="x", scope="answer", answer_id="nope", previous=self.page)
+        with self.assertRaises(self.ev.EvaluationError):
+            self.ev.stream_reevaluation("https://img/p.png", "google-eval/gemini-2.5-pro", revision)

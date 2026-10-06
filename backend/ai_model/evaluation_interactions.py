@@ -9,6 +9,11 @@ Each page produces a flat list of annotations, streamed one object at a time:
              a category and a comment explaining it. ``answer_id`` links it to its answer.
 
 Boxes are returned in natural pixel coordinates of the student page, like OCR output.
+
+A teacher can also send feedback ("Q2: units are wrong, deduct a mark") and have the
+model revise one answer or a whole page (``stream_reevaluation``). The model then returns
+a short ``reply`` to the teacher followed by the revised annotations, which
+``merge_revision`` folds back into the page.
 """
 import base64
 import io
@@ -17,6 +22,7 @@ import logging
 import math
 import os
 import re
+from dataclasses import dataclass, field
 
 import requests
 from openai import OpenAI
@@ -189,11 +195,11 @@ class EvaluationNormalizer:
     answer (falling back to the most recent answer), and clamps marks to the limits.
     """
 
-    def __init__(self, img_width, img_height, max_marks=DEFAULT_MAX_MARKS):
+    def __init__(self, img_width, img_height, max_marks=DEFAULT_MAX_MARKS, reserved_ids=()):
         self.img_width = img_width
         self.img_height = img_height
         self.max_marks = clamp_max_marks(max_marks)
-        self._used_ids = set()
+        self._used_ids = set(reserved_ids)  # ids already used elsewhere on the page
         self._answer_ids = {}  # model-given id -> final id
         self._last_answer_id = None
         self._answers = 0
@@ -354,42 +360,191 @@ def _load_image(image_url):
     return f"data:{content_type};base64,{encoded}", width, height
 
 
-def build_user_content(student_data_url, reference_data_urls=(), instructions=""):
-    content = []
+def _context_parts(reference_data_urls, instructions):
+    parts = []
     references = list(reference_data_urls)[:MAX_REFERENCE_PAGES]
     for i, url in enumerate(references, start=1):
-        content.append({"type": "text", "text": f"REFERENCE page {i} of {len(references)} (question paper / answer key):"})
-        content.append({"type": "image_url", "image_url": {"url": url}})
+        parts.append({"type": "text", "text": f"REFERENCE page {i} of {len(references)} (question paper / answer key):"})
+        parts.append({"type": "image_url", "image_url": {"url": url}})
     instructions = _text(instructions, MAX_INSTRUCTIONS_CHARS)
     if instructions:
-        content.append({
+        parts.append({
             "type": "text",
             "text": f"TEACHER INSTRUCTIONS (from the teacher, not the student):\n<<<\n{instructions}\n>>>",
         })
+    return parts
+
+
+def build_user_content(student_data_url, reference_data_urls=(), instructions=""):
+    content = _context_parts(reference_data_urls, instructions)
     content.append({"type": "text", "text": "STUDENT ANSWER SHEET page to evaluate:"})
     content.append({"type": "image_url", "image_url": {"url": student_data_url}})
     content.append({"type": "text", "text": "Evaluate this page and return the JSON array described."})
     return content
 
 
-def _stream_gemini_evaluation(image_url, model_code, reference_urls, instructions, max_marks, log_context):
+# ── Re-evaluation from teacher feedback ──────────────────────────────────────
+
+REVISION_SCOPES = ("answer", "page", "document")
+MAX_FEEDBACK_CHARS = 2000
+MAX_HISTORY_TURNS = 5
+
+REVISION_PROMPT = """
+
+You are now REVISING an earlier evaluation of this page because the teacher sent feedback.
+- PREVIOUS EVALUATION is the current evaluation in the same JSON format (box_2d on the student page). It may include edits the teacher made by hand.
+- Apply the TEACHER FEEDBACK. Look at the student's work again wherever the feedback points; keep the parts of the previous evaluation that the feedback does not affect, unless they are clearly wrong.
+- When the teacher's feedback conflicts with the answer key or with your own judgement, follow the teacher.
+- Begin the array with exactly one object {{"kind": "reply", "text": "..."}}: 1 to 3 sentences to the teacher saying what you changed and why, or why you kept something unchanged.
+{scope_rule}"""
+
+_SCOPE_RULES = {
+    "page": "- Then return the COMPLETE revised evaluation of the page: every answer and every finding, including unchanged ones.",
+    "answer": ('- Then return ONLY the revised answer with id "{answer_id}" (keep that id) and its findings. '
+               "Do not return any other answer."),
+}
+
+
+@dataclass
+class Revision:
+    """What the teacher asked for. ``previous`` is the page's current annotation list."""
+    feedback: str
+    scope: str = "page"
+    answer_id: str = None
+    previous: list = field(default_factory=list)
+    history: list = field(default_factory=list)  # [{"feedback": ..., "reply": ...}], oldest first
+
+    @property
+    def target(self):
+        if self.scope != "answer":
+            return None
+        return next((i for i in self.previous if i.get("kind") == "answer" and i.get("id") == self.answer_id), None)
+
+
+def build_revision_prompt(max_marks, revision):
+    scope = "answer" if revision.scope == "answer" else "page"
+    rule = _SCOPE_RULES[scope].format(answer_id=revision.answer_id)
+    return build_evaluation_prompt(max_marks) + REVISION_PROMPT.format(scope_rule=rule)
+
+
+def to_model_format(items, img_width, img_height):
+    """Annotation dicts (pixel boxes) → the JSON shape the model reads and writes (box_2d, 0-1000)."""
+    out = []
+    for item in items:
+        if not isinstance(item, dict) or item.get("kind") not in ("answer", "finding"):
+            continue
+        raw = {k: v for k, v in item.items() if k not in ("box", "page")}
+        box = item.get("box")
+        if isinstance(box, (list, tuple)) and len(box) == 4 and img_width and img_height:
+            x1, y1, x2, y2 = box
+            raw["box_2d"] = [round(y1 * 1000 / img_height), round(x1 * 1000 / img_width),
+                             round(y2 * 1000 / img_height), round(x2 * 1000 / img_width)]
+        out.append(raw)
+    return out
+
+
+def build_revision_content(student_data_url, reference_data_urls, instructions, previous_raw, revision):
+    content = _context_parts(reference_data_urls, instructions)
+    content.append({"type": "text", "text": "STUDENT ANSWER SHEET page:"})
+    content.append({"type": "image_url", "image_url": {"url": student_data_url}})
+    content.append({"type": "text", "text": "PREVIOUS EVALUATION:\n" + json.dumps(previous_raw, ensure_ascii=False)})
+    history = [h for h in revision.history if h.get("feedback")][-MAX_HISTORY_TURNS:]
+    if history:
+        lines = [f"- Teacher: {_text(h['feedback'], 500)}\n  You replied: {_text(h.get('reply'), 500)}" for h in history]
+        content.append({"type": "text", "text": "EARLIER FEEDBACK ON THIS PAGE (already applied):\n" + "\n".join(lines)})
+    target = revision.target
+    scope = f'the answer {target.get("question") or revision.answer_id} (id "{revision.answer_id}")' if target else "the whole page"
+    content.append({
+        "type": "text",
+        "text": (f"TEACHER FEEDBACK about {scope}:\n<<<\n{_text(revision.feedback, MAX_FEEDBACK_CHARS)}\n>>>\n"
+                 "Return the reply object and then the revised JSON as described."),
+    })
+    return content
+
+
+def revise_objects(raw_objects, img_width, img_height, max_marks, revision):
+    """Normalise a model's revision output: yields {"kind": "reply"} and annotation dicts."""
+    reserved = ()
+    if revision.scope == "answer":
+        reserved = {i.get("id") for i in revision.previous
+                    if i.get("id") != revision.answer_id and i.get("answer_id") != revision.answer_id}
+    normalizer = EvaluationNormalizer(img_width, img_height, max_marks, reserved_ids=reserved)
+    replied = False
+    for raw in raw_objects:
+        if isinstance(raw, dict) and str(raw.get("kind", "")).lower() == "reply":
+            if not replied:
+                replied = True
+                yield {"kind": "reply", "text": _text(raw.get("text"), 1500)}
+            continue
+        item = normalizer.add(raw)
+        if item:
+            yield item
+
+
+def merge_revision(previous, revised, scope, answer_id=None):
+    """The page's new annotation list after a revision of ``scope``."""
+    revised = [i for i in revised if i.get("kind") in ("answer", "finding")]
+    if scope != "answer":
+        return revised
+    old = next((i for i in previous if i.get("kind") == "answer" and i.get("id") == answer_id), None)
+    new = next((i for i in revised if i.get("kind") == "answer"), None)
+    if old is None:
+        raise EvaluationError("That answer is no longer on this page.")
+    if new is None:
+        raise EvaluationError("The model did not return a revised answer.")
+    new_id = new["id"]
+    new = {**new, "id": answer_id, "box": new.get("box") or old.get("box"),
+           "question": new.get("question") or old.get("question")}
+    findings = [{**f, "answer_id": answer_id} for f in revised
+                if f.get("kind") == "finding" and f.get("answer_id") in (new_id, answer_id, None)]
+    merged = []
+    for item in previous:
+        if item is old:
+            merged.append(new)
+            merged.extend(findings)
+        elif not (item.get("kind") == "finding" and item.get("answer_id") == answer_id):
+            merged.append(item)
+    return merged
+
+
+def scope_score(items, scope, answer_id=None):
+    """(marks awarded, max marks) for the answer or page a revision covered."""
+    answers = [i for i in items if i.get("kind") == "answer"
+               and (scope != "answer" or i.get("id") == answer_id)]
+    return (sum(_number(a.get("marks_awarded")) or 0 for a in answers),
+            sum(_number(a.get("max_marks")) or 0 for a in answers))
+
+
+# ── Gemini ───────────────────────────────────────────────────────────────────
+
+def _gemini_api_key():
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise EvaluationError("GOOGLE_API_KEY is not configured on the server.")
+    return api_key
+
+
+def _gemini_tokens(api_key, model_code, system_prompt, user_content):
+    client = OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL)
+    stream = client.chat.completions.create(
+        model=model_code.removeprefix(GEMINI_PREFIX),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.2,
+        stream=True,
+    )
+    return (chunk.choices[0].delta.content or "" for chunk in stream if chunk.choices)
+
+
+def _stream_gemini_evaluation(image_url, model_code, reference_urls, instructions, max_marks, log_context):
+    api_key = _gemini_api_key()
     try:
         student_url, width, height = _load_image(image_url)
         reference_data = [_load_image(url)[0] for url in list(reference_urls)[:MAX_REFERENCE_PAGES]]
-        client = OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL)
-        stream = client.chat.completions.create(
-            model=model_code.removeprefix(GEMINI_PREFIX),
-            messages=[
-                {"role": "system", "content": build_evaluation_prompt(max_marks)},
-                {"role": "user", "content": build_user_content(student_url, reference_data, instructions)},
-            ],
-            temperature=0.2,
-            stream=True,
-        )
-        tokens = (chunk.choices[0].delta.content or "" for chunk in stream if chunk.choices)
+        tokens = _gemini_tokens(api_key, model_code, build_evaluation_prompt(max_marks),
+                                build_user_content(student_url, reference_data, instructions))
         normalizer = EvaluationNormalizer(width, height, max_marks)
         for raw in iter_json_objects(tokens):
             item = normalizer.add(raw)
@@ -400,10 +555,42 @@ def _stream_gemini_evaluation(image_url, model_code, reference_urls, instruction
                       custom_message=f"Gemini evaluation error: {e}")
 
 
+def _stream_gemini_reevaluation(image_url, model_code, revision, reference_urls, instructions,
+                                max_marks, log_context):
+    api_key = _gemini_api_key()
+    try:
+        student_url, width, height = _load_image(image_url)
+        reference_data = [_load_image(url)[0] for url in list(reference_urls)[:MAX_REFERENCE_PAGES]]
+        content = build_revision_content(student_url, reference_data, instructions,
+                                         to_model_format(revision.previous, width, height), revision)
+        tokens = _gemini_tokens(api_key, model_code, build_revision_prompt(max_marks, revision), content)
+        yield from revise_objects(iter_json_objects(tokens), width, height, max_marks, revision)
+    except Exception as e:
+        log_and_raise(e, model_code=model_code, provider="google", log_context=log_context,
+                      custom_message=f"Gemini re-evaluation error: {e}")
+
+
+def _is_gemini(model_code):
+    return model_code.startswith(GEMINI_PREFIX) or model_code.startswith("gemini")
+
+
 def stream_evaluation(image_url, model_code, reference_urls=(), instructions="",
                       max_marks=DEFAULT_MAX_MARKS, log_context=None):
     """Generator of normalized answer/finding annotations for one student page."""
-    if model_code.startswith(GEMINI_PREFIX) or model_code.startswith("gemini"):
+    if _is_gemini(model_code):
         return _stream_gemini_evaluation(image_url, model_code, reference_urls, instructions,
                                          clamp_max_marks(max_marks), log_context)
+    raise EvaluationError(f"No evaluation backend for model '{model_code}'.")
+
+
+def stream_reevaluation(image_url, model_code, revision, reference_urls=(), instructions="",
+                        max_marks=DEFAULT_MAX_MARKS, log_context=None):
+    """Generator of a {"kind": "reply"} dict followed by the revised annotations."""
+    if revision.scope not in REVISION_SCOPES:
+        raise EvaluationError(f"Unknown scope '{revision.scope}'.")
+    if revision.scope == "answer" and revision.target is None:
+        raise EvaluationError("That answer is no longer on this page.")
+    if _is_gemini(model_code):
+        return _stream_gemini_reevaluation(image_url, model_code, revision, reference_urls, instructions,
+                                           clamp_max_marks(max_marks), log_context)
     raise EvaluationError(f"No evaluation backend for model '{model_code}'.")
