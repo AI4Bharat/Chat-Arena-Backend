@@ -51,7 +51,10 @@ def sse(*deltas):
 class PromptTests(SimpleTestCase):
     def test_guidance_comes_from_the_bundled_file_with_marks_filled_in(self):
         prompt = ev.build_evaluation_prompt(5, mode="text")
-        self.assertIn("Every question is marked out of 5 marks.", prompt)
+        self.assertIn("Every question is marked out of its maximum marks (see MARKS below).", prompt)
+        self.assertIn("5 marks (the teacher's marks per question)", prompt)
+        for section in ("\nMarks\n", "\nBoxes\n", "\nCheck before you write\n", "shown to both the teacher and the student"):
+            self.assertIn(section, prompt)
         self.assertIn("[3.12] is\npage 3, line 12", prompt)
         self.assertIn('"lines": the ids of ALL the transcript lines', prompt)
         self.assertNotIn("box_2d", prompt)
@@ -488,7 +491,8 @@ class HybridTests(SimpleTestCase):
         raw = {"kind": "answer", "id": "q3", "blocks": ["1.4", "2.1"], "marks_awarded": 6}
         resolved = ev.resolve_blocks(raw, self.index, self.SIZES)
         parts = ev.EvaluationNormalizer(self.SIZES, 10).add(resolved)["parts"]
-        self.assertEqual([(p["page"], p["box"]) for p in parts], [(1, [100, 1800, 900, 1980]), (2, [100, 40, 900, 200])])
+        # the blocks plus a 0.6% margin (6 px across, 12 px down on this 1000 x 2000 page)
+        self.assertEqual([(p["page"], p["box"]) for p in parts], [(1, [94, 1788, 906, 1992]), (2, [94, 28, 906, 212])])
 
     def test_a_model_box_is_kept_only_inside_its_block(self):
         norm = ev.EvaluationNormalizer(self.SIZES, 10)
@@ -578,7 +582,7 @@ class HybridTests(SimpleTestCase):
 
         answers = {o["id"]: o for o in out if o["kind"] == "answer"}
         self.assertEqual([(p["page"], p["box"]) for p in answers["q3"]["parts"]],
-                         [(1, [100, 1800, 900, 1980]), (2, [100, 40, 900, 200])])
+                         [(1, [94, 1788, 906, 1992]), (2, [94, 28, 906, 212])])
         finding = next(o for o in out if o["kind"] == "finding")
         self.assertEqual(finding["box"], [300, 320, 450, 400])
 
@@ -610,23 +614,23 @@ class HybridTests(SimpleTestCase):
 
 class MarksScalingTests(SimpleTestCase):
     def add(self, **raw):
-        return ev.EvaluationNormalizer({1: (1000, 2000)}, 10).add({"kind": "answer", "id": "q1", **raw})
+        return ev.EvaluationNormalizer({1: (1000, 2000)}, None).add({"kind": "answer", "id": "q1", **raw})
 
-    def test_a_distribution_on_the_papers_scheme_is_scaled_to_max_marks(self):
+    def test_a_distribution_on_another_scale_is_scaled_to_max_marks(self):
         # a correct 1-mark item the model left at 2.5 of 2.5 (with marks_awarded = the unscaled sum)
-        a = self.add(marks_awarded=2.5, marks_breakdown=[{"criterion": "Correct option", "awarded": 2.5, "max": 2.5}])
-        self.assertEqual((a["marks_awarded"], a["marks_breakdown"][0]["max"]), (10, 10))
-        # three true/false parts at 3.5 each (10.5 in all), two right
-        b = self.add(marks_awarded=7, marks_breakdown=[{"criterion": f"({i})", "awarded": v, "max": 3.5}
-                                                       for i, v in enumerate((3.5, 3.5, 0))])
+        a = self.add(max_marks=1, marks_awarded=2.5, marks_breakdown=[{"criterion": "Correct option", "awarded": 2.5, "max": 2.5}])
+        self.assertEqual((a["marks_awarded"], a["marks_breakdown"][0]["max"]), (1, 1))
+        # three true/false parts at 3.5 each (10.5 in all), two right, on a 10-mark question
+        b = self.add(max_marks=10, marks_awarded=7, marks_breakdown=[{"criterion": f"({i})", "awarded": v, "max": 3.5}
+                                                                     for i, v in enumerate((3.5, 3.5, 0))])
         self.assertEqual(b["marks_awarded"], 6.5)
         self.assertEqual(sum(r["max"] for r in b["marks_breakdown"]), 9.99)
 
     def test_a_scaled_marks_awarded_and_a_correct_distribution_are_kept(self):
-        a = self.add(marks_awarded=10, marks_breakdown=[{"criterion": "x", "awarded": 2.5, "max": 2.5}])
+        a = self.add(max_marks=10, marks_awarded=10, marks_breakdown=[{"criterion": "x", "awarded": 2.5, "max": 2.5}])
         self.assertEqual(a["marks_awarded"], 10)  # already scaled by the model
-        b = self.add(marks_awarded=7, marks_breakdown=[{"criterion": "x", "awarded": 4, "max": 5},
-                                                       {"criterion": "y", "awarded": 3, "max": 5}])
+        b = self.add(max_marks=10, marks_awarded=7, marks_breakdown=[{"criterion": "x", "awarded": 4, "max": 5},
+                                                                     {"criterion": "y", "awarded": 3, "max": 5}])
         self.assertEqual((b["marks_awarded"], b["marks_breakdown"][0]["awarded"]), (7, 4))
 
 
@@ -638,16 +642,18 @@ class MarksFromThePaperTests(SimpleTestCase):
         self.assertEqual(ev.marks_setting("5"), 5)
         self.assertEqual(ev.marks_setting(500), 100)
 
-    def test_prompt_reads_marks_from_the_paper_or_uses_the_teachers_number(self):
+    def test_prompt_takes_marks_from_the_paper_then_the_input(self):
         auto = ev.build_evaluation_prompt(None, mode="hybrid")
-        self.assertIn('"4X1=4" (four questions of 1 mark each)', auto)
-        self.assertIn('"max_marks": this question\'s maximum marks, from the paper', auto)
-        self.assertIn("Every question is marked out of the marks the question paper gives it", auto)  # guidance
+        self.assertIn('"4X1=4" (four questions\nof 1 mark each)', auto)
+        self.assertIn('"max_marks": this question\'s maximum marks (see MARKS)', auto)
+        self.assertIn("Only when the paper gives a question no marks, take them from the input: the marks the TEACHER\n"
+                      "INSTRUCTIONS give", auto)
+        self.assertIn("use\n10 marks.", auto)
+        self.assertIn("Every question is marked out of its maximum marks (see MARKS below).", auto)  # guidance
         self.assertNotIn("{max_marks}", auto)
-        fixed = ev.build_evaluation_prompt(5, mode="hybrid")
-        self.assertIn("Every question is marked out of 5, as set by the teacher", fixed)
-        self.assertIn('"max_marks": 5', fixed)
-        self.assertIn("Every question is marked out of 5 marks.", fixed)
+        teacher = ev.build_evaluation_prompt(5, mode="hybrid")
+        self.assertIn("use\n5 marks (the teacher's marks per question).", teacher)
+        self.assertIn('"max_marks": this question\'s maximum marks (see MARKS)', teacher)
 
     def test_each_answer_keeps_its_own_maximum(self):
         n = ev.EvaluationNormalizer({1: (1000, 2000)}, None)
@@ -661,11 +667,12 @@ class MarksFromThePaperTests(SimpleTestCase):
         finding = n.add({"kind": "finding", "answer_id": "q1", "marks_impact": -4})
         self.assertEqual(finding["marks_impact"], -1)  # no more than its answer's maximum
 
-    def test_a_teachers_number_overrides_the_paper(self):
-        n = ev.EvaluationNormalizer({1: (1000, 2000)}, 10)
-        a = n.add({"kind": "answer", "id": "q1", "marks_awarded": 1, "max_marks": 1,
-                   "marks_breakdown": [{"criterion": "Correct option", "awarded": 1, "max": 1}]})
-        self.assertEqual((a["marks_awarded"], a["max_marks"]), (10, 10))  # scaled to the teacher's 10
+    def test_the_paper_wins_and_the_teachers_number_fills_in(self):
+        n = ev.EvaluationNormalizer({1: (1000, 2000)}, 5)
+        from_paper = n.add({"kind": "answer", "id": "q1", "marks_awarded": 1, "max_marks": 1,
+                            "marks_breakdown": [{"criterion": "Correct option", "awarded": 1, "max": 1}]})
+        no_marks = n.add({"kind": "answer", "id": "q2", "marks_awarded": 4})
+        self.assertEqual([(a["marks_awarded"], a["max_marks"]) for a in (from_paper, no_marks)], [(1, 1), (4, 5)])
 
 
 # A worksheet page: printed questions, and answers 05-07 that the OCR merged into one block.
@@ -693,9 +700,10 @@ class OneBoxPerQuestionTests(SimpleTestCase):
     def test_a_merged_block_is_cut_to_each_questions_line(self):
         boxes = [self.box({"kind": "answer", "id": f"q{n}", "question": f"0{n}", "blocks": ["2.2"], "max_marks": 1})
                  for n in (5, 6, 7)]
-        self.assertEqual(boxes, [[150, 1000, 800, 1050], [150, 1050, 800, 1100], [150, 1100, 800, 1150]])
+        # each question's lines, plus the 6/12 px margin
+        self.assertEqual(boxes, [[144, 988, 806, 1062], [144, 1038, 806, 1112], [144, 1088, 806, 1162]])
         self.assertEqual(self.box({"kind": "answer", "id": "q8", "question": "08", "blocks": ["2.3"]}),
-                         [150, 1160, 450, 1200])  # its own block: untouched
+                         [144, 1148, 456, 1212])  # its own block, not cut
 
     def test_slicing_only_applies_to_merged_numbered_blocks(self):
         self.assertIsNone(ev.slice_for_question([0, 0, 10, 10], "Feelings like joy", 13))
@@ -706,7 +714,7 @@ class OneBoxPerQuestionTests(SimpleTestCase):
     def test_a_finding_stays_inside_its_questions_slice(self):
         self.box({"kind": "answer", "id": "q6", "question": "06", "blocks": ["2.2"]})
         finding = self.box({"kind": "finding", "answer_id": "q6", "blocks": ["2.2"]})
-        self.assertEqual(finding, [150, 1050, 800, 1100])
+        self.assertEqual(finding, [150, 1038, 800, 1112])  # the block, inside q6's box
 
 
 class NestedFindingsAndRedoTests(SimpleTestCase):
@@ -747,3 +755,74 @@ class NestedFindingsAndRedoTests(SimpleTestCase):
             self.assertIn('"findings": []}]', prompt)
         self.assertIn("each with a finding for every place where it lost marks", ev.EVALUATE_REQUEST)
         self.assertTrue(ev.build_text_user_content({"pages": []}, "", "").endswith(ev.EVALUATE_REQUEST))
+
+
+class TeacherAndStudentCommentTests(SimpleTestCase):
+    def test_working_and_input_talk_are_dropped_from_comments(self):
+        comment = ("The student wrote 1947, but FIVB was founded in 1947. Wait, looking at the image, the student "
+                   "wrote 1947. The OCR says 1967 1947. The image shows 1947. This is correct. Let's re-evaluate. "
+                   "Block [3.9] holds it.")
+        self.assertEqual(ev.polish_comment(comment, 2000), "The student wrote 1947, but FIVB was founded in 1947. This is correct.")
+
+    def test_ordinary_feedback_is_kept(self):
+        comment = "Correctly labels the parts of the image. Re-check the units in step 2. Did not follow the instructions."
+        self.assertEqual(ev.polish_comment(comment, 2000), comment)
+        self.assertEqual(ev.polish_comment("Wait.", 2000), "Wait.")  # nothing else to show: kept as it is
+
+    def test_comments_are_polished_and_the_ocr_check_is_kept_for_the_teacher(self):
+        n = ev.EvaluationNormalizer({1: (1000, 2000)}, None)
+        a = n.add({"kind": "answer", "id": "q1", "max_marks": 1, "marks_awarded": 1, "ocr_check": "OCR read '1967'; the sheet shows '1947'",
+                   "comment": "Correct year. Wait, the OCR says 1967."})
+        f = n.add({"kind": "finding", "answer_id": "q1", "comment": "Let me check. Spelling of 'volleyball' is wrong.", "marks_impact": 0})
+        self.assertEqual((a["comment"], a["ocr_check"]), ("Correct year.", "OCR read '1967'; the sheet shows '1947'"))
+        self.assertEqual(f["comment"], "Spelling of 'volleyball' is wrong.")
+        self.assertNotIn("ocr_check", n.add({"kind": "answer", "id": "q2"}))
+
+    def test_hybrid_contract_asks_for_the_ocr_check_and_whole_answer_boxes(self):
+        hybrid = ev.build_evaluation_prompt(None, mode="hybrid")
+        self.assertIn('- "ocr_check": "ok" when the OCR text of this answer matches', hybrid)
+        self.assertIn("Verify the OCR before you rely on it", hybrid)
+        self.assertIn("never leave a block out to make the box smaller", hybrid)
+        self.assertNotIn("ocr_check", ev.build_evaluation_prompt(None, mode="image"))
+        self.assertIn("never cuts through the student's writing", ev.build_evaluation_prompt(None, mode="image"))
+
+
+class WholeAnswerBoxTests(SimpleTestCase):
+    SIZES = {2: (1000, 2000)}
+
+    def resolve(self, raw):
+        return ev.EvaluationNormalizer(self.SIZES, None).add(ev.HybridResolver(ev.LineIndex(WORKSHEET), self.SIZES).resolve(raw))
+
+    def test_a_model_box_inside_the_blocks_never_trims_the_answer(self):
+        item = self.resolve({"kind": "answer", "id": "q13", "question": "13", "blocks": ["2.5"],
+                             "parts": [{"page": 2, "box_2d": [672, 200, 690, 500]}]})  # a sliver inside 2.5
+        self.assertEqual([p["box"] for p in item["parts"]], [[144, 1328, 906, 1412]])  # all of 2.5, plus margin
+
+    def test_writing_the_ocr_missed_becomes_its_own_part(self):
+        item = self.resolve({"kind": "answer", "id": "q13", "question": "13", "blocks": ["2.5"],
+                             "parts": [{"page": 2, "box_2d": [710, 100, 740, 400]}]})  # below 2.5, no block
+        self.assertEqual([p["box"] for p in item["parts"]], [[144, 1328, 906, 1412], [100, 1420, 400, 1480]])
+
+    def test_an_answer_without_a_location_gets_its_printed_question(self):
+        item = self.resolve({"kind": "answer", "id": "q6", "question": "06", "category": "unattempted"})
+        self.assertEqual([p["box"] for p in item["parts"]], [[144, 1038, 806, 1112]])  # question 06's line of 2.2
+
+
+class ReviewFlagTests(SimpleTestCase):
+    def add(self, **raw):
+        return ev.EvaluationNormalizer({1: (1000, 2000)}, None).add({"kind": "answer", "id": "q1", "max_marks": 1, **raw})
+
+    def test_an_answer_the_model_reconsidered_is_flagged(self):
+        a = self.add(marks_awarded=0, category="major_mistake",
+                     comment="The student wrote 1947. Wait, looking at the image, 1947 is right. This is correct.")
+        self.assertEqual(a["comment"], "The student wrote 1947. This is correct.")
+        self.assertEqual(a["review"], [ev.REVIEW_RECONSIDERED])
+
+    def test_category_and_marks_that_disagree_are_flagged(self):
+        self.assertEqual(self.add(marks_awarded=0.5, category="correct")["review"], [ev.REVIEW_CATEGORY_MARKS])
+        self.assertEqual(self.add(marks_awarded=1, category="major_mistake")["review"], [ev.REVIEW_CATEGORY_MARKS])
+
+    def test_a_consistent_answer_is_not_flagged(self):
+        self.assertNotIn("review", self.add(marks_awarded=1, category="correct", comment="Correct year."))
+        # only input talk was dropped (no change of mind): not flagged
+        self.assertNotIn("review", self.add(marks_awarded=0, category="major_mistake", comment="Wrong year. The OCR read 1967."))

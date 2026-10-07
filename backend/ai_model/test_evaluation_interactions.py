@@ -136,7 +136,7 @@ class PromptTests(SimpleTestCase):
         self.assertEqual(clamp_max_marks("abc"), 10)
         self.assertEqual(clamp_max_marks(500), 100)
         prompt = build_evaluation_prompt(5)
-        self.assertIn("out of 5 marks", prompt)
+        self.assertIn("5 marks (the teacher's marks per question)", prompt)
         self.assertIn("never a new answer", prompt)
 
     def test_sheet_pages_are_numbered_and_follow_the_references(self):

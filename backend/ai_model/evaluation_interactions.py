@@ -105,10 +105,11 @@ _ANSWER_FIELDS = """- "kind": "answer"
 - "question": the question label as written on the sheet (e.g. "Q1", "13", "2(b)"); infer it from order if unlabeled
 - "question_text": one short line saying what the question asks ("" if unknown)
 {location}
+{ocr_check}
 - "category": overall verdict, one of the categories below
-- "marks_awarded": marks out of {marks_of}, in steps of 0.5
-- "max_marks": {max_marks_value}
-- "marks_breakdown": 1 to 4 criteria as [{{"criterion": "...", "awarded": n, "max": n}}]; the "max" values sum to {marks_of} and the "awarded" values sum to marks_awarded
+- "marks_awarded": marks out of max_marks, in steps of 0.5
+- "max_marks": this question's maximum marks (see MARKS)
+- "marks_breakdown": 1 to 4 criteria as [{{"criterion": "...", "awarded": n, "max": n}}]; the "max" values sum to max_marks and the "awarded" values sum to marks_awarded
 - "comment": 1 to 3 sentences justifying the marks for the whole answer: what is right, what is wrong, and why
 - "findings": this answer's "finding" objects (below): one for every place where it lost marks; [] for a fully correct answer"""
 
@@ -132,6 +133,8 @@ example 13, 14 and 15) in one answer, even when they share a section heading.
 The comment, category, marks and findings of an answer must agree; comments state final conclusions only.
 Every answer that loses marks has at least one finding at the place where they were lost, and its
 findings' "marks_impact" values add up to the marks it lost.
+Every answer has a location, and it covers the WHOLE answer: never leave out a piece of the student's
+writing for that question to make the box smaller (see "Boxes").
 
 {marks_rules}
 
@@ -163,6 +166,7 @@ IMAGE_LOCATION_FINDING = """- "page": the page the finding is on
 IMAGE_RULES = """Rules:
 - "page" is the student answer sheet page number shown above each page image. box_2d values are integers in [0, 1000] where (0, 0) is the top-left and (1000, 1000) the bottom-right of THAT page; ymin < ymax and xmin < xmax. Never give coordinates for reference pages.
 - A box_2d is exactly ONE box: four integers, never a list of boxes. Each part has exactly one "page" and one "box_2d"; when an answer has several separate pieces on one page, give one box around all of them.
+- A part's box encloses every stroke of the answer on that page with a small margin, and never cuts through the student's writing. An unattempted question's part is the empty space left for its answer, or its printed question when there is none.
 - If the pages contain no answers, return [].
 
 Example of the shape (the values are illustrative):
@@ -217,40 +221,51 @@ How to use the OCR blocks
 - Printed text in a block (the question itself on a worksheet) is not the student's work: mark only
   what the student wrote.
 - Locate everything with block ids, never by estimating coordinates: the app draws the boxes from the
-  OCR blocks, which are pixel-exact."""
+  OCR blocks, which are pixel-exact.
+
+Verify the OCR before you rely on it
+- For every answer, compare the OCR text of its blocks with the page image, word by word where it
+  matters: numbers, years, units, signs, names, spellings, and ticked, circled or joined options.
+- Judge what is really written on the image, quote that, and record the comparison in "ocr_check".
+- Look for writing the OCR missed entirely (short answers beside a question, words in the margin,
+  ticks) before you mark a question unattempted."""
 
 HYBRID_LOCATION_ANSWER = """- "blocks": the ids of ALL the OCR blocks that make up the student's complete answer to this question,
   including working and diagrams, on every page it continues onto, e.g. ["2.7", "2.8", "3.1"]. A run of
   consecutive blocks may be written as a range, e.g. "3.1-3.4". An answer that continues onto the next
   page (often without repeating its label) keeps the same answer — never a new answer.
-- "parts": only for a piece of the answer that has NO OCR block (the OCR missed it), or when one block
-  holds several answers: [{{"page": n, "box_2d": [ymin, xmin, ymax, xmax]}}] around this answer's own piece."""
+- "parts": only for student writing of this answer that has NO OCR block (the OCR missed it):
+  [{{"page": n, "box_2d": [ymin, xmin, ymax, xmax]}}] around all of that writing."""
+OCR_CHECK_FIELD = """- "ocr_check": "ok" when the OCR text of this answer matches what is written on the page image;
+  otherwise one short line saying what the OCR got wrong and what the sheet really shows, e.g. "OCR read
+  '1967'; the sheet shows '1947'". It is for the teacher only: never repeat it in a comment."""
 HYBRID_LOCATION_FINDING = """- "blocks": the id of the OCR block the finding is in, e.g. ["3.4"]
 - "box_2d": optional, [ymin, xmin, ymax, xmax] tightly around the exact word, step or line inside that
   block, when the block is much larger than what the finding is about"""
 HYBRID_RULES = """Rules:
 - Use only block ids that appear in the OCR blocks. Blocks that are not part of any answer (names, headings, printed instructions, page numbers, teacher's marks) belong to no answer.
+- Name every block that holds any of the student's writing for an answer, so its box covers the whole answer; never leave a block out to make the box smaller. An unattempted question names its printed question's block.
 - box_2d values are integers in [0, 1000] where (0, 0) is the top-left and (1000, 1000) the bottom-right of that student page; ymin < ymax and xmin < xmax. A box_2d is exactly ONE box of four integers.
 - If the pages contain no answers, return [].
 
 Example of the shape (the values are illustrative):
-[{"kind": "answer", "id": "q13", "question": "13", "question_text": "What are emotions?", "blocks": ["3.3"], "category": "minor_mistake", "marks_awarded": 0.5, "max_marks": 1, "marks_breakdown": [{"criterion": "Definition", "awarded": 0.5, "max": 1}], "comment": "Names feelings such as happiness but does not say what an emotion is.", "findings": [{"kind": "finding", "id": "q13-f1", "answer_id": "q13", "blocks": ["3.3"], "box_2d": [140, 130, 168, 520], "category": "incomplete", "comment": "Lists examples only; an emotion is a strong feeling such as joy, fear or anger.", "marks_impact": -0.5}]},
- {"kind": "answer", "id": "q17", "question": "17", "question_text": "Penalties for fouls in the 'D' area in hockey", "blocks": ["3.12"], "category": "correct", "marks_awarded": 2, "max_marks": 2, "marks_breakdown": [{"criterion": "Penalty named", "awarded": 1, "max": 1}, {"criterion": "Explanation", "awarded": 1, "max": 1}], "comment": "Correctly says a penalty corner is given for a defender's foul inside the D.", "findings": []}]"""
+[{"kind": "answer", "id": "q13", "question": "13", "question_text": "What are emotions?", "blocks": ["3.3"], "ocr_check": "ok", "category": "minor_mistake", "marks_awarded": 0.5, "max_marks": 1, "marks_breakdown": [{"criterion": "Definition", "awarded": 0.5, "max": 1}], "comment": "Names feelings such as happiness but does not say what an emotion is.", "findings": [{"kind": "finding", "id": "q13-f1", "answer_id": "q13", "blocks": ["3.3"], "box_2d": [140, 130, 168, 520], "category": "incomplete", "comment": "Lists examples only; an emotion is a strong feeling such as joy, fear or anger.", "marks_impact": -0.5}]},
+ {"kind": "answer", "id": "q17", "question": "17", "question_text": "Penalties for fouls in the 'D' area in hockey", "blocks": ["3.12"], "ocr_check": "OCR read 'penalty comer'; the sheet shows 'penalty corner'", "category": "correct", "marks_awarded": 2, "max_marks": 2, "marks_breakdown": [{"criterion": "Penalty named", "awarded": 1, "max": 1}, {"criterion": "Explanation", "awarded": 1, "max": 1}], "comment": "Correctly says a penalty corner is given for a defender's foul inside the D.", "findings": []}]"""
 
 
-# How marks are set. The teacher can fix the marks per question; left blank (None), each question's
-# maximum is read from the question paper (or the answer sheet when it carries the questions).
-MARKS_FROM_PAPER = """MARKS
-Take each question's maximum marks from the question paper, or from the answer sheet itself when the
-questions are printed on it: a mark printed beside the question ("[2]", "(3 marks)", "2M"), or a section
-scheme beside its heading such as "4X1=4" (four questions of 1 mark each) or "4X3=12" (four questions of
-3 marks each). Follow the answer key's split of marks when one is given. When nothing on the paper gives a
-question's marks, use {fallback}. Put that maximum in "max_marks" and mark the answer out of it."""
-
-MARKS_FIXED = """MARKS
-Every question is marked out of {marks}, as set by the teacher, whatever marks the paper prints. When the
-paper gives a question a different number of marks, mark it on the paper's scheme and scale the result to
-{marks}."""
+# How marks are set: each question's maximum comes from the marks distribution on the paper; only
+# when the paper gives none does the input decide (the teacher's instructions, then the teacher's
+# marks per question, then 10).
+MARKS_RULES = """MARKS
+Take each question's maximum marks from the marks distribution on the paper: the answer sheet itself when
+the questions are printed on it, the question paper, or the answer key. That is a mark printed beside the
+question ("[2]", "(3 marks)", "2M"), or a section scheme beside its heading such as "4X1=4" (four questions
+of 1 mark each) or "4X3=12" (four questions of 3 marks each). Follow the paper's split of marks between
+parts and steps when it gives one.
+Only when the paper gives a question no marks, take them from the input: the marks the TEACHER
+INSTRUCTIONS give (for example "each question carries 2 marks"); when they give none either, use
+{fallback}. Never invent a marks scheme that neither the paper nor the teacher gives.
+Put that maximum in "max_marks" and mark the answer out of it."""
 
 
 def marks_setting(value):
@@ -264,17 +279,15 @@ def marks_setting(value):
 def load_guidance(max_marks=DEFAULT_MAX_MARKS):
     """The examiner guidance: EVAL_SYSTEM_PROMPT_FILE if set, else the bundled prompt.
 
-    "{max_marks}" is replaced with the marks per question, or, when they come from the
-    paper (max_marks None), with words pointing at the MARKS rules."""
+    Marks come from the paper first, so "out of {max_marks} marks" points at the MARKS rules;
+    any other "{max_marks}" is the teacher's marks per question (or "its maximum marks")."""
     path = Path(os.getenv("EVAL_SYSTEM_PROMPT_FILE") or GUIDANCE_FILE)
     try:
         text = path.read_text(encoding="utf-8").strip()
     except OSError as e:
         raise EvaluationError(f"Cannot read the evaluation system prompt at {path}: {e.strerror}.")
-    if max_marks is None:
-        text = text.replace("out of {max_marks} marks", "out of the marks the question paper gives it (see MARKS below)")
-        return text.replace("{max_marks}", "its maximum marks")
-    return text.replace("{max_marks}", str(_format_marks(max_marks)))
+    text = text.replace("out of {max_marks} marks", "out of its maximum marks (see MARKS below)")
+    return text.replace("{max_marks}", "its maximum marks" if max_marks is None else str(_format_marks(max_marks)))
 
 
 _PROMPT_MODES = {
@@ -297,16 +310,15 @@ def build_evaluation_prompt(max_marks=None, mode="image"):
     ``mode`` is "image" for vision models that get page images and answer with boxes,
     "text" for text-only models that get an OCR transcript and answer with line ids, or
     "hybrid" for vision models that get page images AND OCR blocks and answer with block ids.
-    ``max_marks`` None means each question's maximum comes from the paper.
+    ``max_marks`` is the teacher's marks per question, used only for questions the paper gives no
+    marks; None means 10 for those.
     """
     source, answer_at, finding_at, rules = _PROMPT_MODES[mode]
-    if max_marks is None:
-        marks_of, max_value = "max_marks", "this question's maximum marks, from the paper (see MARKS)"
-        marks_rules = MARKS_FROM_PAPER.format(fallback=_format_marks(DEFAULT_MAX_MARKS))
-    else:
-        marks_of = max_value = _format_marks(max_marks)
-        marks_rules = MARKS_FIXED.format(marks=marks_of)
-    answer = _ANSWER_FIELDS.format(location=answer_at, marks_of=marks_of, max_marks_value=max_value)
+    fallback = (f"{_format_marks(DEFAULT_MAX_MARKS)} marks" if max_marks is None
+                else f"{_format_marks(max_marks)} marks (the teacher's marks per question)")
+    marks_rules = MARKS_RULES.format(fallback=fallback)
+    answer = _ANSWER_FIELDS.format(location=answer_at, ocr_check=OCR_CHECK_FIELD if mode == "hybrid" else "")
+    answer = "\n".join(line for line in answer.split("\n") if line.strip())
     finding = _FINDING_FIELDS.format(location=finding_at)
     return (load_guidance(max_marks)
             + source
@@ -393,6 +405,48 @@ def answer_pages(item):
     return sorted({p.get("page") for p in item.get("parts") or [] if p.get("page")})
 
 
+# Comments are shown to the teacher and the student, so sentences that are the model's own
+# working ("Wait, looking at the image…", "Let's re-evaluate.") or that talk about the input
+# (the OCR, block ids, "the image") are dropped. A comment made only of such sentences is kept.
+_DELIBERATION = re.compile(
+    r"^(wait\b|hmm+\b|let me\b|let's (re|look|check|see)|on second thought\b|re-?evaluat|looking (again|closer)\b"
+    r"|i (will|think|need to|should|must|have to|'ll|am going to)\b|however, the ocr\b)", re.I)
+_INPUT_TALK = re.compile(r"\bOCR\b|\[\d+\.\d+\]|\b(block|line)s? \d+\.\d+|\bbox_2d\b|\bpage image\b"
+                         r"|\bthe image (shows|says|reads)\b|\b(looking at|checking|on|from) the image\b"
+                         r"|\bsystem prompt\b|\bthese instructions\b", re.I)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def polish_comment(value, limit, dropped=None):
+    """The comment without the model's working; ``dropped`` (a list) collects what was removed."""
+    text = _text(value, limit * 2)
+    sentences = [s for s in _SENTENCE_END.split(text) if s.strip()]
+    kept = []
+    for sentence in sentences:
+        if _DELIBERATION.match(sentence.strip()) or _INPUT_TALK.search(sentence):
+            if dropped is not None:
+                dropped.append(sentence.strip())
+            continue
+        if sentence.strip().lower() not in (k.strip().lower() for k in kept):
+            kept.append(sentence.strip())
+    return (" ".join(kept) if kept else text)[:limit]
+
+
+REVIEW_RECONSIDERED = "The model changed its mind while writing this answer; check that the marks match the comment."
+REVIEW_CATEGORY_MARKS = "The category and the marks disagree; check them."
+
+
+def review_notes(category, awarded, maximum, dropped):
+    """Reasons a teacher should look at an answer again (shown to the teacher, never to the student)."""
+    notes = []
+    if any(_DELIBERATION.match(s) for s in dropped):
+        notes.append(REVIEW_RECONSIDERED)
+    if (category == "correct" and awarded < maximum) or \
+            (category in ("major_mistake", "unattempted") and maximum and awarded >= maximum):
+        notes.append(REVIEW_CATEGORY_MARKS)
+    return notes
+
+
 class EvaluationNormalizer:
     """Turns raw model objects into stable annotation dicts, one at a time.
 
@@ -402,11 +456,10 @@ class EvaluationNormalizer:
     """
 
     def __init__(self, page_sizes, max_marks=DEFAULT_MAX_MARKS, reserved_ids=()):
-        """``max_marks`` fixes every question's maximum; None takes each answer's own max_marks
-        (read from the paper by the model), falling back to its breakdown's total, then 10."""
+        """Each answer keeps the max_marks the model read from the paper, else its breakdown's
+        total, else ``max_marks`` (the teacher's marks per question; None means 10)."""
         self.page_sizes = {int(k): v for k, v in page_sizes.items()}
-        self.fixed_max = None if max_marks is None else clamp_max_marks(max_marks)
-        self.max_marks = self.fixed_max or DEFAULT_MAX_MARKS
+        self.max_marks = DEFAULT_MAX_MARKS if max_marks is None else clamp_max_marks(max_marks)
         self._answer_max = {}  # final answer id -> its maximum marks
         self._used_ids = set(reserved_ids)  # ids already used elsewhere in the evaluation
         self._answer_ids = {}  # model-given id -> final id
@@ -438,14 +491,12 @@ class EvaluationNormalizer:
         return _round_half(min(max(number, 0.0), limit))
 
     def _answer_maximum(self, raw):
-        if self.fixed_max:
-            return self.fixed_max
         stated = _number(raw.get("max_marks"))
         if stated and stated > 0:
             return clamp_max_marks(stated)
         rows = raw.get("marks_breakdown") if isinstance(raw.get("marks_breakdown"), list) else []
         total = sum(_number(r.get("max")) or 0 for r in rows if isinstance(r, dict))
-        return clamp_max_marks(total) if total > 0 else DEFAULT_MAX_MARKS
+        return clamp_max_marks(total) if total > 0 else self.max_marks
 
     def _breakdown(self, rows, limit):
         if not isinstance(rows, list):
@@ -522,7 +573,7 @@ class EvaluationNormalizer:
                 "page": page,
                 "box": self._box(raw.get("box_2d") or raw.get("box"), page),
                 "category": normalize_category(raw.get("category")),
-                "comment": _text(raw.get("comment"), 2000),
+                "comment": polish_comment(raw.get("comment"), 2000),
                 "marks_impact": -lost if lost else 0,
             }
 
@@ -542,18 +593,28 @@ class EvaluationNormalizer:
         awarded = self._marks(awarded, maximum)
         if awarded is None:
             awarded = self._marks(sum(r["awarded"] for r in breakdown), maximum) if breakdown else 0
-        return {
+        dropped = []
+        comment = polish_comment(raw.get("comment"), 2000, dropped)
+        category = normalize_category(raw.get("category"))
+        item = {
             "id": answer_id,
             "kind": "answer",
             "question": _text(raw.get("question"), 40) or f"Q{self._answers}",
             "question_text": _text(raw.get("question_text"), 300),
             "parts": parts,
-            "category": normalize_category(raw.get("category")),
+            "category": category,
             "marks_awarded": awarded,
             "max_marks": maximum,
             "marks_breakdown": breakdown,
-            "comment": _text(raw.get("comment"), 2000),
+            "comment": comment,
         }
+        ocr_check = _text(raw.get("ocr_check"), 300)
+        if ocr_check:  # the model's comparison of the OCR text with the page (hybrid mode), for the teacher
+            item["ocr_check"] = ocr_check
+        review = review_notes(category, awarded, maximum, dropped)
+        if review:
+            item["review"] = review
+        return item
 
 
 # Where _keep_repeated_keys puts the later groups of a JSON object that repeats its keys.
@@ -1422,19 +1483,26 @@ def slice_for_question(box, text, number, kind=""):
     return [box[0], round(box[1] + start * height), box[2], round(box[1] + end * height)]
 
 
+# Margin added around an answer's box, as a fraction of the page: OCR boxes hug the ink, and
+# handwriting strokes that reach past them must not be cut off.
+ANSWER_BOX_MARGIN = 0.006
+
+
 class HybridResolver:
     """Turns hybrid-mode model objects (block ids) into the box_2d shape the normalizer reads.
 
-    Answers: one part per page, the union of the OCR blocks named, where a block the OCR merged
-    from several numbered questions is cut down to this question's lines; a box the model gives
-    on that page refines it only when it lies inside; a model box on a page with no named block
-    (the OCR missed that piece) is used as is. Findings: the named block, kept inside its
+    Answers are never trimmed: one part per page is the union of the OCR blocks named (a block
+    the OCR merged from several numbered questions is cut to this question's lines), with a small
+    margin. A box the model gives that lies mostly outside those blocks is writing the OCR missed
+    and becomes a part of its own; one mostly inside them is ignored. An answer that names nothing
+    is placed on its printed question's block. Findings: the named block, kept inside its
     answer's region, or the model's tighter box inside that.
     """
 
     def __init__(self, index, page_sizes):
         self.index, self.page_sizes = index, page_sizes
         self.answer_regions = {}  # model answer id -> {page: pixel box}
+        self._last_page = min(page_sizes) if page_sizes else 1
 
     def _as_2d(self, page, box):
         return _to_box_2d(box, *self.page_sizes[page])
@@ -1450,9 +1518,31 @@ class HybridResolver:
             boxes.setdefault(page, []).append(box)
         return {page: _union_boxes(b) for page, b in boxes.items()}
 
+    def _printed_question(self, number):
+        """{page: box} of the block whose text starts a line with question ``number``, searching
+        from the page of the previous answer on (the same number can be printed twice)."""
+        if number is None:
+            return {}
+        candidates = []
+        for block_id in self.index.order:
+            page, box = self.index.lines[block_id]
+            text = self.index.texts.get(block_id) or ""
+            if any((m := NUMBERED_LINE.match(line)) and int(m.group(1)) == number for line in text.split("\n")):
+                candidates.append((page < self._last_page, page, block_id, box))
+        if not candidates:
+            return {}
+        _, page, block_id, box = min(candidates, key=lambda c: (c[0], c[1], self.index.order.index(c[2])))
+        return {page: slice_for_question(box, self.index.texts.get(block_id), number,
+                                         self.index.types.get(block_id)) or box}
+
     def _model_boxes(self, part_or_raw, page):
         boxes = _pixel_boxes(part_or_raw.get("box_2d") or part_or_raw.get("box"), self.page_sizes[page])
         return _union_boxes(boxes) if boxes else None
+
+    def _with_margin(self, page, box):
+        width, height = self.page_sizes[page]
+        dx, dy = round(width * ANSWER_BOX_MARGIN), round(height * ANSWER_BOX_MARGIN)
+        return [max(0, box[0] - dx), max(0, box[1] - dy), min(width, box[2] + dx), min(height, box[3] + dy)]
 
     def resolve(self, raw):
         if not isinstance(raw, dict):
@@ -1461,25 +1551,35 @@ class HybridResolver:
         if str(raw.get("kind", "")).lower() == "finding" or ("answer_id" in raw and "marks_awarded" not in raw):
             return self._finding(raw, resolved)
 
-        named = self._named(raw, question_number(raw.get("question")))
+        number = question_number(raw.get("question"))
+        named = self._named(raw, number)
         explicit = {}
         raw_parts = raw.get("parts") if isinstance(raw.get("parts"), list) else []
+        if raw.get("box_2d") is not None and not raw_parts:
+            raw_parts = [{"page": raw.get("page"), "box_2d": raw.get("box_2d")}]
         for part in (piece for part in raw_parts if isinstance(part, dict) for piece in [part, *part.get(REPEATED_KEYS, [])]):
             page = _page_number(part.get("page"))
             if page in self.page_sizes:
                 box = self._model_boxes(part, page)
                 if box:
                     explicit.setdefault(page, []).append(box)
-        regions = {}
+        if not named and not explicit:
+            named = self._printed_question(number)
+        boxes = []  # (page, pixel box)
         for page in sorted(set(named) | set(explicit)):
-            model = _union_boxes(explicit[page]) if explicit.get(page) else None
             if page in named:
-                regions[page] = (_within_blocks(model, named[page]) if model else None) or named[page]
-            else:
-                regions[page] = model
+                boxes.append((page, self._with_margin(page, named[page])))
+            for model in explicit.get(page, []):
+                if page not in named or not _within_blocks(model, named[page]):
+                    boxes.append((page, model))  # writing the OCR missed (or a page with no named block)
+        regions = {}
+        for page, box in boxes:
+            regions[page] = _union_boxes([regions[page], box]) if page in regions else box
         if raw.get("id") is not None:
             self.answer_regions[str(raw["id"])] = regions
-        resolved["parts"] = [{"page": page, "box_2d": self._as_2d(page, box)} for page, box in regions.items() if box]
+        if regions:
+            self._last_page = min(regions)
+        resolved["parts"] = [{"page": page, "box_2d": self._as_2d(page, box)} for page, box in boxes]
         return resolved
 
     def _finding(self, raw, resolved):
