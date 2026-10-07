@@ -97,6 +97,22 @@ class EvaluateDocumentTests(EvaluationTestCase):
         self.assertEqual(self.session.messages.filter(role="user").count(), 2)  # pages not duplicated
         self.assertEqual(json.loads(self.session.messages.get(role="assistant").content), SHEET)
 
+    @signed
+    @mock.patch("ai_model.evaluation_interactions.stream_evaluation")
+    def test_progress_notes_are_streamed_and_the_transcript_is_kept(self, stream_evaluation, _signed):
+        transcript = {"pages": [{"number": 1, "width": 1000, "height": 2000, "lines": []}]}
+        stream_evaluation.return_value = iter([{"kind": "status", "text": "Reading page 1 of 2 (OCR)…"},
+                                               {"kind": "transcript", "transcript": transcript}, Q1])
+
+        _, body = self._evaluate()
+
+        out = lines(body)
+        self.assertEqual([tag for tag, _ in out], ["am:", "as:", "aa:", "ad:"])
+        self.assertEqual(out[1][1]["text"], "Reading page 1 of 2 (OCR)…")
+        evaluation = self.session.messages.get(role="assistant")
+        self.assertEqual(evaluation.metadata["transcript"], transcript)
+        self.assertEqual(json.loads(evaluation.content), [Q1])  # the transcript is not an annotation
+
     def test_request_validation(self):
         bad = ChatSession.objects.create(user=self.user, mode="direct", session_type="EVAL", model_a=self.model,
                                          metadata={"answer_pages": [{"path": "tts-audios/x.wav"}]})
@@ -169,6 +185,21 @@ class ReevaluationTests(EvaluationTestCase):
         self.assertEqual((sent.page, sent.target_ids, sent.previous), (2, {"q3"}, edited))
         self.assertEqual([(i["id"], i.get("marks_awarded")) for i in out["af:"]["annotations"]],
                          [("q1", 3), ("q3", 5)])
+
+    @signed
+    @mock.patch("ai_model.evaluation_interactions.stream_reevaluation")
+    def test_the_kept_transcript_goes_to_the_model(self, restream, _signed):
+        transcript = {"pages": [{"number": 1, "width": 1000, "height": 2000, "lines": []}]}
+        self.evaluation.metadata = {"transcript": transcript}
+        self.evaluation.save()
+        restream.return_value = iter([{"kind": "status", "text": "thinking"}, {"kind": "reply", "text": "ok"}, Q1])
+
+        _, out = self._reevaluate(prompt="re-check", scope="document")
+
+        self.assertEqual(restream.call_args.args[2].transcript, transcript)
+        self.assertEqual(out["as:"]["text"], "thinking")
+        self.evaluation.refresh_from_db()
+        self.assertEqual(self.evaluation.metadata["transcript"], transcript)
 
     @signed
     @mock.patch("ai_model.evaluation_interactions.stream_reevaluation")

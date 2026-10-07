@@ -936,8 +936,8 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         Body: session_id. The pages are the session's metadata.answer_pages (uploaded with
         upload_ocr_image). Creates one user message per page and one assistant message
-        holding the evaluation of the whole sheet, then streams 'aa:' (one answer or
-        finding per line) and 'ad:' to finish.
+        holding the evaluation of the whole sheet, then streams 'am:' (that message's id),
+        'as:' (progress notes), 'aa:' (one answer or finding per line) and 'ad:' to finish.
         """
         try:
             session_id = uuid.UUID(str(request.data.get('session_id')))
@@ -990,10 +990,15 @@ class MessageViewSet(viewsets.ModelViewSet):
                 for item in evaluation_interactions.stream_evaluation(
                     pages, model_code, reference_urls=reference_urls,
                     instructions=meta.get('instructions') or '', max_marks=meta.get('max_marks'),
-                    log_context=context,
+                    log_context=context, transcript=(evaluation.metadata or {}).get('transcript'),
                 ):
-                    results.append(item)
-                    yield f'aa:{json.dumps(item)}\n'
+                    if item.get('kind') == 'status':
+                        yield f'as:{json.dumps({"text": item["text"]})}\n'
+                    elif item.get('kind') == 'transcript':  # OCR text for text-only models; kept for revisions
+                        evaluation.metadata = {**(evaluation.metadata or {}), 'transcript': item['transcript']}
+                    else:
+                        results.append(item)
+                        yield f'aa:{json.dumps(item)}\n'
                 evaluation.status = 'success'
                 yield f'ad:{json.dumps({"finishReason": "stop"})}\n'
             except Exception as e:
@@ -1058,7 +1063,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         revisions = list((message.metadata or {}).get('eval_revisions') or [])
         revision = evaluation_interactions.Revision(
             feedback=feedback, scope=scope, answer_id=answer_id, page=page if scope == 'page' else None,
-            previous=current,
+            previous=current, transcript=(message.metadata or {}).get('transcript'),
             history=[{'feedback': r.get('prompt'), 'reply': r.get('reply')}
                      for r in revisions if r.get('status') == 'applied'],
         )
@@ -1070,6 +1075,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         def generate():
             reply = ''
             revised = []
+            kept = {}
             try:
                 targets = revision.target_ids
                 pages = _eval_sheet_pages(session, page_messages)
@@ -1082,6 +1088,10 @@ class MessageViewSet(viewsets.ModelViewSet):
                     if obj.get('kind') == 'reply':
                         reply = obj['text']
                         yield f'ar:{json.dumps({"text": reply})}\n'
+                    elif obj.get('kind') == 'status':
+                        yield f'as:{json.dumps({"text": obj["text"]})}\n'
+                    elif obj.get('kind') == 'transcript':
+                        kept['transcript'] = obj['transcript']
                     else:
                         revised.append(obj)
                         yield f'aa:{json.dumps(obj)}\n'
@@ -1106,7 +1116,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 revisions.append(record)
                 _trim_eval_revisions(revisions)
                 message.content = json.dumps(merged)
-                message.metadata = {**(message.metadata or {}), 'eval_revisions': revisions}
+                message.metadata = {**(message.metadata or {}), **kept, 'eval_revisions': revisions}
                 message.save(using=db_alias, update_fields=['content', 'metadata'])
 
                 public = {k: v for k, v in record.items() if k != 'previous_content'}
