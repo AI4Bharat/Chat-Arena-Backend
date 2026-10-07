@@ -479,7 +479,9 @@ class HybridTests(SimpleTestCase):
         self.assertIn('"[3.4] (Text)" is page 3', prompt)
         self.assertIn("The page image is the truth", prompt)
         self.assertIn('"blocks": the ids of ALL the OCR blocks', prompt)
-        self.assertIn("never add a \"scaling\" row", prompt)  # guidance file
+        self.assertIn("Question papers with the answers written in place", prompt)  # guidance file
+        self.assertIn("never put several numbered questions", prompt)
+        self.assertIn("Every answer that loses marks has at least one finding", prompt)
         self.assertNotIn("{{", prompt)
 
     def test_answers_take_the_block_boxes_across_pages(self):
@@ -626,3 +628,122 @@ class MarksScalingTests(SimpleTestCase):
         b = self.add(marks_awarded=7, marks_breakdown=[{"criterion": "x", "awarded": 4, "max": 5},
                                                        {"criterion": "y", "awarded": 3, "max": 5}])
         self.assertEqual((b["marks_awarded"], b["marks_breakdown"][0]["awarded"]), (7, 4))
+
+
+class MarksFromThePaperTests(SimpleTestCase):
+    def test_blank_marks_mean_from_the_paper(self):
+        self.assertIsNone(ev.marks_setting(None))
+        self.assertIsNone(ev.marks_setting(""))
+        self.assertIsNone(ev.marks_setting("  "))
+        self.assertEqual(ev.marks_setting("5"), 5)
+        self.assertEqual(ev.marks_setting(500), 100)
+
+    def test_prompt_reads_marks_from_the_paper_or_uses_the_teachers_number(self):
+        auto = ev.build_evaluation_prompt(None, mode="hybrid")
+        self.assertIn('"4X1=4" (four questions of 1 mark each)', auto)
+        self.assertIn('"max_marks": this question\'s maximum marks, from the paper', auto)
+        self.assertIn("Every question is marked out of the marks the question paper gives it", auto)  # guidance
+        self.assertNotIn("{max_marks}", auto)
+        fixed = ev.build_evaluation_prompt(5, mode="hybrid")
+        self.assertIn("Every question is marked out of 5, as set by the teacher", fixed)
+        self.assertIn('"max_marks": 5', fixed)
+        self.assertIn("Every question is marked out of 5 marks.", fixed)
+
+    def test_each_answer_keeps_its_own_maximum(self):
+        n = ev.EvaluationNormalizer({1: (1000, 2000)}, None)
+        one = n.add({"kind": "answer", "id": "q1", "marks_awarded": 1, "max_marks": 1})
+        three = n.add({"kind": "answer", "id": "q2", "marks_awarded": 4, "max_marks": 3})  # clamped to its max
+        from_rows = n.add({"kind": "answer", "id": "q3", "marks_awarded": 1.5,
+                           "marks_breakdown": [{"criterion": "a", "awarded": 1, "max": 1}, {"criterion": "b", "awarded": 0.5, "max": 1}]})
+        nothing = n.add({"kind": "answer", "id": "q4", "marks_awarded": 6})
+        self.assertEqual([(a["marks_awarded"], a["max_marks"]) for a in (one, three, from_rows, nothing)],
+                         [(1, 1), (3, 3), (1.5, 2), (6, 10)])
+        finding = n.add({"kind": "finding", "answer_id": "q1", "marks_impact": -4})
+        self.assertEqual(finding["marks_impact"], -1)  # no more than its answer's maximum
+
+    def test_a_teachers_number_overrides_the_paper(self):
+        n = ev.EvaluationNormalizer({1: (1000, 2000)}, 10)
+        a = n.add({"kind": "answer", "id": "q1", "marks_awarded": 1, "max_marks": 1,
+                   "marks_breakdown": [{"criterion": "Correct option", "awarded": 1, "max": 1}]})
+        self.assertEqual((a["marks_awarded"], a["max_marks"]), (10, 10))  # scaled to the teacher's 10
+
+
+# A worksheet page: printed questions, and answers 05-07 that the OCR merged into one block.
+WORKSHEET = {"pages": [{"number": 2, "width": 1000, "height": 2000, "lines": [
+    {"id": "2.1", "text": "II. Match the following. 4X1=4", "box": [100, 900, 900, 940], "type": "Text"},
+    {"id": "2.2", "text": "05. FIVB first president\n06. positive emotion\n07. British hockey union",
+     "box": [150, 1000, 800, 1150], "type": "Text"},
+    {"id": "2.3", "text": "08. Bengal", "box": [150, 1160, 450, 1200], "type": "Text"},
+    {"id": "2.4", "text": "13. What are emotions?", "box": [100, 1300, 600, 1330], "type": "Text"},
+    {"id": "2.5", "text": "Feelings like joy and fear", "box": [150, 1340, 900, 1400], "type": "Text"},
+]}]}
+
+
+class OneBoxPerQuestionTests(SimpleTestCase):
+    SIZES = {2: (1000, 2000)}
+
+    def setUp(self):
+        self.resolver = ev.HybridResolver(ev.LineIndex(WORKSHEET), self.SIZES)
+        self.normalizer = ev.EvaluationNormalizer(self.SIZES, None)
+
+    def box(self, raw):
+        item = self.normalizer.add(self.resolver.resolve(raw))
+        return item["parts"][0]["box"] if item["kind"] == "answer" else item["box"]
+
+    def test_a_merged_block_is_cut_to_each_questions_line(self):
+        boxes = [self.box({"kind": "answer", "id": f"q{n}", "question": f"0{n}", "blocks": ["2.2"], "max_marks": 1})
+                 for n in (5, 6, 7)]
+        self.assertEqual(boxes, [[150, 1000, 800, 1050], [150, 1050, 800, 1100], [150, 1100, 800, 1150]])
+        self.assertEqual(self.box({"kind": "answer", "id": "q8", "question": "08", "blocks": ["2.3"]}),
+                         [150, 1160, 450, 1200])  # its own block: untouched
+
+    def test_slicing_only_applies_to_merged_numbered_blocks(self):
+        self.assertIsNone(ev.slice_for_question([0, 0, 10, 10], "Feelings like joy", 13))
+        self.assertIsNone(ev.slice_for_question([0, 0, 10, 10], "05. a\n06. b", 9))  # number not in it
+        self.assertIsNone(ev.slice_for_question([0, 0, 10, 10], "<table><tr><td>05.</td></tr></table>", 5))
+        self.assertEqual(ev.slice_for_question([0, 0, 10, 40], "header\n05. a\n06. b\nmore of b", 6), [0, 20, 10, 40])
+
+    def test_a_finding_stays_inside_its_questions_slice(self):
+        self.box({"kind": "answer", "id": "q6", "question": "06", "blocks": ["2.2"]})
+        finding = self.box({"kind": "finding", "answer_id": "q6", "blocks": ["2.2"]})
+        self.assertEqual(finding, [150, 1050, 800, 1100])
+
+
+class NestedFindingsAndRedoTests(SimpleTestCase):
+    def objects(self, text):
+        return list(ev.settle_answers(ev.iter_json_objects([text])))
+
+    def test_findings_nested_in_their_answer_come_out_after_it(self):
+        out = self.objects('[{"kind": "answer", "id": "q13", "question": "13", "marks_awarded": 0, "findings": ['
+                           '{"id": "q13-f1", "blocks": ["3.3"], "marks_impact": -1}]},'
+                           '{"answer": {"id": "q14", "question": "14", "findings": [{"kind": "finding", "id": "f"}]}},'
+                           '{"kind": "finding", "id": "q14-f2", "answer_id": "q14"}]')
+        self.assertEqual([(o["kind"], o["id"], o.get("answer_id")) for o in out],
+                         [("answer", "q13", None), ("finding", "q13-f1", "q13"),
+                          ("answer", "q14", None), ("finding", "f", "q14"), ("finding", "q14-f2", "q14")])
+        self.assertNotIn("findings", out[0])
+
+    def test_an_answer_the_model_redoes_is_replaced_with_its_findings(self):
+        out = self.objects('[{"kind": "answer", "id": "q16", "question": "16", "blocks": ["3.9"], "marks_awarded": 0,'
+                           ' "comment": "Wait, the image shows 1947. Let\'s re-evaluate.",'
+                           ' "findings": [{"id": "q16-f1", "marks_impact": -1}]},'
+                           '{"kind": "answer", "id": "q16_revised", "question": "16", "blocks": ["3.9"], "marks_awarded": 1},'
+                           '{"kind": "answer", "id": "q17", "question": "17", "blocks": ["3.12"]}]')
+        self.assertEqual([o["id"] for o in out], ["q16_revised", "q17"])
+
+    def test_same_label_elsewhere_is_a_different_question(self):
+        # The sheet prints "22." twice; the second is a different question at a different place.
+        out = self.objects('[{"kind": "answer", "id": "q22", "question": "22", "blocks": ["4.6"]},'
+                           '{"kind": "answer", "id": "q24", "question": "22", "blocks": ["4.10"]},'
+                           '{"kind": "answer", "id": "q24_final", "question": "22", "blocks": ["4.9", "4.10"]},'
+                           '{"kind": "answer", "id": "a", "blocks": ["5.1"]}, {"kind": "answer", "id": "b", "blocks": ["5.1"]}]')
+        self.assertEqual([o["id"] for o in out], ["q22", "q24_final", "a", "b"])  # unlabeled: never merged
+
+    def test_contract_nests_findings_and_asks_for_them_where_marks_are_lost(self):
+        for mode in ("image", "text", "hybrid"):
+            prompt = ev.build_evaluation_prompt(None, mode=mode)
+            self.assertIn('each answer carries its own "finding" objects in its "findings" list', prompt)
+            self.assertIn('"findings": [{"kind": "finding", "id": "q13-f1"', prompt)
+            self.assertIn('"findings": []}]', prompt)
+        self.assertIn("each with a finding for every place where it lost marks", ev.EVALUATE_REQUEST)
+        self.assertTrue(ev.build_text_user_content({"pages": []}, "", "").endswith(ev.EVALUATE_REQUEST))

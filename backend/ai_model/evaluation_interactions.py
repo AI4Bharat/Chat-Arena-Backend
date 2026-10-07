@@ -100,45 +100,46 @@ _CATEGORY_RULES = """Categories:
 - "illegible": cannot be read reliably
 - "unattempted": the question appears on the sheet but has no answer"""
 
-# Field order matters: the comment comes before the marks and the verdict, so a model without
-# a separate reasoning pass decides first and then scores consistently with what it wrote.
 _ANSWER_FIELDS = """- "kind": "answer"
 - "id": unique id such as "q1", "q2"
-- "question": the question's label as numbered on the paper (e.g. "Q1", "III", "2(b)"), without words such as "Question"; infer it from order if unlabeled
+- "question": the question label as written on the sheet (e.g. "Q1", "13", "2(b)"); infer it from order if unlabeled
 - "question_text": one short line saying what the question asks ("" if unknown)
 {location}
+- "category": overall verdict, one of the categories below
+- "marks_awarded": marks out of {marks_of}, in steps of 0.5
+- "max_marks": {max_marks_value}
+- "marks_breakdown": 1 to 4 criteria as [{{"criterion": "...", "awarded": n, "max": n}}]; the "max" values sum to {marks_of} and the "awarded" values sum to marks_awarded
 - "comment": 1 to 3 sentences justifying the marks for the whole answer: what is right, what is wrong, and why
-- "marks_breakdown": 2 to 4 criteria (or one per part of an objective exercise) as [{{"criterion": "...", "awarded": n, "max": n}}]; the "max" values sum to {max_marks} and the "awarded" values sum to marks_awarded
-- "marks_awarded": marks out of {max_marks}, in steps of 0.5
-- "max_marks": {max_marks}
-- "category": overall verdict, one of the categories below"""
+- "findings": this answer's "finding" objects (below): one for every place where it lost marks; [] for a fully correct answer"""
 
 _FINDING_FIELDS = """- "kind": "finding"
 - "id": unique id such as "q1-f1"
 - "answer_id": the id of the answer it belongs to
 {location}
-- "comment": what exactly is wrong (quote the student's text) and what the correct version is
-- "marks_impact": marks lost because of this finding as a negative number (e.g. -1), or 0
-- "category": one of the categories below"""
+- "category": one of the categories below
+- "comment": what exactly is wrong (quote the student's text) and what the correct version is, or why the step is notably good
+- "marks_impact": marks lost because of this finding as a negative number (e.g. -1), or 0"""
 
 _OUTPUT_HEAD = """
 
 ---
 OUTPUT FORMAT (required: the app cannot read anything else)
-Return ONLY a valid JSON array (no markdown, no explanation). Emit one "answer" object for a
-question, immediately followed by that answer's "finding" objects, then the next answer.
-Each array element is the object itself, starting with "kind"; never wrap it as {{"answer": {{...}}}}.
-One answer per question or exercise: when a heading (e.g. "III. Write True or False" or "II. Match the
-following") is followed by numbered items, the whole exercise is ONE answer with one marks_breakdown row per
-item; never one answer per item. Each answer is scored out of {max_marks} however many marks the paper gives it.
-Decide each judgement before you write it down. Comments state final conclusions only, never your
-deliberation ("wait", "actually", "let me check"). An answer's comment, marks_breakdown, marks_awarded,
-category and findings must all agree: a part you find correct gets its marks and no finding.
+Return ONLY a valid JSON array (no markdown, no explanation) of "answer" objects, one per question in
+the order of the sheet; each answer carries its own "finding" objects in its "findings" list.
+Each array element is the answer object itself, starting with "kind"; never wrap it as {{"answer": {{...}}}}.
+Each numbered question is ONE answer with its own location: never put several numbered questions (for
+example 13, 14 and 15) in one answer, even when they share a section heading.
+The comment, category, marks and findings of an answer must agree; comments state final conclusions only.
+Every answer that loses marks has at least one finding at the place where they were lost, and its
+findings' "marks_impact" values add up to the marks it lost.
+
+{marks_rules}
 
 "answer" object — exactly one per question, even when the answer spans several pages:
 {answer}
 
-"finding" object — zero or more per answer, for specific things worth pointing out:
+"finding" object, inside its answer's "findings" — one or more for every answer that loses marks, each at one
+specific mistake (none for a fully correct answer, though a notably good step may get one):
 {finding}
 
 {categories}
@@ -165,8 +166,8 @@ IMAGE_RULES = """Rules:
 - If the pages contain no answers, return [].
 
 Example of the shape (the values are illustrative):
-[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "parts": [{"page": 1, "box_2d": [820, 90, 990, 930]}, {"page": 2, "box_2d": [30, 90, 140, 930]}], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68.", "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "marks_awarded": 6, "max_marks": 10, "category": "minor_mistake"},
- {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "page": 2, "box_2d": [40, 120, 70, 600], "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1, "category": "minor_mistake"}]"""
+[{"kind": "answer", "id": "q13", "question": "13", "question_text": "What are emotions?", "parts": [{"page": 3, "box_2d": [138, 125, 195, 770]}], "category": "minor_mistake", "marks_awarded": 0.5, "max_marks": 1, "marks_breakdown": [{"criterion": "Definition", "awarded": 0.5, "max": 1}], "comment": "Names feelings such as happiness but does not say what an emotion is.", "findings": [{"kind": "finding", "id": "q13-f1", "answer_id": "q13", "page": 3, "box_2d": [140, 130, 168, 520], "category": "incomplete", "comment": "Lists examples only; an emotion is a strong feeling such as joy, fear or anger.", "marks_impact": -0.5}]},
+ {"kind": "answer", "id": "q17", "question": "17", "question_text": "Penalties for fouls in the 'D' area in hockey", "parts": [{"page": 3, "box_2d": [449, 140, 505, 900]}], "category": "correct", "marks_awarded": 2, "max_marks": 2, "marks_breakdown": [{"criterion": "Penalty named", "awarded": 1, "max": 1}, {"criterion": "Explanation", "awarded": 1, "max": 1}], "comment": "Correctly says a penalty corner is given for a defender's foul inside the D.", "findings": []}]"""
 
 TEXT_INPUT = """
 
@@ -189,8 +190,8 @@ TEXT_RULES = """Rules:
 - If the transcript contains no answers, return [].
 
 Example of the shape (the values are illustrative):
-[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "lines": ["1.20-1.24", "2.1-2.3"], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68.", "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "marks_awarded": 6, "max_marks": 10, "category": "minor_mistake"},
- {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "lines": ["2.1"], "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1, "category": "minor_mistake"}]"""
+[{"kind": "answer", "id": "q13", "question": "13", "question_text": "What are emotions?", "lines": ["3.4-3.5"], "category": "minor_mistake", "marks_awarded": 0.5, "max_marks": 1, "marks_breakdown": [{"criterion": "Definition", "awarded": 0.5, "max": 1}], "comment": "Names feelings such as happiness but does not say what an emotion is.", "findings": [{"kind": "finding", "id": "q13-f1", "answer_id": "q13", "lines": ["3.4"], "category": "incomplete", "comment": "Lists examples only; an emotion is a strong feeling such as joy, fear or anger.", "marks_impact": -0.5}]},
+ {"kind": "answer", "id": "q17", "question": "17", "question_text": "Penalties for fouls in the 'D' area in hockey", "lines": ["3.15-3.16"], "category": "correct", "marks_awarded": 2, "max_marks": 2, "marks_breakdown": [{"criterion": "Penalty named", "awarded": 1, "max": 1}, {"criterion": "Explanation", "awarded": 1, "max": 1}], "comment": "Correctly says a penalty corner is given for a defender's foul inside the D.", "findings": []}]"""
 
 
 HYBRID_INPUT = """
@@ -233,18 +234,46 @@ HYBRID_RULES = """Rules:
 - If the pages contain no answers, return [].
 
 Example of the shape (the values are illustrative):
-[{"kind": "answer", "id": "q1", "question": "I", "question_text": "Choose the correct option (1-4)", "blocks": ["2.3-2.6"], "comment": "Three of four options are correct; (2) should be (c) carbon dioxide.", "marks_breakdown": [{"criterion": "(1)", "awarded": 2.5, "max": 2.5}, {"criterion": "(2)", "awarded": 0, "max": 2.5}, {"criterion": "(3)", "awarded": 2.5, "max": 2.5}, {"criterion": "(4)", "awarded": 2.5, "max": 2.5}], "marks_awarded": 7.5, "max_marks": 10, "category": "minor_mistake"},
- {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "blocks": ["2.4"], "box_2d": [212, 140, 236, 420], "comment": "(2): chose '(a) oxygen'; plants take in (c) carbon dioxide.", "marks_impact": -2.5, "category": "major_mistake"},
- {"kind": "answer", "id": "q2", "question": "II", "question_text": "Explain the water cycle", "blocks": ["2.8-2.11", "3.1-3.2"], "comment": "Explains three stages well but leaves out transpiration.", "marks_breakdown": [{"criterion": "Stages", "awarded": 4, "max": 5}, {"criterion": "Explanation", "awarded": 3, "max": 5}], "marks_awarded": 7, "max_marks": 10, "category": "incomplete"}]"""
+[{"kind": "answer", "id": "q13", "question": "13", "question_text": "What are emotions?", "blocks": ["3.3"], "category": "minor_mistake", "marks_awarded": 0.5, "max_marks": 1, "marks_breakdown": [{"criterion": "Definition", "awarded": 0.5, "max": 1}], "comment": "Names feelings such as happiness but does not say what an emotion is.", "findings": [{"kind": "finding", "id": "q13-f1", "answer_id": "q13", "blocks": ["3.3"], "box_2d": [140, 130, 168, 520], "category": "incomplete", "comment": "Lists examples only; an emotion is a strong feeling such as joy, fear or anger.", "marks_impact": -0.5}]},
+ {"kind": "answer", "id": "q17", "question": "17", "question_text": "Penalties for fouls in the 'D' area in hockey", "blocks": ["3.12"], "category": "correct", "marks_awarded": 2, "max_marks": 2, "marks_breakdown": [{"criterion": "Penalty named", "awarded": 1, "max": 1}, {"criterion": "Explanation", "awarded": 1, "max": 1}], "comment": "Correctly says a penalty corner is given for a defender's foul inside the D.", "findings": []}]"""
+
+
+# How marks are set. The teacher can fix the marks per question; left blank (None), each question's
+# maximum is read from the question paper (or the answer sheet when it carries the questions).
+MARKS_FROM_PAPER = """MARKS
+Take each question's maximum marks from the question paper, or from the answer sheet itself when the
+questions are printed on it: a mark printed beside the question ("[2]", "(3 marks)", "2M"), or a section
+scheme beside its heading such as "4X1=4" (four questions of 1 mark each) or "4X3=12" (four questions of
+3 marks each). Follow the answer key's split of marks when one is given. When nothing on the paper gives a
+question's marks, use {fallback}. Put that maximum in "max_marks" and mark the answer out of it."""
+
+MARKS_FIXED = """MARKS
+Every question is marked out of {marks}, as set by the teacher, whatever marks the paper prints. When the
+paper gives a question a different number of marks, mark it on the paper's scheme and scale the result to
+{marks}."""
+
+
+def marks_setting(value):
+    """The teacher's marks per question as a number, or None to read them from the paper."""
+    if value in (None, "") or (isinstance(value, str) and not value.strip()):
+        return None
+    marks = _number(value)
+    return clamp_max_marks(marks) if marks and marks > 0 else None
 
 
 def load_guidance(max_marks=DEFAULT_MAX_MARKS):
-    """The examiner guidance: EVAL_SYSTEM_PROMPT_FILE if set, else the bundled prompt."""
+    """The examiner guidance: EVAL_SYSTEM_PROMPT_FILE if set, else the bundled prompt.
+
+    "{max_marks}" is replaced with the marks per question, or, when they come from the
+    paper (max_marks None), with words pointing at the MARKS rules."""
     path = Path(os.getenv("EVAL_SYSTEM_PROMPT_FILE") or GUIDANCE_FILE)
     try:
         text = path.read_text(encoding="utf-8").strip()
     except OSError as e:
         raise EvaluationError(f"Cannot read the evaluation system prompt at {path}: {e.strerror}.")
+    if max_marks is None:
+        text = text.replace("out of {max_marks} marks", "out of the marks the question paper gives it (see MARKS below)")
+        return text.replace("{max_marks}", "its maximum marks")
     return text.replace("{max_marks}", str(_format_marks(max_marks)))
 
 
@@ -256,21 +285,33 @@ _PROMPT_MODES = {
 }
 
 
-def build_evaluation_prompt(max_marks=DEFAULT_MAX_MARKS, mode="image"):
+# The last line of every evaluation request: weaker models (Gemma 4) follow the end of the
+# request most closely, and otherwise group numbered items into one answer.
+EVALUATE_REQUEST = ("Evaluate this answer sheet and return the JSON array described: one answer for each numbered "
+                    "question, each with a finding for every place where it lost marks.")
+
+
+def build_evaluation_prompt(max_marks=None, mode="image"):
     """System prompt: the guidance, then how the input looks and the output contract.
 
     ``mode`` is "image" for vision models that get page images and answer with boxes,
     "text" for text-only models that get an OCR transcript and answer with line ids, or
     "hybrid" for vision models that get page images AND OCR blocks and answer with block ids.
+    ``max_marks`` None means each question's maximum comes from the paper.
     """
-    marks = _format_marks(max_marks)
     source, answer_at, finding_at, rules = _PROMPT_MODES[mode]
-    answer = _ANSWER_FIELDS.format(location=answer_at, max_marks=marks)
+    if max_marks is None:
+        marks_of, max_value = "max_marks", "this question's maximum marks, from the paper (see MARKS)"
+        marks_rules = MARKS_FROM_PAPER.format(fallback=_format_marks(DEFAULT_MAX_MARKS))
+    else:
+        marks_of = max_value = _format_marks(max_marks)
+        marks_rules = MARKS_FIXED.format(marks=marks_of)
+    answer = _ANSWER_FIELDS.format(location=answer_at, marks_of=marks_of, max_marks_value=max_value)
     finding = _FINDING_FIELDS.format(location=finding_at)
     return (load_guidance(max_marks)
             + source
             + _OUTPUT_HEAD.format(answer=answer.replace("{{", "{").replace("}}", "}"),
-                                  finding=finding, categories=_CATEGORY_RULES, max_marks=marks)
+                                  finding=finding, categories=_CATEGORY_RULES, marks_rules=marks_rules)
             + rules)
 
 
@@ -361,8 +402,12 @@ class EvaluationNormalizer:
     """
 
     def __init__(self, page_sizes, max_marks=DEFAULT_MAX_MARKS, reserved_ids=()):
+        """``max_marks`` fixes every question's maximum; None takes each answer's own max_marks
+        (read from the paper by the model), falling back to its breakdown's total, then 10."""
         self.page_sizes = {int(k): v for k, v in page_sizes.items()}
-        self.max_marks = clamp_max_marks(max_marks)
+        self.fixed_max = None if max_marks is None else clamp_max_marks(max_marks)
+        self.max_marks = self.fixed_max or DEFAULT_MAX_MARKS
+        self._answer_max = {}  # final answer id -> its maximum marks
         self._used_ids = set(reserved_ids)  # ids already used elsewhere in the evaluation
         self._answer_ids = {}  # model-given id -> final id
         self._answer_pages = {}  # final answer id -> first page with a part
@@ -392,7 +437,17 @@ class EvaluationNormalizer:
             return None
         return _round_half(min(max(number, 0.0), limit))
 
-    def _breakdown(self, rows):
+    def _answer_maximum(self, raw):
+        if self.fixed_max:
+            return self.fixed_max
+        stated = _number(raw.get("max_marks"))
+        if stated and stated > 0:
+            return clamp_max_marks(stated)
+        rows = raw.get("marks_breakdown") if isinstance(raw.get("marks_breakdown"), list) else []
+        total = sum(_number(r.get("max")) or 0 for r in rows if isinstance(r, dict))
+        return clamp_max_marks(total) if total > 0 else DEFAULT_MAX_MARKS
+
+    def _breakdown(self, rows, limit):
         if not isinstance(rows, list):
             return []
         cleaned = []
@@ -402,7 +457,7 @@ class EvaluationNormalizer:
             row_max = _number(row.get("max"))
             if row_max is None or row_max <= 0:
                 continue
-            row_max = _round_half(min(row_max, self.max_marks))
+            row_max = _round_half(min(row_max, limit))
             cleaned.append({
                 "criterion": _text(row.get("criterion") or row.get("name"), 60) or "Criterion",
                 "awarded": self._marks(row.get("awarded"), row_max) or 0,
@@ -410,13 +465,13 @@ class EvaluationNormalizer:
             })
         return cleaned
 
-    def _scaled(self, breakdown, awarded):
-        """Scale a marks distribution kept on the paper's own scheme (e.g. 2.5 of 2.5, or 3 x 3.5)
-        to max_marks, as the contract requires; marks_awarded too when it is the unscaled sum."""
+    def _scaled(self, breakdown, awarded, maximum):
+        """Scale a marks distribution on another scale (e.g. 2.5 of 2.5, or 3 x 3.5) to the
+        answer's maximum, as the contract requires; marks_awarded too when it is the unscaled sum."""
         total_max = sum(r["max"] for r in breakdown)
-        if not breakdown or total_max <= 0 or abs(total_max - self.max_marks) < 0.01:
+        if not breakdown or total_max <= 0 or abs(total_max - maximum) < 0.01:
             return breakdown, awarded
-        factor = self.max_marks / total_max
+        factor = maximum / total_max
         raw_sum = sum(r["awarded"] for r in breakdown)
         scaled = [{**r, "awarded": round(r["awarded"] * factor, 2), "max": round(r["max"] * factor, 2)} for r in breakdown]
         if awarded is None or abs(awarded - raw_sum) < 0.01:
@@ -458,7 +513,8 @@ class EvaluationNormalizer:
             answer_id = self._answer_ids.get(str(raw.get("answer_id") or "")) or self._last_answer_id
             page = _page_number(raw.get("page")) or self._answer_pages.get(answer_id) or 1
             impact = _number(raw.get("marks_impact"))
-            lost = min(_round_half(abs(impact)), self.max_marks) if impact else 0
+            limit = self._answer_max.get(answer_id, self.max_marks)
+            lost = min(_round_half(abs(impact)), limit) if impact else 0
             return {
                 "id": self._unique_id(raw.get("id"), f"f{self._findings}"),
                 "kind": "finding",
@@ -479,10 +535,13 @@ class EvaluationNormalizer:
         if parts:
             self._answer_pages[answer_id] = parts[0]["page"]
 
-        breakdown, awarded = self._scaled(self._breakdown(raw.get("marks_breakdown")), _number(raw.get("marks_awarded")))
-        awarded = self._marks(awarded, self.max_marks)
+        maximum = self._answer_maximum(raw)
+        self._answer_max[answer_id] = maximum
+        breakdown, awarded = self._scaled(self._breakdown(raw.get("marks_breakdown"), maximum),
+                                          _number(raw.get("marks_awarded")), maximum)
+        awarded = self._marks(awarded, maximum)
         if awarded is None:
-            awarded = self._marks(sum(r["awarded"] for r in breakdown), self.max_marks) if breakdown else 0
+            awarded = self._marks(sum(r["awarded"] for r in breakdown), maximum) if breakdown else 0
         return {
             "id": answer_id,
             "kind": "answer",
@@ -491,7 +550,7 @@ class EvaluationNormalizer:
             "parts": parts,
             "category": normalize_category(raw.get("category")),
             "marks_awarded": awarded,
-            "max_marks": self.max_marks,
+            "max_marks": maximum,
             "marks_breakdown": breakdown,
             "comment": _text(raw.get("comment"), 2000),
         }
@@ -566,19 +625,65 @@ def _unwrap(obj):
     if len(keys) == 1 and str(keys[0]).lower() in _WRAPPER_KINDS:
         kind, value = str(keys[0]).lower(), obj[keys[0]]
         if isinstance(value, dict):
-            yield {"kind": kind, **value}
+            yield from _unwrap({"kind": kind, **value})
             return
         if kind == "reply" and isinstance(value, str):
             yield {"kind": "reply", "text": value}
             return
     if "box_2d" in obj or "kind" in obj or "marks_awarded" in obj or "parts" in obj:
+        nested = obj.pop("findings", None) if str(obj.get("kind") or "answer").lower() == "answer" else None
         yield obj
+        # The contract nests each answer's findings in it (Gemma 4 leaves findings out when
+        # they are separate array elements); flat findings after their answer still work.
+        for finding in nested if isinstance(nested, list) else ():
+            if isinstance(finding, dict):
+                yield {"kind": "finding", **finding, "answer_id": finding.get("answer_id") or obj.get("id")}
         return
     for value in obj.values():
         if isinstance(value, list) and value and all(isinstance(v, dict) for v in value):
             for item in value:
                 yield from _unwrap(item)
             return
+
+
+
+_REDO_ID = re.compile(r"[_-]?(revised|revision|corrected|correction|fixed|final|updated|v\d+)$", re.I)
+
+
+def _location_key(raw):
+    return json.dumps([raw.get(k) for k in ("page", "box_2d", "lines", "blocks", "parts")], sort_keys=True, default=str)
+
+
+def settle_answers(objects):
+    """Drop an answer that the model immediately redoes.
+
+    Some models (Gemma 4) change their mind mid-reply: "...Wait, the image shows 1947. Let's
+    re-evaluate." followed by a second answer for the same question ("q16_revised"). The later
+    answer is its final verdict, so it replaces the earlier one and that one's findings. Each
+    answer is held until the next answer arrives, which delays the stream by one answer.
+    """
+    held = []
+    for obj in objects:
+        if str(obj.get("kind") or "answer").lower() == "answer" and "answer_id" not in obj:
+            if held and _redoes(held[0], obj):
+                held = []
+            yield from held
+            held = [obj]
+        elif held:
+            held.append(obj)
+        else:
+            yield obj
+    yield from held
+
+
+def _redoes(first, second):
+    label = str(first.get("question") or "").strip().lower()
+    if not label or label != str(second.get("question") or "").strip().lower():
+        return False
+    first_id, second_id = str(first.get("id") or ""), str(second.get("id") or "")
+    renamed = bool(first_id) and second_id != first_id and second_id.startswith(first_id) and \
+        bool(_REDO_ID.search(second_id[len(first_id):]))
+    return renamed or _location_key(first) == _location_key(second)
 
 
 class _Reply:
@@ -680,7 +785,7 @@ def _sheet_parts(loaded_pages, total_pages):
 def build_user_content(loaded_pages, total_pages, reference_data_urls=(), instructions=""):
     content = _context_parts(reference_data_urls, instructions)
     content += _sheet_parts(loaded_pages, total_pages)
-    content.append({"type": "text", "text": "Evaluate these pages and return the JSON array described."})
+    content.append({"type": "text", "text": EVALUATE_REQUEST})
     return content
 
 
@@ -1012,10 +1117,14 @@ class LineIndex:
 
     def __init__(self, transcript):
         self.lines = {}
+        self.texts = {}
+        self.types = {}
         self.order = []
         for page in transcript["pages"]:
             for ln in page["lines"]:
                 self.lines[ln["id"]] = (page["number"], ln["box"])
+                self.texts[ln["id"]] = ln.get("text") or ""
+                self.types[ln["id"]] = ln.get("type") or ""
                 self.order.append(ln["id"])
 
     def _key(self, ref):
@@ -1156,6 +1265,7 @@ def build_text_user_content(transcript, reference, instructions):
     if instructions:
         parts.append(f"TEACHER INSTRUCTIONS (from the teacher, not the student):\n<<<\n{instructions}\n>>>")
     parts.append("STUDENT ANSWER SHEET (OCR transcript):\n" + transcript_text(transcript))
+    parts.append(EVALUATE_REQUEST)
     return "\n\n".join(parts)
 
 
@@ -1285,52 +1395,116 @@ def _within_blocks(model_box, block_box):
     return inside if inside and _box_area(inside) >= 0.5 * _box_area(model_box) else None
 
 
-def resolve_blocks(raw, index, page_sizes):
-    """A hybrid-mode model object -> the box_2d shape the normalizer reads.
+NUMBERED_LINE = re.compile(r"^\s*(?:Q\.?\s*)?\(?(\d{1,3})\s*[.)]")
 
-    Answers: one part per page from the union of the OCR blocks named, refined by a model box
-    on that page only when it lies inside those blocks; a model box on a page with no named
-    block (the OCR missed that piece) is used as is. Findings: the named block, or the model's
-    tighter box inside it.
+
+def question_number(label):
+    match = re.search(r"\d+", str(label or ""))
+    return int(match.group()) if match else None
+
+
+def slice_for_question(box, text, number, kind=""):
+    """The part of an OCR block that holds question ``number`` when the OCR merged several
+    numbered questions into one block (e.g. "05. … / 06. … / 07. …"): the block's text lines
+    are given equal heights, and the slice runs from the line starting with that number to the
+    next numbered line. None when the block is not such a merge (or is a table)."""
+    if number is None or str(kind).lower() == "table" or str(text).lstrip().startswith("<"):
+        return None
+    lines = [ln for ln in str(text or "").split("\n") if ln.strip()]
+    numbered = [(i, int(m.group(1))) for i, ln in enumerate(lines) if (m := NUMBERED_LINE.match(ln))]
+    if len(numbered) < 2:
+        return None
+    start = next((i for i, n in numbered if n == number), None)
+    if start is None:
+        return None
+    end = next((i for i, _ in numbered if i > start), len(lines))
+    height = (box[3] - box[1]) / len(lines)
+    return [box[0], round(box[1] + start * height), box[2], round(box[1] + end * height)]
+
+
+class HybridResolver:
+    """Turns hybrid-mode model objects (block ids) into the box_2d shape the normalizer reads.
+
+    Answers: one part per page, the union of the OCR blocks named, where a block the OCR merged
+    from several numbered questions is cut down to this question's lines; a box the model gives
+    on that page refines it only when it lies inside; a model box on a page with no named block
+    (the OCR missed that piece) is used as is. Findings: the named block, kept inside its
+    answer's region, or the model's tighter box inside that.
     """
-    if not isinstance(raw, dict):
-        return raw
-    refs = raw.get("blocks", raw.get("lines"))
-    resolved = {k: v for k, v in raw.items() if k not in ("blocks", "lines", "parts", "box_2d", "box", "page")}
-    blocks = dict(index.page_boxes(refs)) if refs is not None else {}
-    as_2d = lambda page, box: _to_box_2d(box, *page_sizes[page])  # noqa: E731
 
-    if str(raw.get("kind", "")).lower() == "finding" or ("answer_id" in raw and "marks_awarded" not in raw):
-        page = next(iter(blocks), None) or _page_number(raw.get("page"))
-        if page not in page_sizes:
-            return resolved
-        model = _pixel_boxes(raw.get("box_2d") or raw.get("box"), page_sizes[page])
-        model = _union_boxes(model) if model else None
-        if page in blocks:
-            box = (_within_blocks(model, blocks[page]) if model else None) or blocks[page]
-        else:
-            box = model
-        if box:
-            resolved.update(page=page, box_2d=as_2d(page, box))
+    def __init__(self, index, page_sizes):
+        self.index, self.page_sizes = index, page_sizes
+        self.answer_regions = {}  # model answer id -> {page: pixel box}
+
+    def _as_2d(self, page, box):
+        return _to_box_2d(box, *self.page_sizes[page])
+
+    def _named(self, raw, number=None):
+        """{page: union box} of the named blocks, each sliced to ``number`` when merged."""
+        refs = raw.get("blocks", raw.get("lines"))
+        boxes = {}
+        for block_id in self.index.ids(refs) if refs is not None else []:
+            page, box = self.index.lines[block_id]
+            box = slice_for_question(box, self.index.texts.get(block_id), number,
+                                     self.index.types.get(block_id)) or box
+            boxes.setdefault(page, []).append(box)
+        return {page: _union_boxes(b) for page, b in boxes.items()}
+
+    def _model_boxes(self, part_or_raw, page):
+        boxes = _pixel_boxes(part_or_raw.get("box_2d") or part_or_raw.get("box"), self.page_sizes[page])
+        return _union_boxes(boxes) if boxes else None
+
+    def resolve(self, raw):
+        if not isinstance(raw, dict):
+            return raw
+        resolved = {k: v for k, v in raw.items() if k not in ("blocks", "lines", "parts", "box_2d", "box", "page")}
+        if str(raw.get("kind", "")).lower() == "finding" or ("answer_id" in raw and "marks_awarded" not in raw):
+            return self._finding(raw, resolved)
+
+        named = self._named(raw, question_number(raw.get("question")))
+        explicit = {}
+        raw_parts = raw.get("parts") if isinstance(raw.get("parts"), list) else []
+        for part in (piece for part in raw_parts if isinstance(part, dict) for piece in [part, *part.get(REPEATED_KEYS, [])]):
+            page = _page_number(part.get("page"))
+            if page in self.page_sizes:
+                box = self._model_boxes(part, page)
+                if box:
+                    explicit.setdefault(page, []).append(box)
+        regions = {}
+        for page in sorted(set(named) | set(explicit)):
+            model = _union_boxes(explicit[page]) if explicit.get(page) else None
+            if page in named:
+                regions[page] = (_within_blocks(model, named[page]) if model else None) or named[page]
+            else:
+                regions[page] = model
+        if raw.get("id") is not None:
+            self.answer_regions[str(raw["id"])] = regions
+        resolved["parts"] = [{"page": page, "box_2d": self._as_2d(page, box)} for page, box in regions.items() if box]
         return resolved
 
-    explicit = {}
-    raw_parts = raw.get("parts") if isinstance(raw.get("parts"), list) else []
-    for part in (piece for part in raw_parts if isinstance(part, dict) for piece in [part, *part.get(REPEATED_KEYS, [])]):
-        page = _page_number(part.get("page"))
-        if page in page_sizes:
-            explicit.setdefault(page, []).extend(_pixel_boxes(part.get("box_2d") or part.get("box"), page_sizes[page]))
-    parts = []
-    for page in sorted(set(blocks) | set(explicit)):
-        model = _union_boxes(explicit[page]) if explicit.get(page) else None
-        if page in blocks:
-            box = (_within_blocks(model, blocks[page]) if model else None) or blocks[page]
+    def _finding(self, raw, resolved):
+        named = self._named(raw)
+        answer = self.answer_regions.get(str(raw.get("answer_id")), {})
+        page = next(iter(named), None) or _page_number(raw.get("page")) or next(iter(answer), None)
+        if page not in self.page_sizes:
+            return resolved
+        region = named.get(page)
+        if region and answer.get(page):
+            region = _intersect(region, answer[page]) or answer[page]
+        region = region or answer.get(page)
+        model = self._model_boxes(raw, page)
+        if region:
+            box = (_within_blocks(model, region) if model else None) or region
         else:
             box = model
         if box:
-            parts.append({"page": page, "box_2d": as_2d(page, box)})
-    resolved["parts"] = parts
-    return resolved
+            resolved.update(page=page, box_2d=self._as_2d(page, box))
+        return resolved
+
+
+def resolve_blocks(raw, index, page_sizes):
+    """One object at a time, without memory of earlier answers (see HybridResolver)."""
+    return HybridResolver(index, page_sizes).resolve(raw)
 
 
 def to_hybrid_model_format(items, index, page_sizes):
@@ -1504,7 +1678,7 @@ def _stream_sarvam_evaluation(pages, model_code, reference_urls, instructions, m
                                       build_text_user_content(transcript, reference, instructions)))
         normalizer = EvaluationNormalizer(sizes, max_marks)
         read = 0
-        for raw in iter_json_objects(reply):
+        for raw in settle_answers(iter_json_objects(reply)):
             item = normalizer.add(resolve_lines(raw, index, sizes))
             if item:
                 read += 1
@@ -1537,7 +1711,7 @@ def _stream_sarvam_reevaluation(pages, model_code, revision, reference_urls, ins
         user += "\n\n" + _feedback_block(revision)
         reply = _Reply(_sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="text"), user))
         read = 0
-        for item in revise_objects((resolve_lines(raw, index, sizes) for raw in iter_json_objects(reply)),
+        for item in revise_objects((resolve_lines(raw, index, sizes) for raw in settle_answers(iter_json_objects(reply))),
                                    sizes, max_marks, revision):
             read += 1
             yield item
@@ -1641,12 +1815,13 @@ def _stream_sarvam_hybrid_evaluation(pages, model_code, reference_urls, instruct
         sizes = page_sizes_of(pages)
         content = build_hybrid_user_content([(p.number, u) for p, u in zip(pages, sheet)], transcript,
                                             references, reference_texts, instructions)
-        content.append({"type": "text", "text": "Evaluate these pages and return the JSON array described."})
+        content.append({"type": "text", "text": EVALUATE_REQUEST})
         reply = _Reply(_sarvam_tokens(model_code, build_evaluation_prompt(max_marks, mode="hybrid"), content))
         normalizer = EvaluationNormalizer(sizes, max_marks)
+        resolver = HybridResolver(index, sizes)
         read = 0
-        for raw in iter_json_objects(reply):
-            item = normalizer.add(resolve_blocks(raw, index, sizes))
+        for raw in settle_answers(iter_json_objects(reply)):
+            item = normalizer.add(resolver.resolve(raw))
             if item:
                 read += 1
                 yield item
@@ -1684,8 +1859,9 @@ def _stream_sarvam_hybrid_reevaluation(pages, total_pages, page_sizes, model_cod
                 f"- Teacher: {_text(h['feedback'], 500)}\n  You replied: {_text(h.get('reply'), 500)}" for h in history)})
         content.append({"type": "text", "text": _feedback_block(revision)})
         reply = _Reply(_sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="hybrid"), content))
+        resolver = HybridResolver(index, page_sizes)
         read = 0
-        for item in revise_objects((resolve_blocks(raw, index, page_sizes) for raw in iter_json_objects(reply)),
+        for item in revise_objects((resolver.resolve(raw) for raw in settle_answers(iter_json_objects(reply))),
                                    page_sizes, max_marks, revision):
             read += 1
             yield item
@@ -1710,7 +1886,7 @@ def _stream_sarvam_vision_evaluation(pages, model_code, reference_urls, instruct
                                       build_user_content(loaded, len(pages), references, instructions)))
         normalizer = EvaluationNormalizer(page_sizes_of(pages), max_marks)
         read = 0
-        for raw in iter_json_objects(reply):
+        for raw in settle_answers(iter_json_objects(reply)):
             item = normalizer.add(raw)
             if item:
                 read += 1
@@ -1735,7 +1911,7 @@ def _stream_sarvam_vision_reevaluation(pages, total_pages, page_sizes, model_cod
                                          to_model_format(revision.previous, page_sizes), revision)
         reply = _Reply(_sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="image"), content))
         read = 0
-        for item in revise_objects(iter_json_objects(reply), page_sizes, max_marks, revision):
+        for item in revise_objects(settle_answers(iter_json_objects(reply)), page_sizes, max_marks, revision):
             read += 1
             yield item
         check_readable(reply, read, model_code)
@@ -1778,7 +1954,7 @@ def _stream_gemini_evaluation(pages, model_code, reference_urls, instructions, m
                                       build_user_content(loaded, len(pages), reference_data, instructions)))
         normalizer = EvaluationNormalizer(page_sizes_of(pages), max_marks)
         read = 0
-        for raw in iter_json_objects(reply):
+        for raw in settle_answers(iter_json_objects(reply)):
             item = normalizer.add(raw)
             if item:
                 read += 1
@@ -1801,7 +1977,7 @@ def _stream_gemini_reevaluation(pages, total_pages, page_sizes, model_code, revi
                                          to_model_format(revision.previous, page_sizes), revision)
         reply = _Reply(_gemini_tokens(api_key, model_code, build_revision_prompt(max_marks, revision), content))
         read = 0
-        for item in revise_objects(iter_json_objects(reply), page_sizes, max_marks, revision):
+        for item in revise_objects(settle_answers(iter_json_objects(reply)), page_sizes, max_marks, revision):
             read += 1
             yield item
         check_readable(reply, read, model_code)
@@ -1838,7 +2014,7 @@ def check_revision(pages, revision):
 
 
 def stream_evaluation(pages, model_code, reference_urls=(), instructions="",
-                      max_marks=DEFAULT_MAX_MARKS, log_context=None, transcript=None):
+                      max_marks=None, log_context=None, transcript=None):
     """Generator of normalized answer/finding annotations for a whole answer sheet.
 
     ``pages`` is the list of SheetPage, numbered from 1, in order. Besides annotations it
@@ -1847,44 +2023,46 @@ def stream_evaluation(pages, model_code, reference_urls=(), instructions="",
     (``transcript`` passes a kept one back in, skipping the OCR).
     """
     check_pages(pages)
+    max_marks = marks_setting(max_marks)
     if _is_gemini(model_code):
         return _stream_gemini_evaluation(pages, model_code, reference_urls, instructions,
-                                         clamp_max_marks(max_marks), log_context)
+                                         max_marks, log_context)
     if _is_sarvam_vision(model_code):
         if vision_with_ocr():
             return _stream_sarvam_hybrid_evaluation(pages, model_code, reference_urls, instructions,
-                                                    clamp_max_marks(max_marks), log_context, transcript)
+                                                    max_marks, log_context, transcript)
         return _stream_sarvam_vision_evaluation(pages, model_code, reference_urls, instructions,
-                                                clamp_max_marks(max_marks), log_context)
+                                                max_marks, log_context)
     if _is_sarvam(model_code):
         return _stream_sarvam_evaluation(pages, model_code, reference_urls, instructions,
-                                         clamp_max_marks(max_marks), log_context, transcript)
+                                         max_marks, log_context, transcript)
     raise EvaluationError(f"No evaluation backend for model '{model_code}'.")
 
 
 def stream_reevaluation(pages, model_code, revision, reference_urls=(), instructions="",
-                        max_marks=DEFAULT_MAX_MARKS, log_context=None):
+                        max_marks=None, log_context=None):
     """Generator of a {"kind": "reply"} dict followed by the revised annotations.
 
     ``pages`` is every SheetPage of the sheet; only those the revision needs are sent.
     """
     check_revision(pages, revision)
+    max_marks = marks_setting(max_marks)
     if _is_sarvam_vision(model_code) and (revision.transcript or vision_with_ocr()):
         needed = set(revision.pages_needed(len(pages)))
         return _stream_sarvam_hybrid_reevaluation([p for p in pages if p.number in needed], len(pages),
                                                   page_sizes_of(pages), model_code, revision, reference_urls,
-                                                  instructions, clamp_max_marks(max_marks), log_context, pages)
+                                                  instructions, max_marks, log_context, pages)
     if _is_sarvam_vision(model_code):
         needed = set(revision.pages_needed(len(pages)))
         return _stream_sarvam_vision_reevaluation([p for p in pages if p.number in needed], len(pages),
                                                   page_sizes_of(pages), model_code, revision, reference_urls,
-                                                  instructions, clamp_max_marks(max_marks), log_context)
+                                                  instructions, max_marks, log_context)
     if _is_sarvam(model_code):
         return _stream_sarvam_reevaluation(pages, model_code, revision, reference_urls, instructions,
-                                           clamp_max_marks(max_marks), log_context)
+                                           max_marks, log_context)
     if _is_gemini(model_code):
         needed = set(revision.pages_needed(len(pages)))
         return _stream_gemini_reevaluation([p for p in pages if p.number in needed], len(pages),
                                            page_sizes_of(pages), model_code, revision, reference_urls,
-                                           instructions, clamp_max_marks(max_marks), log_context)
+                                           instructions, max_marks, log_context)
     raise EvaluationError(f"No evaluation backend for model '{model_code}'.")
