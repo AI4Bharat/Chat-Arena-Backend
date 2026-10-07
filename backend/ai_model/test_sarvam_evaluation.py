@@ -218,3 +218,119 @@ class SarvamEvaluationTests(SimpleTestCase):
         self.assertIn('"lines": ["1.3", "2.1-2.2"]', user)
         self.assertIn('TEACHER FEEDBACK about the answer Q3 (id "q3")', user)
         self.assertIn("REVISION", call.call_args.kwargs["json"]["messages"][0]["content"])
+
+
+def page_png(width, height, seed=0):
+    """A noisy page image (noise does not compress, so sizes are realistic)."""
+    import io
+    import random
+    from PIL import Image
+    rng = random.Random(seed)
+    img = Image.frombytes("L", (width, height), bytes(rng.getrandbits(8) for _ in range(width * height)))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class SarvamVisionTests(SimpleTestCase):
+    """Gemma 4 on Sarvam sees the page images and answers with box_2d, like Gemini."""
+
+    MODEL_OUTPUT = "```json\n" + json.dumps([
+        {"kind": "answer", "id": "q3", "question": "Q3", "category": "minor_mistake", "marks_awarded": 6,
+         "max_marks": 10, "comment": "200 - 135 is 65.",
+         "parts": [{"page": 1, "box_2d": [900, 50, 990, 950]}, {"page": 2, "box_2d": [20, 50, 120, 950]}]},
+        {"kind": "finding", "id": "q3-f1", "answer_id": "q3", "page": 2, "box_2d": [25, 60, 45, 650],
+         "category": "minor_mistake", "comment": "200 - 135 is 65, not 75.", "marks_impact": -1},
+    ]) + "\n```"
+
+    def call(self, fn, *args, env=None, stream=None, images=None, **kwargs):
+        images = images or {}
+        responses = lambda url, timeout=60: mock.Mock(  # noqa: E731
+            content=images.get(url, page_png(100, 200)), headers={"Content-Type": "image/png"},
+            raise_for_status=mock.Mock())
+        stream = stream or FakeStream(sse(*[{"content": c} for c in self.MODEL_OUTPUT]))
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test", **(env or {})}), \
+                mock.patch("httpx.stream", return_value=stream) as call, \
+                mock.patch.object(ev.requests, "get", side_effect=responses) as get, \
+                mock.patch.object(ev, "transcribe_page") as ocr:
+            out = list(fn(*args, **kwargs))
+        return out, call, get, ocr
+
+    def test_gemma_gets_the_page_images_and_no_ocr(self):
+        pages = [SheetPage(1, "https://img/p1", 1000, 2000), SheetPage(2, "https://img/p2")]
+        out, call, get, ocr = self.call(ev.stream_evaluation, pages, "sarvam/gemma4",
+                                       reference_urls=["https://img/key"], instructions="Be fair")
+
+        ocr.assert_not_called()
+        self.assertEqual([c.args[0] for c in get.call_args_list], ["https://img/p1", "https://img/p2", "https://img/key"])
+        self.assertEqual((pages[1].width, pages[1].height), (100, 200))  # measured from the image
+        body = call.call_args.kwargs["json"]
+        self.assertEqual((body["model"], body["stream"]), ("gemma4", True))
+        self.assertEqual(call.call_args.kwargs["headers"]["api-subscription-key"], "sk_test")
+        self.assertIn('"box_2d"', body["messages"][0]["content"])
+        self.assertNotIn("transcript", body["messages"][0]["content"].lower())
+        parts = body["messages"][1]["content"]
+        images = [p["image_url"]["url"] for p in parts if p["type"] == "image_url"]
+        self.assertEqual(len(images), 3)
+        self.assertTrue(all(u.startswith("data:image/jpeg;base64,") for u in images))  # no remote URLs
+        texts = [p["text"] for p in parts if p["type"] == "text"]
+        self.assertIn("STUDENT ANSWER SHEET page 2 of 2:", texts)
+        self.assertTrue(any("<<<\nBe fair\n>>>" in t for t in texts))
+
+        self.assertEqual([o["kind"] for o in out][:2], ["status", "status"])
+        answer = next(o for o in out if o["kind"] == "answer")
+        self.assertEqual([(p["page"], p["box"]) for p in answer["parts"]],
+                         [(1, [50, 1800, 950, 1980]), (2, [5, 4, 95, 24])])
+        finding = next(o for o in out if o["kind"] == "finding")
+        self.assertEqual((finding["answer_id"], finding["page"]), ("q3", 2))
+
+    def test_other_sarvam_models_stay_text_only(self):
+        self.assertTrue(ev._is_sarvam_vision("sarvam/gemma4"))
+        self.assertFalse(ev._is_sarvam_vision("sarvam/deepseekv4-flash"))
+        with mock.patch.dict("os.environ", {"SARVAM_VISION_MODELS": "gemma4, some-vlm"}):
+            self.assertTrue(ev._is_sarvam_vision("sarvam/some-vlm"))
+        with mock.patch.dict("os.environ", {"SARVAM_VISION_MODELS": ""}):
+            self.assertFalse(ev._is_sarvam_vision("sarvam/gemma4"))
+
+    def test_images_are_shrunk_to_fit_the_request_budget(self):
+        from PIL import Image
+        import io
+        imgs = [Image.open(io.BytesIO(page_png(1200, 1700, seed=i))) for i in range(3)]
+        roomy, roomy_total = ev.encode_images_within_budget(imgs, 50 * 1024 * 1024)
+        tight, tight_total = ev.encode_images_within_budget(imgs, roomy_total // 3)
+        self.assertLessEqual(tight_total, roomy_total // 3)
+        self.assertLess(tight_total, roomy_total)
+        with self.assertRaisesRegex(ev.EvaluationError, "too large to send to Sarvam"):
+            ev.encode_images_within_budget(imgs, 1000)
+
+    def test_revision_sends_only_the_pages_it_needs(self):
+        previous = [{"kind": "answer", "id": "q4", "question": "Q4", "marks_awarded": 8, "max_marks": 10,
+                     "parts": [{"id": "q4-p1", "page": 2, "box": [10, 400, 900, 600]}]}]
+        reply = json.dumps([{"kind": "reply", "text": "Gave 9."},
+                            {"kind": "answer", "id": "q4", "marks_awarded": 9, "max_marks": 10,
+                             "parts": [{"page": 2, "box_2d": [200, 10, 300, 900]}]}])
+        pages = [SheetPage(1, "https://img/p1", 1000, 2000), SheetPage(2, "https://img/p2", 1000, 2000)]
+        revision = Revision(feedback="Q4 give 9", scope="answer", answer_id="q4", previous=previous)
+        out, call, get, ocr = self.call(ev.stream_reevaluation, pages, "sarvam/gemma4", revision,
+                                       stream=FakeStream(sse({"content": reply})))
+        ocr.assert_not_called()
+        self.assertEqual([c.args[0] for c in get.call_args_list], ["https://img/p2"])
+        self.assertEqual(out[1], {"kind": "reply", "text": "Gave 9."})
+        self.assertEqual(out[2]["marks_awarded"], 9)
+        system = call.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertIn("REVISION", system)
+        self.assertIn("Only some sheet pages may be attached", system)
+        texts = "\n".join(p.get("text", "") for p in call.call_args.kwargs["json"]["messages"][1]["content"])
+        self.assertIn('"box_2d": [200, 10, 300, 900]', texts)  # previous evaluation, in the model's own format
+
+    def test_missing_key_and_size_errors_are_reported(self):
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": ""}), mock.patch.object(ev.requests, "get") as get:
+            with self.assertRaisesRegex(ev.EvaluationError, "SARVAM_API_KEY is not configured"):
+                list(ev.stream_evaluation([SheetPage(1, "u")], "sarvam/gemma4"))
+        get.assert_not_called()
+        with self.assertRaisesRegex(ev.EvaluationError, "larger than Sarvam accepts"):
+            self.call(ev.stream_evaluation, [SheetPage(1, "u")], "sarvam/gemma4",
+                     stream=FakeStream(status_code=413, body=b"too large"))
+        with self.assertRaisesRegex(ev.EvaluationError, "rate limit"):
+            self.call(ev.stream_evaluation, [SheetPage(1, "u")], "sarvam/gemma4",
+                     stream=FakeStream(status_code=429, body=b'{"error": {"message": "slow down"}}'))

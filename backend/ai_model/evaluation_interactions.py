@@ -13,6 +13,10 @@ at a time:
 
 Pages are numbered from 1. Boxes are returned in natural pixel coordinates of their page.
 
+Vision models (Gemini, and Gemma 4 on Sarvam) receive the page images and answer with
+boxes; text-only models (DeepSeek V4 Flash on Sarvam) receive an OCR transcript and answer
+with line ids, which are turned back into boxes.
+
 A teacher can also send feedback ("Q2: units are wrong, deduct a mark") and have the
 model revise one answer, the answers on one page, or the whole sheet
 (``stream_reevaluation``). The model then returns a short ``reply`` to the teacher
@@ -928,6 +932,15 @@ SARVAM_PREFIX = "sarvam/"
 SARVAM_DEFAULT_BASE_URL = "https://api.sarvam.ai/v2"
 SARVAM_DEFAULT_MAX_TOKENS = 32768
 
+# Multimodal Sarvam models get the page images, like Gemini, instead of an OCR transcript.
+# Gemma 4 31B ("gemma4") is the only one at the time of writing; SARVAM_VISION_MODELS
+# (comma-separated model names) overrides the list. Sarvam accepts images only as base64
+# data URIs (remote URLs are rejected) and caps a request body at 10 MB, so the images are
+# re-encoded as JPEG and shrunk until they fit SARVAM_IMAGE_BUDGET_MB.
+SARVAM_DEFAULT_VISION_MODELS = ("gemma4",)
+SARVAM_DEFAULT_IMAGE_BUDGET_MB = 8.0
+SARVAM_DEFAULT_IMAGE_MAX_SIDE = 1600
+
 
 def _sarvam_config():
     key = os.getenv("SARVAM_API_KEY", "").strip()
@@ -968,14 +981,17 @@ def _without_think(tokens):
         yield buf
 
 
-def _sarvam_tokens(model_code, system_prompt, user_text):
-    """Stream a Sarvam chat completion and yield the answer's text (not its reasoning)."""
+def _sarvam_tokens(model_code, system_prompt, user_content):
+    """Stream a Sarvam chat completion and yield the answer's text (not its reasoning).
+
+    ``user_content`` is a string, or a list of OpenAI-style content parts for vision models.
+    """
     import httpx
 
     key, base, max_tokens = _sarvam_config()
     body = {
         "model": model_code.removeprefix(SARVAM_PREFIX),
-        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}],
+        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}],
         "stream": True,
         "max_tokens": max_tokens,
         "temperature": 0.2,
@@ -995,6 +1011,11 @@ def _sarvam_tokens(model_code, system_prompt, user_text):
                     pass
                 if response.status_code in (401, 403):
                     raise EvaluationError(f"Sarvam rejected the API key (HTTP {response.status_code}): {_text(detail, 300)}")
+                if response.status_code == 413:
+                    raise EvaluationError("The request is larger than Sarvam accepts (10 MB). Lower SARVAM_IMAGE_BUDGET_MB "
+                                          "or evaluate fewer pages at a time.")
+                if response.status_code == 429:
+                    raise EvaluationError(f"Sarvam rate limit reached (HTTP 429). Wait a minute and try again: {_text(detail, 200)}")
                 raise EvaluationError(f"Sarvam API error (HTTP {response.status_code}): {_text(detail, 300)}")
             for line in response.iter_lines():
                 if not line.startswith("data:"):
@@ -1069,6 +1090,111 @@ def _stream_sarvam_reevaluation(pages, model_code, revision, reference_urls, ins
         tokens = _sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="text"), user)
         yield from revise_objects((resolve_lines(raw, index, sizes) for raw in iter_json_objects(tokens)),
                                   sizes, max_marks, revision)
+    except EvaluationError:
+        raise
+    except Exception as e:
+        log_and_raise(e, model_code=model_code, provider="sarvam", log_context=log_context,
+                      custom_message=f"Sarvam re-evaluation error: {e}")
+
+
+def sarvam_vision_models():
+    configured = os.getenv("SARVAM_VISION_MODELS")
+    names = configured.split(",") if configured is not None else SARVAM_DEFAULT_VISION_MODELS
+    return {name.strip() for name in names if name.strip()}
+
+
+def _is_sarvam_vision(model_code):
+    return _is_sarvam(model_code) and model_code.removeprefix(SARVAM_PREFIX) in sarvam_vision_models()
+
+
+def _env_number(name, default, cast=float):
+    try:
+        value = cast(os.getenv(name) or default)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _fetch_image(url):
+    response = requests.get(url, timeout=60)
+    response.raise_for_status()
+    return ImageOps.exif_transpose(PILImage.open(io.BytesIO(response.content))).convert("RGB")
+
+
+def _jpeg_data_url(img, max_side, quality):
+    scale = min(1.0, max_side / max(img.size))
+    if scale < 1.0:
+        img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), PILImage.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def encode_images_within_budget(images, budget_bytes, max_side=SARVAM_DEFAULT_IMAGE_MAX_SIDE):
+    """JPEG data URIs for the images, shrinking resolution then quality until all of them
+    together fit ``budget_bytes``. Boxes are normalised (0-1000), so resizing does not
+    change them. Returns (data URIs, total bytes)."""
+    total = 0
+    for scale, quality in ((1.0, 85), (1.0, 72), (0.8, 72), (0.65, 68), (0.5, 62), (0.4, 55)):
+        urls = [_jpeg_data_url(img, int(max_side * scale), quality) for img in images]
+        total = sum(len(u) for u in urls)
+        if total <= budget_bytes:
+            return urls, total
+    raise EvaluationError(
+        f"The {len(images)} images are too large to send to Sarvam even after shrinking them "
+        f"({total / 1e6:.1f} MB; a request is limited to 10 MB). Evaluate fewer pages at a time.")
+
+
+def _sarvam_vision_images(pages, reference_urls):
+    """(sheet data URIs, reference data URIs, total bytes); fills in missing page sizes."""
+    sheet = []
+    for page in pages:
+        img = _fetch_image(page.url)
+        if not (page.width and page.height):
+            page.width, page.height = img.size
+        sheet.append(img)
+    references = [_fetch_image(url) for url in list(reference_urls)[:MAX_REFERENCE_PAGES]]
+    budget = _env_number("SARVAM_IMAGE_BUDGET_MB", SARVAM_DEFAULT_IMAGE_BUDGET_MB) * 1024 * 1024
+    max_side = _env_number("SARVAM_IMAGE_MAX_SIDE", SARVAM_DEFAULT_IMAGE_MAX_SIDE, int)
+    urls, total = encode_images_within_budget(sheet + references, budget, max_side)
+    return urls[:len(sheet)], urls[len(sheet):], total
+
+
+def _stream_sarvam_vision_evaluation(pages, model_code, reference_urls, instructions, max_marks, log_context):
+    _sarvam_config()  # fail fast when the key is missing
+    name = model_code.removeprefix(SARVAM_PREFIX)
+    try:
+        yield {"kind": "status", "text": f"Preparing {len(pages)} page image(s) for {name}…"}
+        sheet, references, total = _sarvam_vision_images(pages, reference_urls)
+        yield {"kind": "status", "text": f"{name} is reading {len(pages)} page(s) "
+                                         f"({total / 1e6:.1f} MB of images) and evaluating…"}
+        loaded = [(page.number, url) for page, url in zip(pages, sheet)]
+        tokens = _sarvam_tokens(model_code, build_evaluation_prompt(max_marks, mode="image"),
+                                build_user_content(loaded, len(pages), references, instructions))
+        normalizer = EvaluationNormalizer(page_sizes_of(pages), max_marks)
+        for raw in iter_json_objects(tokens):
+            item = normalizer.add(raw)
+            if item:
+                yield item
+    except EvaluationError:
+        raise
+    except Exception as e:
+        log_and_raise(e, model_code=model_code, provider="sarvam", log_context=log_context,
+                      custom_message=f"Sarvam evaluation error: {e}")
+
+
+def _stream_sarvam_vision_reevaluation(pages, total_pages, page_sizes, model_code, revision, reference_urls,
+                                       instructions, max_marks, log_context):
+    _sarvam_config()
+    name = model_code.removeprefix(SARVAM_PREFIX)
+    try:
+        yield {"kind": "status", "text": f"{name} is re-reading page(s) {', '.join(str(p.number) for p in pages)}…"}
+        sheet, references, _ = _sarvam_vision_images(pages, reference_urls)
+        loaded = [(page.number, url) for page, url in zip(pages, sheet)]
+        content = build_revision_content(loaded, total_pages, references, instructions,
+                                         to_model_format(revision.previous, page_sizes), revision)
+        tokens = _sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="image"), content)
+        yield from revise_objects(iter_json_objects(tokens), page_sizes, max_marks, revision)
     except EvaluationError:
         raise
     except Exception as e:
@@ -1169,6 +1295,9 @@ def stream_evaluation(pages, model_code, reference_urls=(), instructions="",
     if _is_gemini(model_code):
         return _stream_gemini_evaluation(pages, model_code, reference_urls, instructions,
                                          clamp_max_marks(max_marks), log_context)
+    if _is_sarvam_vision(model_code):
+        return _stream_sarvam_vision_evaluation(pages, model_code, reference_urls, instructions,
+                                                clamp_max_marks(max_marks), log_context)
     if _is_sarvam(model_code):
         return _stream_sarvam_evaluation(pages, model_code, reference_urls, instructions,
                                          clamp_max_marks(max_marks), log_context, transcript)
@@ -1182,6 +1311,11 @@ def stream_reevaluation(pages, model_code, revision, reference_urls=(), instruct
     ``pages`` is every SheetPage of the sheet; only those the revision needs are sent.
     """
     check_revision(pages, revision)
+    if _is_sarvam_vision(model_code):
+        needed = set(revision.pages_needed(len(pages)))
+        return _stream_sarvam_vision_reevaluation([p for p in pages if p.number in needed], len(pages),
+                                                  page_sizes_of(pages), model_code, revision, reference_urls,
+                                                  instructions, clamp_max_marks(max_marks), log_context)
     if _is_sarvam(model_code):
         return _stream_sarvam_reevaluation(pages, model_code, revision, reference_urls, instructions,
                                            clamp_max_marks(max_marks), log_context)
