@@ -20,6 +20,8 @@ TRANSCRIPT = {"pages": [
     ]},
 ]}
 SIZES = {1: (1000, 2000), 2: (1000, 2000)}
+# Pin the OCR choice so a developer's own BODHAN_API_KEY cannot change what a test exercises.
+NO_BODHAN = {"BODHAN_API_KEY": "", "EVAL_TRANSCRIPT_OCR": "", "EVAL_VISION_WITH_OCR": ""}
 
 
 class FakeStream:
@@ -166,7 +168,7 @@ class SarvamEvaluationTests(SimpleTestCase):
         lines = {1: [dict(text=ln["text"], box=ln["box"]) for ln in TRANSCRIPT["pages"][0]["lines"]],
                  2: [dict(text=ln["text"], box=ln["box"]) for ln in TRANSCRIPT["pages"][1]["lines"]]}
         stream = FakeStream(sse({"reasoning_content": "hmm"}, *[{"content": c} for c in self.MODEL_OUTPUT]))
-        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test"}), \
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test", **NO_BODHAN}), \
                 mock.patch("httpx.stream", return_value=stream) as call, \
                 mock.patch.object(ev, "transcribe_page", side_effect=lambda page, ctx=None: lines[page.number]) as ocr:
             out = list(ev.stream_evaluation(pages, "sarvam/deepseekv4-flash", instructions="Be fair",
@@ -176,7 +178,7 @@ class SarvamEvaluationTests(SimpleTestCase):
     def test_transcript_in_line_ids_out_boxes_per_page(self):
         out, call, ocr = self.run_evaluation()
         kinds = [o["kind"] for o in out]
-        self.assertEqual(kinds[:4], ["status", "status", "transcript", "status"])
+        self.assertEqual(kinds[:5], ["status", "status", "status", "transcript", "status"])  # OCR x2, then the model
         self.assertEqual(ocr.call_count, 2)
         answers = [o for o in out if o["kind"] == "answer"]
         self.assertEqual([[p["page"] for p in a["parts"]] for a in answers], [[1], [1, 2]])
@@ -193,7 +195,7 @@ class SarvamEvaluationTests(SimpleTestCase):
         self.assertEqual(len([o for o in out if o["kind"] == "answer"]), 2)
 
     def test_missing_key_fails_before_any_ocr(self):
-        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": ""}), \
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "", **NO_BODHAN}), \
                 mock.patch.object(ev, "transcribe_page") as ocr:
             with self.assertRaises(ev.EvaluationError):
                 list(ev.stream_evaluation([SheetPage(1, "u")], "sarvam/deepseekv4-flash"))
@@ -249,7 +251,7 @@ class SarvamVisionTests(SimpleTestCase):
             content=images.get(url, page_png(100, 200)), headers={"Content-Type": "image/png"},
             raise_for_status=mock.Mock())
         stream = stream or FakeStream(sse(*[{"content": c} for c in self.MODEL_OUTPUT]))
-        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test", **(env or {})}), \
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test", **NO_BODHAN, **(env or {})}), \
                 mock.patch("httpx.stream", return_value=stream) as call, \
                 mock.patch.object(ev.requests, "get", side_effect=responses) as get, \
                 mock.patch.object(ev, "transcribe_page") as ocr:
@@ -368,7 +370,7 @@ class LooseModelOutputTests(SimpleTestCase):
 
     def test_unreadable_reply_is_an_error_not_an_empty_evaluation(self):
         stream = FakeStream(sse({"content": "Here is my evaluation: Q1 is correct, 10/10."}))
-        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test"}), \
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test", **NO_BODHAN}), \
                 mock.patch("httpx.stream", return_value=stream), \
                 mock.patch.object(ev.requests, "get", return_value=mock.Mock(
                     content=page_png(100, 200), headers={}, raise_for_status=mock.Mock())):
@@ -379,3 +381,226 @@ class LooseModelOutputTests(SimpleTestCase):
         reply = ev._Reply(iter(["```json\n[ ]\n```"]))
         list(reply)
         ev.check_readable(reply, 0, "sarvam/gemma4")  # no error: the sheet has no answers
+
+
+# Bodhan indic-ocr reply for a 1000 x 2000 page: Q3 starts at the foot of page 1.
+def bodhan_reply(blocks):
+    return {"id": "x", "object": "chat.completion", "choices": [{"message": {"content": "md"}}], "blocks": blocks}
+
+
+PAGE1_BLOCKS = [
+    {"order": 1, "label": "Paragraph", "type": "Text", "bbox_xyxy": [100, 300, 900, 500], "conf": 0.9,
+     "text": "(1) b  (2) a  (3) a  (4) d"},
+    {"order": 0, "label": "Page-header", "type": "Title", "bbox_xyxy": [100, 40, 900, 120], "conf": 0.9,
+     "text": "Unit Test"},
+    {"order": 2, "label": "Picture", "type": "Picture", "bbox_xyxy": [100, 600, 500, 900], "conf": 0.8, "text": ""},
+    {"order": 3, "label": "Paragraph", "type": "Text", "bbox_xyxy": [100, 1800, 900, 1980], "conf": 0.9,
+     "text": "Q3. Cost = 3 x 45 = 135"},
+]
+PAGE2_BLOCKS = [{"order": 0, "label": "Paragraph", "type": "Text", "bbox_xyxy": [100, 40, 900, 200], "conf": 0.9,
+                 "text": "Change = 200 - 135 = 75"}]
+
+
+class BodhanOcrTests(SimpleTestCase):
+    def post(self, reply=None, status=200, image=None, env=None):
+        response = mock.Mock(status_code=status, text="err")
+        response.json = mock.Mock(return_value=reply if reply is not None else bodhan_reply(PAGE1_BLOCKS))
+        image = image or page_png(1000, 2000)
+        with mock.patch.dict("os.environ", {"BODHAN_API_KEY": "bk_test", **(env or {})}), \
+                mock.patch.object(ev.requests, "post", return_value=response) as post, \
+                mock.patch.object(ev.requests, "get", return_value=mock.Mock(
+                    content=image, headers={}, raise_for_status=mock.Mock())):
+            blocks = ev.bodhan_ocr_page("https://img/p1")
+        return blocks, post
+
+    def test_request_shape_and_blocks_in_reading_order(self):
+        blocks, post = self.post()
+        url, kwargs = post.call_args.args[0], post.call_args.kwargs
+        self.assertEqual(url, "https://api.bodhan.ai/v1/chat/completions")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer bk_test")
+        body = kwargs["json"]
+        self.assertEqual(body["model"], "indic-ocr")
+        part = body["messages"][0]["content"][0]
+        self.assertEqual(part["type"], "image_url")
+        self.assertTrue(part["image_url"]["url"].startswith("data:image/png;base64,"))
+        self.assertEqual([b["text"] for b in blocks][:2], ["Unit Test", "(1) b  (2) a  (3) a  (4) d"])
+        self.assertEqual(blocks[1]["box"], [100, 300, 900, 500])
+        self.assertEqual((blocks[2]["type"], blocks[2]["text"]), ("Picture", ""))
+
+    def test_large_pages_are_shrunk_and_boxes_scaled_back(self):
+        reply = bodhan_reply([{"order": 0, "type": "Text", "bbox_xyxy": [50, 100, 450, 200], "text": "a"}])
+        blocks, post = self.post(reply, image=page_png(1000, 2000), env={"BODHAN_OCR_MAX_SIDE": "1000"})
+        self.assertEqual(blocks[0]["box"], [100, 200, 900, 400])  # sent at half size
+
+    def test_errors_are_reported_in_words(self):
+        err = {"error": {"message": "Invalid API key", "code": "invalid_api_key", "request_id": "r1"}}
+        with self.assertRaisesRegex(ev.EvaluationError, r"Bodhan rejected the API key \(HTTP 401\): Invalid API key"):
+            self.post(err, status=401)
+        with self.assertRaisesRegex(ev.EvaluationError, r"Bodhan OCR error \(HTTP 502\).*request_id r2"):
+            self.post({"error": {"message": "block exceeded max_tokens", "code": "x", "request_id": "r2"}}, status=502)
+        with mock.patch.dict("os.environ", {"BODHAN_API_KEY": ""}):
+            with self.assertRaisesRegex(ev.EvaluationError, "BODHAN_API_KEY is not configured"):
+                ev.bodhan_ocr_page("u")
+
+    def test_the_key_selects_bodhan_for_transcripts(self):
+        with mock.patch.dict("os.environ", {"BODHAN_API_KEY": "bk", "EVAL_TRANSCRIPT_OCR": ""}):
+            self.assertIs(ev._transcriber(), ev.bodhan_transcribe_page)
+            self.assertTrue(ev.vision_with_ocr())
+        with mock.patch.dict("os.environ", {"BODHAN_API_KEY": "bk", "EVAL_TRANSCRIPT_OCR": "default",
+                                            "EVAL_VISION_WITH_OCR": "off"}):
+            self.assertIs(ev._transcriber(), ev.transcribe_page)
+            self.assertFalse(ev.vision_with_ocr())
+        with mock.patch.dict("os.environ", NO_BODHAN):
+            self.assertIs(ev._transcriber(), ev.transcribe_page)
+            self.assertFalse(ev.vision_with_ocr())
+
+
+HYBRID_TRANSCRIPT = {"pages": [
+    {"number": 1, "width": 1000, "height": 2000, "lines": [
+        {"id": "1.1", "text": "Unit Test", "box": [100, 40, 900, 120], "type": "Title"},
+        {"id": "1.2", "text": "(1) b  (2) a  (3) a  (4) d", "box": [100, 300, 900, 500], "type": "Text"},
+        {"id": "1.3", "text": "", "box": [100, 600, 500, 900], "type": "Picture"},
+        {"id": "1.4", "text": "Q3. Cost = 3 x 45 = 135", "box": [100, 1800, 900, 1980], "type": "Text"}]},
+    {"number": 2, "width": 1000, "height": 2000, "lines": [
+        {"id": "2.1", "text": "Change = 200 - 135 = 75", "box": [100, 40, 900, 200], "type": "Text"}]},
+]}
+
+
+class HybridTests(SimpleTestCase):
+    """Gemma 4 with Bodhan OCR: page images AND OCR blocks in, block ids out."""
+
+    SIZES = {1: (1000, 2000), 2: (1000, 2000)}
+
+    def setUp(self):
+        self.index = LineIndex(HYBRID_TRANSCRIPT)
+
+    def test_prompt_explains_the_blocks_and_asks_for_block_ids(self):
+        prompt = ev.build_evaluation_prompt(10, mode="hybrid")
+        self.assertIn('"[3.4] (Text)" is page 3', prompt)
+        self.assertIn("The page image is the truth", prompt)
+        self.assertIn('"blocks": the ids of ALL the OCR blocks', prompt)
+        self.assertIn("never add a \"scaling\" row", prompt)  # guidance file
+        self.assertNotIn("{{", prompt)
+
+    def test_answers_take_the_block_boxes_across_pages(self):
+        raw = {"kind": "answer", "id": "q3", "blocks": ["1.4", "2.1"], "marks_awarded": 6}
+        resolved = ev.resolve_blocks(raw, self.index, self.SIZES)
+        parts = ev.EvaluationNormalizer(self.SIZES, 10).add(resolved)["parts"]
+        self.assertEqual([(p["page"], p["box"]) for p in parts], [(1, [100, 1800, 900, 1980]), (2, [100, 40, 900, 200])])
+
+    def test_a_model_box_is_kept_only_inside_its_block(self):
+        norm = ev.EvaluationNormalizer(self.SIZES, 10)
+        norm.add({"kind": "answer", "id": "q1", "blocks": ["1.2"]})
+        # tight box on the "(2) a" item, inside block 1.2 (y 300-500): kept
+        inside = norm.add(ev.resolve_blocks({"kind": "finding", "answer_id": "q1", "blocks": ["1.2"],
+                                             "box_2d": [160, 300, 200, 450]}, self.index, self.SIZES))
+        self.assertEqual((inside["page"], inside["box"]), (1, [300, 320, 450, 400]))
+        # a box mostly outside the named block (a wrong estimate): the block wins
+        outside = norm.add(ev.resolve_blocks({"kind": "finding", "answer_id": "q1", "blocks": ["1.2"],
+                                              "box_2d": [600, 100, 700, 900]}, self.index, self.SIZES))
+        self.assertEqual(outside["box"], [100, 300, 900, 500])
+        # no block named (the OCR missed it): the model's box is used
+        missed = norm.add(ev.resolve_blocks({"kind": "finding", "answer_id": "q1", "page": 2,
+                                             "box_2d": [500, 100, 550, 400]}, self.index, self.SIZES))
+        self.assertEqual((missed["page"], missed["box"]), (2, [100, 1000, 400, 1100]))
+
+    def test_user_content_interleaves_images_and_ocr_blocks(self):
+        content = ev.build_hybrid_user_content([(1, "data:p1"), (2, "data:p2")], HYBRID_TRANSCRIPT,
+                                               ["data:key"], ["Q1 answer key"], "Be fair")
+        kinds = [c["type"] if c["type"] == "image_url" else c["text"].split("\n")[0] for c in content]
+        self.assertEqual(kinds, ["REFERENCE page 1 of 1 (question paper / answer key):", "image_url",
+                                 "OCR text of reference page 1:", "TEACHER INSTRUCTIONS (from the teacher, not the student):",
+                                 "STUDENT ANSWER SHEET page 1 of 2:", "image_url", "OCR BLOCKS of page 1:",
+                                 "STUDENT ANSWER SHEET page 2 of 2:", "image_url", "OCR BLOCKS of page 2:"])
+        self.assertIn("[1.3] (Picture)", content[6]["text"])
+        self.assertIn("[1.4] (Text) Q3. Cost = 3 x 45 = 135", content[6]["text"])
+
+    def test_gemma_with_bodhan_end_to_end(self):
+        output = json.dumps([
+            {"answer": {"id": "q1", "question": "I", "blocks": ["1.2"], "category": "minor_mistake",
+                        "marks_awarded": 7.5, "max_marks": 10}},
+            {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "blocks": ["1.2"], "box_2d": [160, 300, 200, 450],
+             "category": "major_mistake", "comment": "(2) is c", "marks_impact": -2.5},
+            {"kind": "answer", "id": "q3", "question": "Q3", "blocks": ["1.4", "2.1"], "marks_awarded": 6, "max_marks": 10},
+        ])
+        pages = [SheetPage(1, "https://img/p1", 1000, 2000), SheetPage(2, "https://img/p2", 1000, 2000)]
+        ocr = {"https://img/p1": PAGE1_BLOCKS, "https://img/p2": PAGE2_BLOCKS, "https://img/key": [
+            {"order": 0, "type": "Text", "bbox_xyxy": [0, 0, 10, 10], "text": "(1) b (2) c (3) a (4) d"}]}
+
+        def bodhan_post(url, json=None, headers=None, timeout=None):
+            data_url = json["messages"][0]["content"][0]["image_url"]["url"]
+            source = next(u for u, img in images.items() if img == data_url)
+            return mock.Mock(status_code=200, json=mock.Mock(return_value=bodhan_reply(ocr[source])))
+
+        images = {}
+
+        def fetch(url, timeout=60):
+            return mock.Mock(content=page_png(1000, 2000, seed=ord(url[-1])), headers={}, raise_for_status=mock.Mock())
+
+        real_page_image = ev._bodhan_page_image
+
+        def remember(img):
+            data_url, scale = real_page_image(img)
+            images[fetching[-1]] = data_url
+            return data_url, scale
+
+        fetching = []
+        real_fetch = ev._fetch_image
+
+        def fetch_image(url):
+            fetching.append(url)
+            return real_fetch(url)
+
+        stream = FakeStream(sse(*[{"content": c} for c in output]))
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test", "BODHAN_API_KEY": "bk_test",
+                                            "EVAL_TRANSCRIPT_OCR": "", "EVAL_VISION_WITH_OCR": "",
+                                            "BODHAN_OCR_CONCURRENCY": "1"}), \
+                mock.patch.object(ev.requests, "get", side_effect=fetch), \
+                mock.patch.object(ev.requests, "post", side_effect=bodhan_post) as post, \
+                mock.patch.object(ev, "_fetch_image", side_effect=fetch_image), \
+                mock.patch.object(ev, "_bodhan_page_image", side_effect=remember), \
+                mock.patch("httpx.stream", return_value=stream) as call:
+            out = list(ev.stream_evaluation(pages, "sarvam/gemma4", reference_urls=["https://img/key"]))
+
+        self.assertEqual(post.call_count, 3)  # two sheet pages + the answer key
+        transcript = next(o for o in out if o["kind"] == "transcript")["transcript"]
+        self.assertEqual([ln["id"] for ln in transcript["pages"][0]["lines"]], ["1.1", "1.2", "1.3", "1.4"])
+        self.assertEqual(transcript["reference_texts"], ["(1) b (2) c (3) a (4) d"])  # kept for revisions
+        body = call.call_args.kwargs["json"]
+        self.assertEqual(body["model"], "gemma4")
+        self.assertIn("OCR BLOCKS", body["messages"][0]["content"])
+        texts = "\n".join(p.get("text", "") for p in body["messages"][1]["content"])
+        self.assertIn("[2.1] (Text) Change = 200 - 135 = 75", texts)
+        self.assertIn("OCR text of reference page 1:\n(1) b (2) c (3) a (4) d", texts)
+        self.assertEqual(sum(p["type"] == "image_url" for p in body["messages"][1]["content"]), 3)
+
+        answers = {o["id"]: o for o in out if o["kind"] == "answer"}
+        self.assertEqual([(p["page"], p["box"]) for p in answers["q3"]["parts"]],
+                         [(1, [100, 1800, 900, 1980]), (2, [100, 40, 900, 200])])
+        finding = next(o for o in out if o["kind"] == "finding")
+        self.assertEqual(finding["box"], [300, 320, 450, 400])
+
+    def test_revision_reuses_the_kept_transcript_and_sends_block_ids(self):
+        previous = [{"kind": "answer", "id": "q3", "question": "Q3", "marks_awarded": 6, "max_marks": 10,
+                     "parts": [{"id": "q3-p1", "page": 1, "box": [100, 1800, 900, 1980]},
+                               {"id": "q3-p2", "page": 2, "box": [100, 40, 900, 200]}]}]
+        reply = json.dumps([{"kind": "reply", "text": "Q3 deserves 5."},
+                            {"kind": "answer", "id": "q3", "blocks": ["1.4", "2.1"], "marks_awarded": 5, "max_marks": 10}])
+        revision = Revision(feedback="Q3 deduct 1", scope="answer", answer_id="q3", previous=previous,
+                            transcript={**HYBRID_TRANSCRIPT, "reference_texts": ["(1) b (2) c"]})
+        pages = [SheetPage(1, "https://img/p1", 1000, 2000), SheetPage(2, "https://img/p2", 1000, 2000)]
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test", "BODHAN_API_KEY": "bk_test",
+                                            "EVAL_TRANSCRIPT_OCR": "", "EVAL_VISION_WITH_OCR": ""}), \
+                mock.patch.object(ev.requests, "get", return_value=mock.Mock(
+                    content=page_png(100, 200), headers={}, raise_for_status=mock.Mock())), \
+                mock.patch.object(ev.requests, "post") as post, \
+                mock.patch("httpx.stream", return_value=FakeStream(sse({"content": reply}))) as call:
+            out = list(ev.stream_reevaluation(pages, "sarvam/gemma4", revision, reference_urls=["https://img/key"]))
+        post.assert_not_called()  # no OCR at all: sheet and answer key were kept from the first run
+        self.assertEqual(next(o for o in out if o["kind"] == "reply")["text"], "Q3 deserves 5.")
+        answer = next(o for o in out if o["kind"] == "answer")
+        self.assertEqual([p["page"] for p in answer["parts"]], [1, 2])
+        texts = "\n".join(p.get("text", "") for p in call.call_args.kwargs["json"]["messages"][1]["content"])
+        self.assertIn('"blocks": ["1.4", "2.1"]', texts)
+        self.assertIn("OCR text of reference page 1:\n(1) b (2) c", texts)
+        self.assertIn("REVISION", call.call_args.kwargs["json"]["messages"][0]["content"])

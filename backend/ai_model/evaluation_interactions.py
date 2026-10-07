@@ -15,7 +15,9 @@ Pages are numbered from 1. Boxes are returned in natural pixel coordinates of th
 
 Vision models (Gemini, and Gemma 4 on Sarvam) receive the page images and answer with
 boxes; text-only models (DeepSeek V4 Flash on Sarvam) receive an OCR transcript and answer
-with line ids, which are turned back into boxes.
+with line ids, which are turned back into boxes. When Bodhan's document OCR (indic-ocr) is
+configured, Gemma gets both: each page image followed by that page's OCR blocks, and it
+locates answers by block id, so boxes come from the OCR layout ("hybrid" mode).
 
 A teacher can also send feedback ("Q2: units are wrong, deduct a mark") and have the
 model revise one answer, the answers on one page, or the whole sheet
@@ -183,6 +185,51 @@ Example of the shape (the values are illustrative):
  {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "lines": ["2.1"], "category": "minor_mistake", "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1}]"""
 
 
+HYBRID_INPUT = """
+
+---
+INPUT
+You receive, in this order: optionally the REFERENCE material (the question paper and/or the answer
+key / marking scheme) as page images, each followed by its OCR text; optionally TEACHER INSTRUCTIONS;
+then the STUDENT ANSWER SHEET, page by page: each page image, followed by the OCR BLOCKS of that page.
+
+How to use the OCR blocks
+- A dedicated OCR model has split every page into layout blocks (paragraphs, lists, tables, headings,
+  pictures) and read their text. Each block starts with its id and type: "[3.4] (Text)" is page 3,
+  block 4, in reading order. Pictures and drawings are blocks with no text.
+- Use the OCR text to read the page quickly and completely, and to quote the student exactly, in the
+  student's own script. It is far better than reading small handwriting from the image alone.
+- The page image is the truth. OCR can misread handwriting (similar-looking letters and digits, "x" vs
+  "×", decimal points, fractions), miss ticks, circles, crossings-out and arrows, merge two answers
+  into one block or split one answer across blocks. Before marking anything as wrong, check it on the
+  image; when the image and the OCR disagree, follow the image and quote what is really written.
+- Judge diagrams, graphs, drawings, matchings drawn with lines, and circled or ticked options from the
+  image.
+- Printed text in a block (the question itself on a worksheet) is not the student's work: mark only
+  what the student wrote.
+- Locate everything with block ids, never by estimating coordinates: the app draws the boxes from the
+  OCR blocks, which are pixel-exact."""
+
+HYBRID_LOCATION_ANSWER = """- "blocks": the ids of ALL the OCR blocks that make up the student's complete answer to this question,
+  including working and diagrams, on every page it continues onto, e.g. ["2.7", "2.8", "3.1"]. A run of
+  consecutive blocks may be written as a range, e.g. "3.1-3.4". An answer that continues onto the next
+  page (often without repeating its label) keeps the same answer — never a new answer.
+- "parts": only for a piece of the answer that has NO OCR block (the OCR missed it), or when one block
+  holds several answers: [{{"page": n, "box_2d": [ymin, xmin, ymax, xmax]}}] around this answer's own piece."""
+HYBRID_LOCATION_FINDING = """- "blocks": the id of the OCR block the finding is in, e.g. ["3.4"]
+- "box_2d": optional, [ymin, xmin, ymax, xmax] tightly around the exact word, step or line inside that
+  block, when the block is much larger than what the finding is about"""
+HYBRID_RULES = """Rules:
+- Use only block ids that appear in the OCR blocks. Blocks that are not part of any answer (names, headings, printed instructions, page numbers, teacher's marks) belong to no answer.
+- box_2d values are integers in [0, 1000] where (0, 0) is the top-left and (1000, 1000) the bottom-right of that student page; ymin < ymax and xmin < xmax. A box_2d is exactly ONE box of four integers.
+- If the pages contain no answers, return [].
+
+Example of the shape (the values are illustrative):
+[{"kind": "answer", "id": "q1", "question": "I", "question_text": "Choose the correct option (1-4)", "blocks": ["2.3-2.6"], "category": "minor_mistake", "marks_awarded": 7.5, "max_marks": 10, "marks_breakdown": [{"criterion": "(1)", "awarded": 2.5, "max": 2.5}, {"criterion": "(2)", "awarded": 0, "max": 2.5}, {"criterion": "(3)", "awarded": 2.5, "max": 2.5}, {"criterion": "(4)", "awarded": 2.5, "max": 2.5}], "comment": "Three of four options are correct; (2) should be (c) carbon dioxide."},
+ {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "blocks": ["2.4"], "box_2d": [212, 140, 236, 420], "category": "major_mistake", "comment": "(2): chose '(a) oxygen'; plants take in (c) carbon dioxide.", "marks_impact": -2.5},
+ {"kind": "answer", "id": "q2", "question": "II", "question_text": "Explain the water cycle", "blocks": ["2.8-2.11", "3.1-3.2"], "category": "incomplete", "marks_awarded": 7, "max_marks": 10, "marks_breakdown": [{"criterion": "Stages", "awarded": 4, "max": 5}, {"criterion": "Explanation", "awarded": 3, "max": 5}], "comment": "Explains three stages well but leaves out transpiration."}]"""
+
+
 def load_guidance(max_marks=DEFAULT_MAX_MARKS):
     """The examiner guidance: EVAL_SYSTEM_PROMPT_FILE if set, else the bundled prompt."""
     path = Path(os.getenv("EVAL_SYSTEM_PROMPT_FILE") or GUIDANCE_FILE)
@@ -193,21 +240,30 @@ def load_guidance(max_marks=DEFAULT_MAX_MARKS):
     return text.replace("{max_marks}", str(_format_marks(max_marks)))
 
 
+_PROMPT_MODES = {
+    # mode: (input, answer location, finding location, rules)
+    "image": (IMAGE_INPUT, IMAGE_LOCATION_ANSWER, IMAGE_LOCATION_FINDING, IMAGE_RULES),
+    "text": (TEXT_INPUT, TEXT_LOCATION_ANSWER, TEXT_LOCATION_FINDING, TEXT_RULES),
+    "hybrid": (HYBRID_INPUT, HYBRID_LOCATION_ANSWER, HYBRID_LOCATION_FINDING, HYBRID_RULES),
+}
+
+
 def build_evaluation_prompt(max_marks=DEFAULT_MAX_MARKS, mode="image"):
     """System prompt: the guidance, then how the input looks and the output contract.
 
-    ``mode`` is "image" for vision models that get page images and answer with boxes, or
-    "text" for text-only models that get an OCR transcript and answer with line ids.
+    ``mode`` is "image" for vision models that get page images and answer with boxes,
+    "text" for text-only models that get an OCR transcript and answer with line ids, or
+    "hybrid" for vision models that get page images AND OCR blocks and answer with block ids.
     """
     marks = _format_marks(max_marks)
-    image = mode == "image"
-    answer = _ANSWER_FIELDS.format(location=IMAGE_LOCATION_ANSWER if image else TEXT_LOCATION_ANSWER, max_marks=marks)
-    finding = _FINDING_FIELDS.format(location=IMAGE_LOCATION_FINDING if image else TEXT_LOCATION_FINDING)
+    source, answer_at, finding_at, rules = _PROMPT_MODES[mode]
+    answer = _ANSWER_FIELDS.format(location=answer_at, max_marks=marks)
+    finding = _FINDING_FIELDS.format(location=finding_at)
     return (load_guidance(max_marks)
-            + (IMAGE_INPUT if image else TEXT_INPUT)
+            + source
             + _OUTPUT_HEAD.format(answer=answer.replace("{{", "{").replace("}}", "}"),
                                   finding=finding, categories=_CATEGORY_RULES)
-            + (IMAGE_RULES if image else TEXT_RULES))
+            + rules)
 
 
 def clamp_max_marks(value):
@@ -684,7 +740,7 @@ class Revision:
 def build_revision_prompt(max_marks, revision, mode="image"):
     rule = _SCOPE_RULES[revision.scope].format(answer_id=revision.answer_id, page=revision.page)
     return build_evaluation_prompt(max_marks, mode) + REVISION_PROMPT.format(
-        pages_note=_IMAGE_PAGES_NOTE if mode == "image" else "", scope_rule=rule)
+        pages_note=_IMAGE_PAGES_NOTE if mode in ("image", "hybrid") else "", scope_rule=rule)
 
 
 def to_model_format(items, page_sizes):
@@ -854,26 +910,79 @@ def ocr_transcribe_page(page, log_context=None):
 transcribe_page = ocr_transcribe_page
 
 
+PICTURE_TYPES = ("picture", "figure", "image", "chart", "diagram")
+
+
+def _keep_line(ln):
+    """Text lines, and pictures (drawn answers) even though they have no text."""
+    return bool(str(ln.get("text") or "").strip()) or str(ln.get("type") or "").lower() in PICTURE_TYPES
+
+
+def transcribe_page_lines(page, log_context=None):
+    """The transcript entries of one page: [{"id": "p.n", "text", "box"[, "type"]}]."""
+    lines = _transcriber()(page, log_context)
+    out = []
+    for ln in lines:
+        if not _keep_line(ln):
+            continue
+        entry = {"id": f"{page.number}.{len(out) + 1}", "text": str(ln.get("text") or "").strip(),
+                 "box": [int(v) for v in ln["box"]]}
+        if ln.get("type"):
+            entry["type"] = str(ln["type"])
+        out.append(entry)
+    return out
+
+
 def build_transcript(pages, log_context=None, on_page=None):
     """{"pages": [{"number", "width", "height", "lines": [{"id": "p.l", "text", "box"}]}]}."""
     out = []
     for page in pages:
         if on_page:
             on_page(page)
-        lines = transcribe_page(page, log_context)
-        out.append({
-            "number": page.number, "width": page.width, "height": page.height,
-            "lines": [{"id": f"{page.number}.{i}", "text": ln["text"], "box": [int(v) for v in ln["box"]]}
-                      for i, ln in enumerate(lines, start=1) if str(ln.get("text") or "").strip()],
-        })
+        lines = transcribe_page_lines(page, log_context)
+        out.append({"number": page.number, "width": page.width, "height": page.height, "lines": lines})
     return {"pages": out}
+
+
+def ocr_pages(pages, log_context=None):
+    """Generator: OCR the pages (concurrently for Bodhan), yielding {"kind": "status"} notes;
+    returns the transcript. Use as ``transcript = yield from ocr_pages(...)``."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    engine = transcript_engine_name()
+    workers = _env_number("BODHAN_OCR_CONCURRENCY", 4, int) if engine == "Bodhan indic-ocr" else 1
+    results = {}
+    yield {"kind": "status", "text": f"Reading {len(pages)} page(s) with {engine}…"}
+    if workers <= 1 or len(pages) == 1:  # local OCR engines run in the request thread
+        for done, page in enumerate(pages, start=1):
+            results[page.number] = transcribe_page_lines(page, log_context)
+            yield {"kind": "status", "text": f"Read page {page.number} with {engine} ({done} of {len(pages)})…"}
+        return {"pages": [{"number": p.number, "width": p.width, "height": p.height, "lines": results[p.number]}
+                          for p in pages]}
+    with ThreadPoolExecutor(max_workers=min(workers, len(pages))) as pool:
+        futures = {pool.submit(transcribe_page_lines, page, log_context): page for page in pages}
+        for done, future in enumerate(as_completed(futures), start=1):
+            page = futures[future]
+            results[page.number] = future.result()
+            yield {"kind": "status", "text": f"Read page {page.number} with {engine} ({done} of {len(pages)})…"}
+    return {"pages": [{"number": p.number, "width": p.width, "height": p.height, "lines": results[p.number]}
+                      for p in pages]}
+
+
+def _line_label(ln):
+    kind = ln.get("type")
+    return f"[{ln['id']}] ({kind}) {ln['text']}".rstrip() if kind else f"[{ln['id']}] {ln['text']}"
+
+
+def page_transcript_text(page):
+    return "\n".join(_line_label(ln) for ln in page["lines"]) or "(the OCR found no text on this page)"
 
 
 def transcript_text(transcript):
     blocks = []
     for page in transcript["pages"]:
         blocks.append(f"--- Page {page['number']} of {len(transcript['pages'])} ---")
-        blocks.extend(f"[{ln['id']}] {ln['text']}" for ln in page["lines"])
+        blocks.extend(_line_label(ln) for ln in page["lines"])
     return "\n".join(blocks)
 
 
@@ -923,6 +1032,18 @@ class LineIndex:
         return [(page, [min(b[0] for b in boxes), min(b[1] for b in boxes),
                         max(b[2] for b in boxes), max(b[3] for b in boxes)])
                 for page, boxes in sorted(by_page.items())]
+
+    def box_of(self, ref):
+        key = self._key(ref)
+        return self.lines.get(key) if key else None
+
+    def containing(self, page, box):
+        """Ids of the lines/blocks on ``page`` that contain the centre of ``box``."""
+        cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        return [line_id for line_id in self.order
+                if self.lines[line_id][0] == page
+                and self.lines[line_id][1][0] <= cx <= self.lines[line_id][1][2]
+                and self.lines[line_id][1][1] <= cy <= self.lines[line_id][1][3]]
 
     def within(self, page, box):
         """Ids of the lines on ``page`` whose centre lies inside ``box``."""
@@ -983,13 +1104,27 @@ def to_text_model_format(items, index):
     return out
 
 
-def reference_text(reference_urls, log_context=None):
-    """The question paper / answer key as plain text, page by page."""
+def reference_pages_text(reference_urls, log_context=None):
+    """The OCR text of each question paper / answer key page."""
     pages = [SheetPage(i, url) for i, url in enumerate(list(reference_urls)[:MAX_REFERENCE_PAGES], start=1)]
-    return "\n".join(
-        f"--- Reference page {page.number} ---\n" + "\n".join(ln["text"] for ln in transcribe_page(page, log_context))
-        for page in pages
-    )
+    transcribe = _transcriber()
+    return ["\n".join(str(ln.get("text") or "") for ln in transcribe(page, log_context) if str(ln.get("text") or "").strip())
+            for page in pages]
+
+
+def reference_text(reference_urls, log_context=None, texts=None):
+    """The question paper / answer key as plain text, page by page."""
+    texts = reference_pages_text(reference_urls, log_context) if texts is None else texts
+    return "\n".join(f"--- Reference page {i} ---\n{text}" for i, text in enumerate(texts, start=1))
+
+
+def kept_reference_texts(transcript, reference_urls, log_context=None):
+    """The answer key's OCR text kept with the sheet's transcript, or a fresh OCR of it.
+    Kept so that chat re-evaluations do not OCR (and pay for) the same pages again."""
+    kept = (transcript or {}).get("reference_texts")
+    if kept is not None and len(kept) == len(list(reference_urls)[:MAX_REFERENCE_PAGES]):
+        return kept
+    return reference_pages_text(reference_urls, log_context) if reference_urls else []
 
 
 def build_text_user_content(transcript, reference, instructions):
@@ -1001,6 +1136,216 @@ def build_text_user_content(transcript, reference, instructions):
         parts.append(f"TEACHER INSTRUCTIONS (from the teacher, not the student):\n<<<\n{instructions}\n>>>")
     parts.append("STUDENT ANSWER SHEET (OCR transcript):\n" + transcript_text(transcript))
     return "\n\n".join(parts)
+
+
+# ── Bodhan document OCR (indic-ocr) ──────────────────────────────────────────
+# Verified against console.bodhan.ai/api-docs and the Bodhan AI Cookbook: POST
+# {base}/v1/chat/completions with a Bearer key, model "indic-ocr", ONE PNG or JPEG page per
+# request as a base64 data URI (PDFs are not accepted). The reply has the page as Markdown in
+# choices[0].message.content and a top-level "blocks" list of layout regions:
+# {order, label, type, bbox_xyxy: [x1, y1, x2, y2] in pixels of the image sent, conf, text}.
+# Blocks are paragraphs / lists / tables / pictures, not lines. HTTP 502 means a block hit
+# max_tokens (default 2048 per block) or the image could not be decoded.
+
+BODHAN_DEFAULT_BASE_URL = "https://api.bodhan.ai"
+BODHAN_OCR_MODEL = "indic-ocr"
+BODHAN_OCR_ENGINE = "Bodhan indic-ocr"
+BODHAN_OCR_MAX_SIDE = 2400
+BODHAN_OCR_PNG_LIMIT = 6 * 1024 * 1024
+
+
+def bodhan_ocr_configured():
+    return bool(os.getenv("BODHAN_API_KEY", "").strip())
+
+
+def _bodhan_page_image(img):
+    """(data URI, scale) for a page: PNG unless that is large, then JPEG; long side <= max."""
+    max_side = _env_number("BODHAN_OCR_MAX_SIDE", BODHAN_OCR_MAX_SIDE, int)
+    scale = min(1.0, max_side / max(img.size))
+    if scale < 1.0:
+        img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), PILImage.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    if buf.tell() <= BODHAN_OCR_PNG_LIMIT:
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii"), scale
+    return _jpeg_data_url(img, max(img.size), 92), scale
+
+
+def bodhan_ocr_page(image_url, log_context=None):
+    """OCR one page with Bodhan's indic-ocr: blocks in reading order, boxes in the page's pixels.
+
+    [{"text", "box": [x1, y1, x2, y2], "type", "label", "conf"}]
+    """
+    key = os.getenv("BODHAN_API_KEY", "").strip()
+    if not key:
+        raise EvaluationError("BODHAN_API_KEY is not configured on the server.")
+    base = (os.getenv("BODHAN_BASE_URL") or BODHAN_DEFAULT_BASE_URL).rstrip("/")
+    img = _fetch_image(image_url)
+    width, height = img.size
+    data_url, scale = _bodhan_page_image(img)
+    body = {
+        "model": BODHAN_OCR_MODEL,
+        "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": data_url}}]}],
+        "table_format": os.getenv("BODHAN_OCR_TABLE_FORMAT") or "markdown",
+    }
+    response = requests.post(f"{base}/v1/chat/completions", json=body,
+                             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                             timeout=_env_number("BODHAN_OCR_TIMEOUT", 180))
+    if response.status_code >= 400:
+        try:
+            error = response.json().get("error") or {}
+            detail = f"{error.get('message')} (code {error.get('code')}, request_id {error.get('request_id')})"
+        except ValueError:
+            detail = _text(response.text, 300)
+        if response.status_code in (401, 403):
+            raise EvaluationError(f"Bodhan rejected the API key (HTTP {response.status_code}): {detail}")
+        if response.status_code == 429:
+            raise EvaluationError(f"Bodhan OCR rate limit reached (HTTP 429). Wait a minute and try again: {detail}")
+        raise EvaluationError(f"Bodhan OCR error (HTTP {response.status_code}): {detail}")
+
+    blocks = []
+    for block in sorted(response.json().get("blocks") or [], key=lambda b: _number(b.get("order")) or 0):
+        bbox = block.get("bbox_xyxy")
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4 or any(_number(v) is None for v in bbox):
+            continue
+        x1, y1, x2, y2 = (float(v) / scale for v in bbox)
+        box = [max(0, min(width, round(min(x1, x2)))), max(0, min(height, round(min(y1, y2)))),
+               max(0, min(width, round(max(x1, x2)))), max(0, min(height, round(max(y1, y2))))]
+        if box[2] - box[0] < 2 or box[3] - box[1] < 2:
+            continue
+        blocks.append({"text": str(block.get("text") or "").strip(), "box": box,
+                       "type": str(block.get("type") or block.get("label") or "Text"),
+                       "label": block.get("label"), "conf": block.get("conf")})
+    return blocks
+
+
+def bodhan_transcribe_page(page, log_context=None):
+    return bodhan_ocr_page(page.url, log_context)
+
+
+def _transcriber():
+    """The OCR used for transcripts: Bodhan's indic-ocr when BODHAN_API_KEY is set (unless
+    EVAL_TRANSCRIPT_OCR=default), else the swappable ``transcribe_page`` hook."""
+    choice = (os.getenv("EVAL_TRANSCRIPT_OCR") or "").strip().lower()
+    if choice == "bodhan" or (choice != "default" and bodhan_ocr_configured()):
+        return bodhan_transcribe_page
+    return transcribe_page
+
+
+def transcript_engine_name():
+    return BODHAN_OCR_ENGINE if _transcriber() is bodhan_transcribe_page else "OCR"
+
+
+def _box_area(box):
+    return max(0, box[2] - box[0]) * max(0, box[3] - box[1])
+
+
+def _intersect(a, b):
+    box = [max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])]
+    return box if box[2] > box[0] and box[3] > box[1] else None
+
+
+def _union_boxes(boxes):
+    return [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]
+
+
+def _pixel_boxes(raw_box, size):
+    """box_2d (or a list of them) -> pixel boxes."""
+    if isinstance(raw_box, (list, tuple)) and raw_box and all(isinstance(b, (list, tuple)) for b in raw_box):
+        return [b for b in (_to_pixel_box(b, *size) for b in raw_box) if b]
+    box = _to_pixel_box(raw_box, *size)
+    return [box] if box else []
+
+
+def _within_blocks(model_box, block_box):
+    """The model's box kept inside the OCR block it names, or None when it is mostly outside
+    (models estimate coordinates poorly; the block is the reliable fallback)."""
+    inside = _intersect(model_box, block_box)
+    return inside if inside and _box_area(inside) >= 0.5 * _box_area(model_box) else None
+
+
+def resolve_blocks(raw, index, page_sizes):
+    """A hybrid-mode model object -> the box_2d shape the normalizer reads.
+
+    Answers: one part per page from the union of the OCR blocks named, refined by a model box
+    on that page only when it lies inside those blocks; a model box on a page with no named
+    block (the OCR missed that piece) is used as is. Findings: the named block, or the model's
+    tighter box inside it.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    refs = raw.get("blocks", raw.get("lines"))
+    resolved = {k: v for k, v in raw.items() if k not in ("blocks", "lines", "parts", "box_2d", "box", "page")}
+    blocks = dict(index.page_boxes(refs)) if refs is not None else {}
+    as_2d = lambda page, box: _to_box_2d(box, *page_sizes[page])  # noqa: E731
+
+    if str(raw.get("kind", "")).lower() == "finding" or ("answer_id" in raw and "marks_awarded" not in raw):
+        page = next(iter(blocks), None) or _page_number(raw.get("page"))
+        if page not in page_sizes:
+            return resolved
+        model = _pixel_boxes(raw.get("box_2d") or raw.get("box"), page_sizes[page])
+        model = _union_boxes(model) if model else None
+        if page in blocks:
+            box = (_within_blocks(model, blocks[page]) if model else None) or blocks[page]
+        else:
+            box = model
+        if box:
+            resolved.update(page=page, box_2d=as_2d(page, box))
+        return resolved
+
+    explicit = {}
+    raw_parts = raw.get("parts") if isinstance(raw.get("parts"), list) else []
+    for part in (piece for part in raw_parts if isinstance(part, dict) for piece in [part, *part.get(REPEATED_KEYS, [])]):
+        page = _page_number(part.get("page"))
+        if page in page_sizes:
+            explicit.setdefault(page, []).extend(_pixel_boxes(part.get("box_2d") or part.get("box"), page_sizes[page]))
+    parts = []
+    for page in sorted(set(blocks) | set(explicit)):
+        model = _union_boxes(explicit[page]) if explicit.get(page) else None
+        if page in blocks:
+            box = (_within_blocks(model, blocks[page]) if model else None) or blocks[page]
+        else:
+            box = model
+        if box:
+            parts.append({"page": page, "box_2d": as_2d(page, box)})
+    resolved["parts"] = parts
+    return resolved
+
+
+def to_hybrid_model_format(items, index, page_sizes):
+    """Annotation dicts -> what a hybrid model reads and writes: block ids plus each box."""
+    out = []
+    for raw, item in zip(to_model_format(items, page_sizes), (i for i in items
+                                                              if isinstance(i, dict) and i.get("kind") in ("answer", "finding"))):
+        if item["kind"] == "answer":
+            ids = [i for p in item.get("parts") or [] if p.get("box")
+                   for i in (index.within(p["page"], p["box"]) or index.containing(p["page"], p["box"]))]
+        else:
+            ids = index.containing(item.get("page"), item["box"]) if item.get("box") else []
+        out.append({**raw, "blocks": _compact(ids)})
+    return out
+
+
+def build_hybrid_user_content(loaded_pages, transcript, reference_images, reference_texts, instructions):
+    """Reference images with their OCR text, instructions, then each sheet page image followed
+    by its OCR blocks."""
+    content = []
+    total = len(reference_images)
+    for i, url in enumerate(reference_images, start=1):
+        content.append({"type": "text", "text": f"REFERENCE page {i} of {total} (question paper / answer key):"})
+        content.append({"type": "image_url", "image_url": {"url": url}})
+        if i <= len(reference_texts) and reference_texts[i - 1].strip():
+            content.append({"type": "text", "text": f"OCR text of reference page {i}:\n{reference_texts[i - 1]}"})
+    instructions = _text(instructions, MAX_INSTRUCTIONS_CHARS)
+    if instructions:
+        content.append({"type": "text",
+                        "text": f"TEACHER INSTRUCTIONS (from the teacher, not the student):\n<<<\n{instructions}\n>>>"})
+    pages = {p["number"]: p for p in transcript["pages"]}
+    for number, url in loaded_pages:
+        content.append({"type": "text", "text": f"STUDENT ANSWER SHEET page {number} of {len(pages)}:"})
+        content.append({"type": "image_url", "image_url": {"url": url}})
+        content.append({"type": "text", "text": f"OCR BLOCKS of page {number}:\n{page_transcript_text(pages[number])}"})
+    return content
 
 
 # ── Sarvam (OpenAI-compatible chat completions) ──────────────────────────────
@@ -1125,15 +1470,12 @@ def _stream_sarvam_evaluation(pages, model_code, reference_urls, instructions, m
     _sarvam_config()  # fail fast, before any OCR, when the key is missing
     try:
         if not transcript:
-            transcript = {"pages": []}
-            for page in pages:
-                yield {"kind": "status", "text": f"Reading page {page.number} of {len(pages)} (OCR)…"}
-                transcript["pages"] += build_transcript([page], log_context)["pages"]
+            transcript = yield from ocr_pages(pages, log_context)
+        if reference_urls and transcript.get("reference_texts") is None:
+            yield {"kind": "status", "text": f"Reading the question paper / answer key with {transcript_engine_name()}…"}
+        transcript = {**transcript, "reference_texts": kept_reference_texts(transcript, reference_urls, log_context)}
         yield {"kind": "transcript", "transcript": transcript}
-        reference = ""
-        if reference_urls:
-            yield {"kind": "status", "text": "Reading the question paper / answer key (OCR)…"}
-            reference = reference_text(reference_urls, log_context)
+        reference = reference_text(reference_urls, texts=transcript["reference_texts"]) if reference_urls else ""
         index = LineIndex(transcript)
         sizes = {p["number"]: (p["width"], p["height"]) for p in transcript["pages"]}
         yield {"kind": "status", "text": f"{model_code.removeprefix(SARVAM_PREFIX)} is evaluating…"}
@@ -1159,10 +1501,10 @@ def _stream_sarvam_reevaluation(pages, model_code, revision, reference_urls, ins
     try:
         transcript = revision.transcript
         if not transcript:
-            yield {"kind": "status", "text": "Reading the pages (OCR)…"}
-            transcript = build_transcript(pages, log_context)
+            transcript = yield from ocr_pages(pages, log_context)
             yield {"kind": "transcript", "transcript": transcript}
-        reference = reference_text(reference_urls, log_context) if reference_urls else ""
+        texts = kept_reference_texts(transcript, reference_urls, log_context)
+        reference = reference_text(reference_urls, texts=texts) if reference_urls else ""
         index = LineIndex(transcript)
         sizes = {p["number"]: (p["width"], p["height"]) for p in transcript["pages"]}
         user = build_text_user_content(transcript, reference, instructions)
@@ -1247,6 +1589,91 @@ def _sarvam_vision_images(pages, reference_urls):
     max_side = _env_number("SARVAM_IMAGE_MAX_SIDE", SARVAM_DEFAULT_IMAGE_MAX_SIDE, int)
     urls, total = encode_images_within_budget(sheet + references, budget, max_side)
     return urls[:len(sheet)], urls[len(sheet):], total
+
+
+def vision_with_ocr():
+    """Whether vision models also get OCR blocks: EVAL_VISION_WITH_OCR=on/off, by default on
+    when Bodhan's OCR is configured."""
+    choice = (os.getenv("EVAL_VISION_WITH_OCR") or "auto").strip().lower()
+    if choice in ("off", "0", "false", "no"):
+        return False
+    return choice in ("on", "1", "true", "yes") or bodhan_ocr_configured()
+
+
+def _stream_sarvam_hybrid_evaluation(pages, model_code, reference_urls, instructions, max_marks, log_context,
+                                     transcript=None):
+    _sarvam_config()
+    name = model_code.removeprefix(SARVAM_PREFIX)
+    try:
+        if not transcript:
+            transcript = yield from ocr_pages(pages, log_context)
+        if reference_urls and transcript.get("reference_texts") is None:
+            yield {"kind": "status", "text": f"Reading the question paper / answer key with {transcript_engine_name()}…"}
+        reference_texts = kept_reference_texts(transcript, reference_urls, log_context)
+        transcript = {**transcript, "reference_texts": reference_texts}
+        yield {"kind": "transcript", "transcript": transcript}
+        sheet, references, total = _sarvam_vision_images(pages, reference_urls)
+        blocks = sum(len(p["lines"]) for p in transcript["pages"])
+        yield {"kind": "status", "text": f"{name} is reading {len(pages)} page image(s) ({total / 1e6:.1f} MB) "
+                                         f"with {blocks} OCR blocks and evaluating…"}
+        index = LineIndex(transcript)
+        sizes = page_sizes_of(pages)
+        content = build_hybrid_user_content([(p.number, u) for p, u in zip(pages, sheet)], transcript,
+                                            references, reference_texts, instructions)
+        content.append({"type": "text", "text": "Evaluate these pages and return the JSON array described."})
+        reply = _Reply(_sarvam_tokens(model_code, build_evaluation_prompt(max_marks, mode="hybrid"), content))
+        normalizer = EvaluationNormalizer(sizes, max_marks)
+        read = 0
+        for raw in iter_json_objects(reply):
+            item = normalizer.add(resolve_blocks(raw, index, sizes))
+            if item:
+                read += 1
+                yield item
+        check_readable(reply, read, model_code)
+    except EvaluationError:
+        raise
+    except Exception as e:
+        log_and_raise(e, model_code=model_code, provider="sarvam", log_context=log_context,
+                      custom_message=f"Sarvam evaluation error: {e}")
+
+
+def _stream_sarvam_hybrid_reevaluation(pages, total_pages, page_sizes, model_code, revision, reference_urls,
+                                       instructions, max_marks, log_context, all_pages):
+    _sarvam_config()
+    name = model_code.removeprefix(SARVAM_PREFIX)
+    try:
+        transcript = revision.transcript
+        if not transcript:
+            transcript = yield from ocr_pages(all_pages, log_context)
+            yield {"kind": "transcript", "transcript": transcript}
+        yield {"kind": "status", "text": f"{name} is re-reading page(s) {', '.join(str(p.number) for p in pages)}…"}
+        reference_texts = kept_reference_texts(transcript, reference_urls, log_context)
+        sheet, references, _ = _sarvam_vision_images(pages, reference_urls)
+        index = LineIndex(transcript)
+        needed = {p.number for p in pages}
+        content = build_hybrid_user_content(
+            [(p.number, u) for p, u in zip(pages, sheet)],
+            {"pages": [p for p in transcript["pages"] if p["number"] in needed] or transcript["pages"]},
+            references, reference_texts, instructions)
+        content.append({"type": "text", "text": "PREVIOUS EVALUATION:\n" + json.dumps(
+            to_hybrid_model_format(revision.previous, index, page_sizes), ensure_ascii=False)})
+        history = [h for h in revision.history if h.get("feedback")][-MAX_HISTORY_TURNS:]
+        if history:
+            content.append({"type": "text", "text": "EARLIER FEEDBACK (already applied):\n" + "\n".join(
+                f"- Teacher: {_text(h['feedback'], 500)}\n  You replied: {_text(h.get('reply'), 500)}" for h in history)})
+        content.append({"type": "text", "text": _feedback_block(revision)})
+        reply = _Reply(_sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="hybrid"), content))
+        read = 0
+        for item in revise_objects((resolve_blocks(raw, index, page_sizes) for raw in iter_json_objects(reply)),
+                                   page_sizes, max_marks, revision):
+            read += 1
+            yield item
+        check_readable(reply, read, model_code)
+    except EvaluationError:
+        raise
+    except Exception as e:
+        log_and_raise(e, model_code=model_code, provider="sarvam", log_context=log_context,
+                      custom_message=f"Sarvam re-evaluation error: {e}")
 
 
 def _stream_sarvam_vision_evaluation(pages, model_code, reference_urls, instructions, max_marks, log_context):
@@ -1403,6 +1830,9 @@ def stream_evaluation(pages, model_code, reference_urls=(), instructions="",
         return _stream_gemini_evaluation(pages, model_code, reference_urls, instructions,
                                          clamp_max_marks(max_marks), log_context)
     if _is_sarvam_vision(model_code):
+        if vision_with_ocr():
+            return _stream_sarvam_hybrid_evaluation(pages, model_code, reference_urls, instructions,
+                                                    clamp_max_marks(max_marks), log_context, transcript)
         return _stream_sarvam_vision_evaluation(pages, model_code, reference_urls, instructions,
                                                 clamp_max_marks(max_marks), log_context)
     if _is_sarvam(model_code):
@@ -1418,6 +1848,11 @@ def stream_reevaluation(pages, model_code, revision, reference_urls=(), instruct
     ``pages`` is every SheetPage of the sheet; only those the revision needs are sent.
     """
     check_revision(pages, revision)
+    if _is_sarvam_vision(model_code) and (revision.transcript or vision_with_ocr()):
+        needed = set(revision.pages_needed(len(pages)))
+        return _stream_sarvam_hybrid_reevaluation([p for p in pages if p.number in needed], len(pages),
+                                                  page_sizes_of(pages), model_code, revision, reference_urls,
+                                                  instructions, clamp_max_marks(max_marks), log_context, pages)
     if _is_sarvam_vision(model_code):
         needed = set(revision.pages_needed(len(pages)))
         return _stream_sarvam_vision_reevaluation([p for p in pages if p.number in needed], len(pages),
