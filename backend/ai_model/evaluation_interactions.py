@@ -100,24 +100,26 @@ _CATEGORY_RULES = """Categories:
 - "illegible": cannot be read reliably
 - "unattempted": the question appears on the sheet but has no answer"""
 
+# Field order matters: the comment comes before the marks and the verdict, so a model without
+# a separate reasoning pass decides first and then scores consistently with what it wrote.
 _ANSWER_FIELDS = """- "kind": "answer"
 - "id": unique id such as "q1", "q2"
-- "question": the question label as written on the sheet (e.g. "Q1", "2(b)"); infer it from order if unlabeled
+- "question": the question's label as numbered on the paper (e.g. "Q1", "III", "2(b)"), without words such as "Question"; infer it from order if unlabeled
 - "question_text": one short line saying what the question asks ("" if unknown)
 {location}
-- "category": overall verdict, one of the categories below
+- "comment": 1 to 3 sentences justifying the marks for the whole answer: what is right, what is wrong, and why
+- "marks_breakdown": 2 to 4 criteria (or one per part of an objective exercise) as [{{"criterion": "...", "awarded": n, "max": n}}]; the "max" values sum to {max_marks} and the "awarded" values sum to marks_awarded
 - "marks_awarded": marks out of {max_marks}, in steps of 0.5
 - "max_marks": {max_marks}
-- "marks_breakdown": 2 to 4 criteria as [{{"criterion": "...", "awarded": n, "max": n}}]; the "max" values sum to {max_marks} and the "awarded" values sum to marks_awarded
-- "comment": 1 to 3 sentences justifying the marks for the whole answer: what is right, what is wrong, and why"""
+- "category": overall verdict, one of the categories below"""
 
 _FINDING_FIELDS = """- "kind": "finding"
 - "id": unique id such as "q1-f1"
 - "answer_id": the id of the answer it belongs to
 {location}
-- "category": one of the categories below
-- "comment": what exactly is wrong (quote the student's text) and what the correct version is, or why the step is notably good
-- "marks_impact": marks lost because of this finding as a negative number (e.g. -1), or 0"""
+- "comment": what exactly is wrong (quote the student's text) and what the correct version is
+- "marks_impact": marks lost because of this finding as a negative number (e.g. -1), or 0
+- "category": one of the categories below"""
 
 _OUTPUT_HEAD = """
 
@@ -126,6 +128,12 @@ OUTPUT FORMAT (required: the app cannot read anything else)
 Return ONLY a valid JSON array (no markdown, no explanation). Emit one "answer" object for a
 question, immediately followed by that answer's "finding" objects, then the next answer.
 Each array element is the object itself, starting with "kind"; never wrap it as {{"answer": {{...}}}}.
+One answer per question or exercise: when a heading (e.g. "III. Write True or False" or "II. Match the
+following") is followed by numbered items, the whole exercise is ONE answer with one marks_breakdown row per
+item; never one answer per item. Each answer is scored out of {max_marks} however many marks the paper gives it.
+Decide each judgement before you write it down. Comments state final conclusions only, never your
+deliberation ("wait", "actually", "let me check"). An answer's comment, marks_breakdown, marks_awarded,
+category and findings must all agree: a part you find correct gets its marks and no finding.
 
 "answer" object — exactly one per question, even when the answer spans several pages:
 {answer}
@@ -157,8 +165,8 @@ IMAGE_RULES = """Rules:
 - If the pages contain no answers, return [].
 
 Example of the shape (the values are illustrative):
-[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "parts": [{"page": 1, "box_2d": [820, 90, 990, 930]}, {"page": 2, "box_2d": [30, 90, 140, 930]}], "category": "minor_mistake", "marks_awarded": 6, "max_marks": 10, "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68."},
- {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "page": 2, "box_2d": [40, 120, 70, 600], "category": "minor_mistake", "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1}]"""
+[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "parts": [{"page": 1, "box_2d": [820, 90, 990, 930]}, {"page": 2, "box_2d": [30, 90, 140, 930]}], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68.", "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "marks_awarded": 6, "max_marks": 10, "category": "minor_mistake"},
+ {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "page": 2, "box_2d": [40, 120, 70, 600], "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1, "category": "minor_mistake"}]"""
 
 TEXT_INPUT = """
 
@@ -181,8 +189,8 @@ TEXT_RULES = """Rules:
 - If the transcript contains no answers, return [].
 
 Example of the shape (the values are illustrative):
-[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "lines": ["1.20-1.24", "2.1-2.3"], "category": "minor_mistake", "marks_awarded": 6, "max_marks": 10, "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68."},
- {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "lines": ["2.1"], "category": "minor_mistake", "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1}]"""
+[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "lines": ["1.20-1.24", "2.1-2.3"], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68.", "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "marks_awarded": 6, "max_marks": 10, "category": "minor_mistake"},
+ {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "lines": ["2.1"], "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1, "category": "minor_mistake"}]"""
 
 
 HYBRID_INPUT = """
@@ -225,9 +233,9 @@ HYBRID_RULES = """Rules:
 - If the pages contain no answers, return [].
 
 Example of the shape (the values are illustrative):
-[{"kind": "answer", "id": "q1", "question": "I", "question_text": "Choose the correct option (1-4)", "blocks": ["2.3-2.6"], "category": "minor_mistake", "marks_awarded": 7.5, "max_marks": 10, "marks_breakdown": [{"criterion": "(1)", "awarded": 2.5, "max": 2.5}, {"criterion": "(2)", "awarded": 0, "max": 2.5}, {"criterion": "(3)", "awarded": 2.5, "max": 2.5}, {"criterion": "(4)", "awarded": 2.5, "max": 2.5}], "comment": "Three of four options are correct; (2) should be (c) carbon dioxide."},
- {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "blocks": ["2.4"], "box_2d": [212, 140, 236, 420], "category": "major_mistake", "comment": "(2): chose '(a) oxygen'; plants take in (c) carbon dioxide.", "marks_impact": -2.5},
- {"kind": "answer", "id": "q2", "question": "II", "question_text": "Explain the water cycle", "blocks": ["2.8-2.11", "3.1-3.2"], "category": "incomplete", "marks_awarded": 7, "max_marks": 10, "marks_breakdown": [{"criterion": "Stages", "awarded": 4, "max": 5}, {"criterion": "Explanation", "awarded": 3, "max": 5}], "comment": "Explains three stages well but leaves out transpiration."}]"""
+[{"kind": "answer", "id": "q1", "question": "I", "question_text": "Choose the correct option (1-4)", "blocks": ["2.3-2.6"], "comment": "Three of four options are correct; (2) should be (c) carbon dioxide.", "marks_breakdown": [{"criterion": "(1)", "awarded": 2.5, "max": 2.5}, {"criterion": "(2)", "awarded": 0, "max": 2.5}, {"criterion": "(3)", "awarded": 2.5, "max": 2.5}, {"criterion": "(4)", "awarded": 2.5, "max": 2.5}], "marks_awarded": 7.5, "max_marks": 10, "category": "minor_mistake"},
+ {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "blocks": ["2.4"], "box_2d": [212, 140, 236, 420], "comment": "(2): chose '(a) oxygen'; plants take in (c) carbon dioxide.", "marks_impact": -2.5, "category": "major_mistake"},
+ {"kind": "answer", "id": "q2", "question": "II", "question_text": "Explain the water cycle", "blocks": ["2.8-2.11", "3.1-3.2"], "comment": "Explains three stages well but leaves out transpiration.", "marks_breakdown": [{"criterion": "Stages", "awarded": 4, "max": 5}, {"criterion": "Explanation", "awarded": 3, "max": 5}], "marks_awarded": 7, "max_marks": 10, "category": "incomplete"}]"""
 
 
 def load_guidance(max_marks=DEFAULT_MAX_MARKS):
@@ -262,7 +270,7 @@ def build_evaluation_prompt(max_marks=DEFAULT_MAX_MARKS, mode="image"):
     return (load_guidance(max_marks)
             + source
             + _OUTPUT_HEAD.format(answer=answer.replace("{{", "{").replace("}}", "}"),
-                                  finding=finding, categories=_CATEGORY_RULES)
+                                  finding=finding, categories=_CATEGORY_RULES, max_marks=marks)
             + rules)
 
 
@@ -402,6 +410,19 @@ class EvaluationNormalizer:
             })
         return cleaned
 
+    def _scaled(self, breakdown, awarded):
+        """Scale a marks distribution kept on the paper's own scheme (e.g. 2.5 of 2.5, or 3 x 3.5)
+        to max_marks, as the contract requires; marks_awarded too when it is the unscaled sum."""
+        total_max = sum(r["max"] for r in breakdown)
+        if not breakdown or total_max <= 0 or abs(total_max - self.max_marks) < 0.01:
+            return breakdown, awarded
+        factor = self.max_marks / total_max
+        raw_sum = sum(r["awarded"] for r in breakdown)
+        scaled = [{**r, "awarded": round(r["awarded"] * factor, 2), "max": round(r["max"] * factor, 2)} for r in breakdown]
+        if awarded is None or abs(awarded - raw_sum) < 0.01:
+            awarded = raw_sum * factor
+        return scaled, awarded
+
     def _box(self, raw_box, page):
         """One pixel box from a box_2d, or from a list of them (their union), or None."""
         size = self.page_sizes.get(page)
@@ -458,8 +479,8 @@ class EvaluationNormalizer:
         if parts:
             self._answer_pages[answer_id] = parts[0]["page"]
 
-        breakdown = self._breakdown(raw.get("marks_breakdown"))
-        awarded = self._marks(raw.get("marks_awarded"), self.max_marks)
+        breakdown, awarded = self._scaled(self._breakdown(raw.get("marks_breakdown")), _number(raw.get("marks_awarded")))
+        awarded = self._marks(awarded, self.max_marks)
         if awarded is None:
             awarded = self._marks(sum(r["awarded"] for r in breakdown), self.max_marks) if breakdown else 0
         return {

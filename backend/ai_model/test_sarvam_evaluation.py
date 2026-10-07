@@ -604,3 +604,25 @@ class HybridTests(SimpleTestCase):
         self.assertIn('"blocks": ["1.4", "2.1"]', texts)
         self.assertIn("OCR text of reference page 1:\n(1) b (2) c", texts)
         self.assertIn("REVISION", call.call_args.kwargs["json"]["messages"][0]["content"])
+
+
+class MarksScalingTests(SimpleTestCase):
+    def add(self, **raw):
+        return ev.EvaluationNormalizer({1: (1000, 2000)}, 10).add({"kind": "answer", "id": "q1", **raw})
+
+    def test_a_distribution_on_the_papers_scheme_is_scaled_to_max_marks(self):
+        # a correct 1-mark item the model left at 2.5 of 2.5 (with marks_awarded = the unscaled sum)
+        a = self.add(marks_awarded=2.5, marks_breakdown=[{"criterion": "Correct option", "awarded": 2.5, "max": 2.5}])
+        self.assertEqual((a["marks_awarded"], a["marks_breakdown"][0]["max"]), (10, 10))
+        # three true/false parts at 3.5 each (10.5 in all), two right
+        b = self.add(marks_awarded=7, marks_breakdown=[{"criterion": f"({i})", "awarded": v, "max": 3.5}
+                                                       for i, v in enumerate((3.5, 3.5, 0))])
+        self.assertEqual(b["marks_awarded"], 6.5)
+        self.assertEqual(sum(r["max"] for r in b["marks_breakdown"]), 9.99)
+
+    def test_a_scaled_marks_awarded_and_a_correct_distribution_are_kept(self):
+        a = self.add(marks_awarded=10, marks_breakdown=[{"criterion": "x", "awarded": 2.5, "max": 2.5}])
+        self.assertEqual(a["marks_awarded"], 10)  # already scaled by the model
+        b = self.add(marks_awarded=7, marks_breakdown=[{"criterion": "x", "awarded": 4, "max": 5},
+                                                       {"criterion": "y", "awarded": 3, "max": 5}])
+        self.assertEqual((b["marks_awarded"], b["marks_breakdown"][0]["awarded"]), (7, 4))
