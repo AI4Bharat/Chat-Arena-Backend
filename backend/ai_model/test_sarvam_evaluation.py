@@ -826,3 +826,42 @@ class ReviewFlagTests(SimpleTestCase):
         self.assertNotIn("review", self.add(marks_awarded=1, category="correct", comment="Correct year."))
         # only input talk was dropped (no change of mind): not flagged
         self.assertNotIn("review", self.add(marks_awarded=0, category="major_mistake", comment="Wrong year. The OCR read 1967."))
+
+
+class WholePromptFileTests(SimpleTestCase):
+    """EVAL_SYSTEM_PROMPT_FILE may hold the whole rendered prompt instead of the guidance alone."""
+
+    def setUp(self):
+        with mock.patch.dict("os.environ", {"EVAL_SYSTEM_PROMPT_FILE": ""}):
+            self.whole = ev.build_evaluation_prompt(None, mode="hybrid") + "\n"
+        f = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
+        f.write(self.whole.replace("Write plainly, specifically and kindly", "Write plainly and kindly"))  # an edit
+        f.close()
+        self.env = mock.patch.dict("os.environ", {"EVAL_SYSTEM_PROMPT_FILE": f.name})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def test_gemma_with_bodhan_gets_the_file_as_it_is(self):
+        prompt = ev.build_evaluation_prompt(None, mode="hybrid")
+        self.assertEqual(prompt.count("OUTPUT FORMAT"), 1)
+        self.assertIn("Write plainly and kindly", prompt)
+        self.assertEqual(prompt, self.whole.strip().replace("Write plainly, specifically and kindly", "Write plainly and kindly"))
+
+    def test_the_teachers_marks_go_into_its_marks_fallback(self):
+        prompt = ev.build_evaluation_prompt(5, mode="hybrid")
+        self.assertIn("use\n5 marks (the teacher's marks per question).", prompt)
+        self.assertNotIn("use\n10 marks.", prompt)
+
+    def test_other_models_take_its_guidance_with_their_own_format(self):
+        for mode, location in (("text", '"lines": the ids'), ("image", '"parts": the boxes')):
+            prompt = ev.build_evaluation_prompt(None, mode=mode)
+            self.assertEqual(prompt.count("OUTPUT FORMAT"), 1, mode)
+            self.assertIn("Write plainly and kindly", prompt)
+            self.assertIn(location, prompt)
+            self.assertNotIn("OCR BLOCKS", prompt)
+
+    def test_a_revision_appends_to_the_file(self):
+        revision = ev.Revision(feedback="Q2: give 1", scope="answer", answer_id="q2")
+        prompt = ev.build_revision_prompt(None, revision, mode="hybrid")
+        self.assertEqual(prompt.count("OUTPUT FORMAT"), 1)
+        self.assertIn("REVISION", prompt)

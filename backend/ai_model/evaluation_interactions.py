@@ -304,6 +304,30 @@ EVALUATE_REQUEST = ("Evaluate this answer sheet and return the JSON array descri
                     "question, each with a finding for every place where it lost marks.")
 
 
+# A prompt file may hold the whole system prompt (guidance, INPUT and OUTPUT FORMAT, as in
+# local-dev/prompts/current-system-prompt.generated.md) instead of the guidance alone.
+_FULL_PROMPT = re.compile(r"^---[ \t]*\n(INPUT|OUTPUT FORMAT)\b", re.M)
+
+
+def _full_prompt(text, max_marks, mode):
+    """The prompt to send when the prompt file is a whole prompt, or None when it is guidance only.
+
+    It was written for Gemma + Bodhan OCR ("hybrid") and is sent as it is for that mode, with the
+    teacher's marks per question put into its MARKS fallback. Other modes need their own format,
+    so they take only its guidance part (see build_evaluation_prompt)."""
+    if mode != "hybrid" or not _FULL_PROMPT.search(text):
+        return None
+    if max_marks is not None:
+        default = MARKS_RULES.format(fallback=f"{_format_marks(DEFAULT_MAX_MARKS)} marks")
+        if default in text:
+            text = text.replace(default, MARKS_RULES.format(
+                fallback=f"{_format_marks(max_marks)} marks (the teacher's marks per question)"))
+        else:
+            logger.warning("The prompt file's MARKS section was edited, so the teacher's marks per question "
+                           "(%s) are not in it", max_marks)
+    return text
+
+
 def build_evaluation_prompt(max_marks=None, mode="image"):
     """System prompt: the guidance, then how the input looks and the output contract.
 
@@ -313,6 +337,13 @@ def build_evaluation_prompt(max_marks=None, mode="image"):
     ``max_marks`` is the teacher's marks per question, used only for questions the paper gives no
     marks; None means 10 for those.
     """
+    guidance = load_guidance(max_marks)
+    whole = _full_prompt(guidance, max_marks, mode)
+    if whole is not None:
+        return whole
+    match = _FULL_PROMPT.search(guidance)
+    if match:  # a whole prompt written for another mode: keep its guidance, add this mode's format
+        guidance = guidance[:match.start()].rstrip()
     source, answer_at, finding_at, rules = _PROMPT_MODES[mode]
     fallback = (f"{_format_marks(DEFAULT_MAX_MARKS)} marks" if max_marks is None
                 else f"{_format_marks(max_marks)} marks (the teacher's marks per question)")
@@ -320,7 +351,7 @@ def build_evaluation_prompt(max_marks=None, mode="image"):
     answer = _ANSWER_FIELDS.format(location=answer_at, ocr_check=OCR_CHECK_FIELD if mode == "hybrid" else "")
     answer = "\n".join(line for line in answer.split("\n") if line.strip())
     finding = _FINDING_FIELDS.format(location=finding_at)
-    return (load_guidance(max_marks)
+    return (guidance
             + source
             + _OUTPUT_HEAD.format(answer=answer.replace("{{", "{").replace("}}", "}"),
                                   finding=finding, categories=_CATEGORY_RULES, marks_rules=marks_rules)
