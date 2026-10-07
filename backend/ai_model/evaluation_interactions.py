@@ -123,6 +123,7 @@ _OUTPUT_HEAD = """
 OUTPUT FORMAT (required: the app cannot read anything else)
 Return ONLY a valid JSON array (no markdown, no explanation). Emit one "answer" object for a
 question, immediately followed by that answer's "finding" objects, then the next answer.
+Each array element is the object itself, starting with "kind"; never wrap it as {{"answer": {{...}}}}.
 
 "answer" object — exactly one per question, even when the answer spans several pages:
 {answer}
@@ -150,7 +151,12 @@ IMAGE_LOCATION_FINDING = """- "page": the page the finding is on
 - "box_2d": [ymin, xmin, ymax, xmax] tightly around the specific step, line, word or diagram part"""
 IMAGE_RULES = """Rules:
 - "page" is the student answer sheet page number shown above each page image. box_2d values are integers in [0, 1000] where (0, 0) is the top-left and (1000, 1000) the bottom-right of THAT page; ymin < ymax and xmin < xmax. Never give coordinates for reference pages.
-- If the pages contain no answers, return []."""
+- A box_2d is exactly ONE box: four integers, never a list of boxes. Each part has exactly one "page" and one "box_2d"; when an answer has several separate pieces on one page, give one box around all of them.
+- If the pages contain no answers, return [].
+
+Example of the shape (the values are illustrative):
+[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "parts": [{"page": 1, "box_2d": [820, 90, 990, 930]}, {"page": 2, "box_2d": [30, 90, 140, 930]}], "category": "minor_mistake", "marks_awarded": 6, "max_marks": 10, "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68."},
+ {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "page": 2, "box_2d": [40, 120, 70, 600], "category": "minor_mistake", "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1}]"""
 
 TEXT_INPUT = """
 
@@ -170,7 +176,11 @@ TEXT_LOCATION_ANSWER = """- "lines": the ids of ALL the transcript lines that ma
 TEXT_LOCATION_FINDING = """- "lines": the id(s) of the specific line(s) the finding is about, usually just one, e.g. ["3.9"]"""
 TEXT_RULES = """Rules:
 - Use only line ids that appear in the transcript. Lines that are not part of any answer (names, section headings, page numbers) belong to no answer.
-- If the transcript contains no answers, return []."""
+- If the transcript contains no answers, return [].
+
+Example of the shape (the values are illustrative):
+[{"kind": "answer", "id": "q1", "question": "Q1", "question_text": "Simplify 7 x 8 + 12", "lines": ["1.20-1.24", "2.1-2.3"], "category": "minor_mistake", "marks_awarded": 6, "max_marks": 10, "marks_breakdown": [{"criterion": "Working", "awarded": 4, "max": 5}, {"criterion": "Final answer", "awarded": 2, "max": 5}], "comment": "Correct method, but 7 x 8 is 56, so the answer should be 68."},
+ {"kind": "finding", "id": "q1-f1", "answer_id": "q1", "lines": ["2.1"], "category": "minor_mistake", "comment": "Wrote '= 54 + 12'; 7 x 8 is 56.", "marks_impact": -1}]"""
 
 
 def load_guidance(max_marks=DEFAULT_MAX_MARKS):
@@ -337,17 +347,25 @@ class EvaluationNormalizer:
         return cleaned
 
     def _box(self, raw_box, page):
+        """One pixel box from a box_2d, or from a list of them (their union), or None."""
         size = self.page_sizes.get(page)
-        return _to_pixel_box(raw_box, *size) if size else None
+        if not size:
+            return None
+        if isinstance(raw_box, (list, tuple)) and raw_box and all(isinstance(b, (list, tuple)) for b in raw_box):
+            boxes = [b for b in (_to_pixel_box(b, *size) for b in raw_box) if b]
+            return [min(b[0] for b in boxes), min(b[1] for b in boxes),
+                    max(b[2] for b in boxes), max(b[3] for b in boxes)] if boxes else None
+        return _to_pixel_box(raw_box, *size)
 
     def _parts(self, raw, answer_id):
         raw_parts = raw.get("parts")
         if not isinstance(raw_parts, list):  # a single-box answer, as {"page", "box_2d"}
             raw_parts = [{"page": raw.get("page", 1), "box_2d": raw.get("box_2d") or raw.get("box")}]
+        # A part that repeats its keys ({"page": 2, "box_2d": ..., "page": 3, ...}) is several parts.
+        pieces = [piece for part in raw_parts if isinstance(part, dict)
+                  for piece in [part, *part.get(REPEATED_KEYS, [])]]
         parts = []
-        for part in raw_parts[:MAX_PARTS_PER_ANSWER]:
-            if not isinstance(part, dict):
-                continue
+        for part in pieces[:MAX_PARTS_PER_ANSWER]:
             page = _page_number(part.get("page"))
             box = self._box(part.get("box_2d") or part.get("box"), page)
             if box:
@@ -402,6 +420,28 @@ class EvaluationNormalizer:
         }
 
 
+# Where _keep_repeated_keys puts the later groups of a JSON object that repeats its keys.
+REPEATED_KEYS = "__repeated__"
+_WRAPPER_KINDS = ("answer", "finding", "reply")
+
+
+def _keep_repeated_keys(pairs):
+    """json object_pairs_hook: a key that repeats starts a new group instead of overwriting.
+
+    Some models write two parts as one object, {"page": 2, "box_2d": [..], "page": 3, "box_2d": [..]};
+    json.loads would keep only page 3.
+    """
+    groups = [{}]
+    for key, value in pairs:
+        if key in groups[-1]:
+            groups.append({})
+        groups[-1][key] = value
+    first = groups[0]
+    if len(groups) > 1:
+        first[REPEATED_KEYS] = groups[1:]
+    return first
+
+
 def iter_json_objects(chunks):
     """Yield each complete top-level JSON object found in a stream of text chunks.
 
@@ -434,7 +474,7 @@ def iter_json_objects(chunks):
                 if depth == 0:
                     text, buf = "".join(buf), []
                     try:
-                        obj = json.loads(text)
+                        obj = json.loads(text, object_pairs_hook=_keep_repeated_keys)
                     except ValueError:
                         logger.warning("Skipping unparseable evaluation object: %.200s", text)
                         continue
@@ -444,13 +484,55 @@ def iter_json_objects(chunks):
 def _unwrap(obj):
     if not isinstance(obj, dict):
         return
+    # {"answer": {...}} / {"finding": {...}} / {"reply": "..."}: a model that wrapped each object.
+    keys = [k for k in obj if k != REPEATED_KEYS]
+    if len(keys) == 1 and str(keys[0]).lower() in _WRAPPER_KINDS:
+        kind, value = str(keys[0]).lower(), obj[keys[0]]
+        if isinstance(value, dict):
+            yield {"kind": kind, **value}
+            return
+        if kind == "reply" and isinstance(value, str):
+            yield {"kind": "reply", "text": value}
+            return
     if "box_2d" in obj or "kind" in obj or "marks_awarded" in obj or "parts" in obj:
         yield obj
         return
     for value in obj.values():
         if isinstance(value, list) and value and all(isinstance(v, dict) for v in value):
-            yield from value
+            for item in value:
+                yield from _unwrap(item)
             return
+
+
+class _Reply:
+    """Wraps a token stream and keeps the text, so an unreadable reply can be reported."""
+
+    def __init__(self, tokens):
+        self.tokens, self.chunks = tokens, []
+
+    def __iter__(self):
+        for token in self.tokens:
+            self.chunks.append(token)
+            yield token
+
+    @property
+    def text(self):
+        return "".join(self.chunks).strip()
+
+
+_EMPTY_REPLY = re.compile(r"(```(?:json)?\s*)?\[\s*\](\s*```)?")
+
+
+def check_readable(reply, items_read, model_code):
+    """Raise when the model said something but no answer, finding or reply could be read from it."""
+    text = reply.text
+    if items_read or not text or _EMPTY_REPLY.fullmatch(text):
+        return
+    logger.warning("Unreadable evaluation reply from %s (%d chars): %.4000s", model_code, len(text), text)
+    name = model_code.split("/", 1)[-1]
+    raise EvaluationError(f"{name} replied ({len(text)} characters), but not in the JSON format the app reads, "
+                          "so nothing could be shown. Its reply is in the backend log. Try again, or adjust the "
+                          "system prompt.")
 
 
 def _load_image(image_url):
@@ -1055,13 +1137,16 @@ def _stream_sarvam_evaluation(pages, model_code, reference_urls, instructions, m
         index = LineIndex(transcript)
         sizes = {p["number"]: (p["width"], p["height"]) for p in transcript["pages"]}
         yield {"kind": "status", "text": f"{model_code.removeprefix(SARVAM_PREFIX)} is evaluating…"}
-        tokens = _sarvam_tokens(model_code, build_evaluation_prompt(max_marks, mode="text"),
-                                build_text_user_content(transcript, reference, instructions))
+        reply = _Reply(_sarvam_tokens(model_code, build_evaluation_prompt(max_marks, mode="text"),
+                                      build_text_user_content(transcript, reference, instructions)))
         normalizer = EvaluationNormalizer(sizes, max_marks)
-        for raw in iter_json_objects(tokens):
+        read = 0
+        for raw in iter_json_objects(reply):
             item = normalizer.add(resolve_lines(raw, index, sizes))
             if item:
+                read += 1
                 yield item
+        check_readable(reply, read, model_code)
     except EvaluationError:
         raise
     except Exception as e:
@@ -1087,9 +1172,13 @@ def _stream_sarvam_reevaluation(pages, model_code, revision, reference_urls, ins
             user += "\n\nEARLIER FEEDBACK (already applied):\n" + "\n".join(
                 f"- Teacher: {_text(h['feedback'], 500)}\n  You replied: {_text(h.get('reply'), 500)}" for h in history)
         user += "\n\n" + _feedback_block(revision)
-        tokens = _sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="text"), user)
-        yield from revise_objects((resolve_lines(raw, index, sizes) for raw in iter_json_objects(tokens)),
-                                  sizes, max_marks, revision)
+        reply = _Reply(_sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="text"), user))
+        read = 0
+        for item in revise_objects((resolve_lines(raw, index, sizes) for raw in iter_json_objects(reply)),
+                                   sizes, max_marks, revision):
+            read += 1
+            yield item
+        check_readable(reply, read, model_code)
     except EvaluationError:
         raise
     except Exception as e:
@@ -1169,13 +1258,16 @@ def _stream_sarvam_vision_evaluation(pages, model_code, reference_urls, instruct
         yield {"kind": "status", "text": f"{name} is reading {len(pages)} page(s) "
                                          f"({total / 1e6:.1f} MB of images) and evaluating…"}
         loaded = [(page.number, url) for page, url in zip(pages, sheet)]
-        tokens = _sarvam_tokens(model_code, build_evaluation_prompt(max_marks, mode="image"),
-                                build_user_content(loaded, len(pages), references, instructions))
+        reply = _Reply(_sarvam_tokens(model_code, build_evaluation_prompt(max_marks, mode="image"),
+                                      build_user_content(loaded, len(pages), references, instructions)))
         normalizer = EvaluationNormalizer(page_sizes_of(pages), max_marks)
-        for raw in iter_json_objects(tokens):
+        read = 0
+        for raw in iter_json_objects(reply):
             item = normalizer.add(raw)
             if item:
+                read += 1
                 yield item
+        check_readable(reply, read, model_code)
     except EvaluationError:
         raise
     except Exception as e:
@@ -1193,8 +1285,12 @@ def _stream_sarvam_vision_reevaluation(pages, total_pages, page_sizes, model_cod
         loaded = [(page.number, url) for page, url in zip(pages, sheet)]
         content = build_revision_content(loaded, total_pages, references, instructions,
                                          to_model_format(revision.previous, page_sizes), revision)
-        tokens = _sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="image"), content)
-        yield from revise_objects(iter_json_objects(tokens), page_sizes, max_marks, revision)
+        reply = _Reply(_sarvam_tokens(model_code, build_revision_prompt(max_marks, revision, mode="image"), content))
+        read = 0
+        for item in revise_objects(iter_json_objects(reply), page_sizes, max_marks, revision):
+            read += 1
+            yield item
+        check_readable(reply, read, model_code)
     except EvaluationError:
         raise
     except Exception as e:
@@ -1230,13 +1326,18 @@ def _stream_gemini_evaluation(pages, model_code, reference_urls, instructions, m
     try:
         loaded = _load_pages(pages)
         reference_data = [_load_image(url)[0] for url in list(reference_urls)[:MAX_REFERENCE_PAGES]]
-        tokens = _gemini_tokens(api_key, model_code, build_evaluation_prompt(max_marks),
-                                build_user_content(loaded, len(pages), reference_data, instructions))
+        reply = _Reply(_gemini_tokens(api_key, model_code, build_evaluation_prompt(max_marks),
+                                      build_user_content(loaded, len(pages), reference_data, instructions)))
         normalizer = EvaluationNormalizer(page_sizes_of(pages), max_marks)
-        for raw in iter_json_objects(tokens):
+        read = 0
+        for raw in iter_json_objects(reply):
             item = normalizer.add(raw)
             if item:
+                read += 1
                 yield item
+        check_readable(reply, read, model_code)
+    except EvaluationError:
+        raise
     except Exception as e:
         log_and_raise(e, model_code=model_code, provider="google", log_context=log_context,
                       custom_message=f"Gemini evaluation error: {e}")
@@ -1250,8 +1351,14 @@ def _stream_gemini_reevaluation(pages, total_pages, page_sizes, model_code, revi
         reference_data = [_load_image(url)[0] for url in list(reference_urls)[:MAX_REFERENCE_PAGES]]
         content = build_revision_content(loaded, total_pages, reference_data, instructions,
                                          to_model_format(revision.previous, page_sizes), revision)
-        tokens = _gemini_tokens(api_key, model_code, build_revision_prompt(max_marks, revision), content)
-        yield from revise_objects(iter_json_objects(tokens), page_sizes, max_marks, revision)
+        reply = _Reply(_gemini_tokens(api_key, model_code, build_revision_prompt(max_marks, revision), content))
+        read = 0
+        for item in revise_objects(iter_json_objects(reply), page_sizes, max_marks, revision):
+            read += 1
+            yield item
+        check_readable(reply, read, model_code)
+    except EvaluationError:
+        raise
     except Exception as e:
         log_and_raise(e, model_code=model_code, provider="google", log_context=log_context,
                       custom_message=f"Gemini re-evaluation error: {e}")

@@ -334,3 +334,48 @@ class SarvamVisionTests(SimpleTestCase):
         with self.assertRaisesRegex(ev.EvaluationError, "rate limit"):
             self.call(ev.stream_evaluation, [SheetPage(1, "u")], "sarvam/gemma4",
                      stream=FakeStream(status_code=429, body=b'{"error": {"message": "slow down"}}'))
+
+
+class LooseModelOutputTests(SimpleTestCase):
+    """Shapes Gemma 4 actually produced on a 5-page sheet, which used to parse to nothing."""
+
+    SIZES = {2: (1000, 2000), 3: (1000, 2000)}
+
+    def parse(self, text):
+        n = ev.EvaluationNormalizer(self.SIZES, 10)
+        return [n.add(obj) for obj in ev.iter_json_objects([text])]
+
+    def test_wrapped_objects_box_lists_and_repeated_keys(self):
+        text = "```json\n" + """[
+          {"answer": {"kind": "answer", "id": "q1", "question": "I", "marks_awarded": 4, "max_marks": 10,
+                      "parts": [{"page": 2, "box_2d": [[100, 100, 150, 400], [300, 120, 350, 500]]}]}},
+          {"answer": {"id": "q4", "question": "IV", "marks_awarded": 4, "max_marks": 10,
+                      "parts": [{"page": 2, "box_2d": [[900, 100, 950, 800]],
+                                 "page": 3, "box_2d": [[50, 100, 120, 800], [130, 100, 160, 300]]}]}},
+          {"finding": {"answer_id": "q4", "page": 3, "box_2d": [[50, 100, 60, 200]], "comment": "c"}}
+        ]""" + "\n```"
+        q1, q4, finding = self.parse(text)
+        self.assertEqual((q1["kind"], q1["question"]), ("answer", "I"))
+        self.assertEqual([(p["page"], p["box"]) for p in q1["parts"]], [(2, [100, 200, 500, 700])])  # union
+        self.assertEqual([(p["page"], p["box"]) for p in q4["parts"]],
+                         [(2, [100, 1800, 800, 1900]), (3, [100, 100, 800, 320])])  # one part per repeated group
+        self.assertEqual((finding["kind"], finding["answer_id"], finding["page"]), ("finding", "q4", 3))
+        self.assertEqual(finding["box"], [100, 100, 200, 120])
+
+    def test_wrapped_reply_and_wrapper_lists(self):
+        objs = list(ev.iter_json_objects(['{"items": [{"reply": "Done."}, {"answer": {"id": "q1"}}]}']))
+        self.assertEqual(objs, [{"kind": "reply", "text": "Done."}, {"kind": "answer", "id": "q1"}])
+
+    def test_unreadable_reply_is_an_error_not_an_empty_evaluation(self):
+        stream = FakeStream(sse({"content": "Here is my evaluation: Q1 is correct, 10/10."}))
+        with mock.patch.dict("os.environ", {"SARVAM_API_KEY": "sk_test"}), \
+                mock.patch("httpx.stream", return_value=stream), \
+                mock.patch.object(ev.requests, "get", return_value=mock.Mock(
+                    content=page_png(100, 200), headers={}, raise_for_status=mock.Mock())):
+            with self.assertRaisesRegex(ev.EvaluationError, r"gemma4 replied \(44 characters\), but not in the JSON"):
+                list(ev.stream_evaluation([SheetPage(1, "u")], "sarvam/gemma4"))
+
+    def test_an_empty_array_is_a_valid_answer(self):
+        reply = ev._Reply(iter(["```json\n[ ]\n```"]))
+        list(reply)
+        ev.check_readable(reply, 0, "sarvam/gemma4")  # no error: the sheet has no answers
